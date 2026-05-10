@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 import typer
@@ -127,14 +128,12 @@ def serve(
                     break
                 await asyncio.sleep(0.05)
             bound_port = port
-            try:
+            with suppress(Exception):
                 servers = getattr(server, "servers", None) or []
                 if servers:
                     socks = getattr(servers[0], "sockets", None) or []
                     if socks:
                         bound_port = socks[0].getsockname()[1]
-            except Exception:
-                pass  # fall back to configured port
             typer.echo(
                 f"tracelens viewer at http://{host}:{bound_port}/ui  "
                 f"(data: {data_dir})"
@@ -145,10 +144,8 @@ def serve(
             await server.serve()
         finally:
             announcer.cancel()
-            try:
+            with suppress(asyncio.CancelledError, Exception):
                 await announcer
-            except (asyncio.CancelledError, Exception):
-                pass
             await db.close()
 
     try:
