@@ -1,0 +1,100 @@
+name: Bug report
+description: Report a reproducible bug in tracelens
+title: "[bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.
+
+        Before submitting, please:
+        - Search [existing issues](https://github.com/kjgpta/tracelens/issues) to avoid duplicates.
+        - Try the latest version (`pip install -U tracelens`) to confirm the bug still reproduces.
+
+  - type: input
+    id: version
+    attributes:
+      label: tracelens version
+      description: Output of `tracelens version`
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python --version`
+      placeholder: "3.11.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Relevant dependency versions
+      description: Run `pip show langchain-core langgraph fastapi aiosqlite` and paste the versions
+      render: shell
+      placeholder: |
+        langchain-core 0.3.x
+        langgraph 1.0.x
+        fastapi 0.116.x
+        aiosqlite 0.20.x
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear, concise description of the bug, including any error message or stack trace.
+      placeholder: |
+        When I do X, I expect Y but get Z.
+        Stack trace:
+        ```
+        ...
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: |
+        The smallest possible code snippet that reproduces the bug. Bugs without a reproduction case are very hard to fix.
+      render: python
+      placeholder: |
+        from tracelens import TraceLens
+        # ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: I expected ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, related issues, anything else that helps.
+    validations:
+      required: false

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tracelens</title>
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.1.1/css/pico.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="modulepreload" href="graph.js">
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='6' cy='6' r='3' fill='%2358a6ff'/><circle cx='18' cy='18' r='3' fill='%233fb950'/><path d='M8 8 L16 16' stroke='%23c9d1d9' stroke-width='1.5' fill='none'/></svg>">
+</head>
+<body>
+  <header class="app-header" role="banner">
+    <div class="header-left">
+      <a href="#" class="brand" aria-label="tracelens home">
+        <svg class="brand-logo" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+          <defs>
+            <linearGradient id="brandGrad" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0" stop-color="#58a6ff"/>
+              <stop offset="1" stop-color="#3fb950"/>
+            </linearGradient>
+          </defs>
+          <circle cx="7" cy="7" r="4" fill="#58a6ff"/>
+          <circle cx="25" cy="16" r="4" fill="#a371f7"/>
+          <circle cx="7" cy="25" r="4" fill="#3fb950"/>
+          <path d="M10 9 L22 14 M10 23 L22 18" stroke="url(#brandGrad)" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span class="brand-name">tracelens</span>
+      </a>
+      <div class="stats-ribbon" id="stats-ribbon" aria-live="polite">
+        <span class="stat-chip" id="stat-rate" title="events per second (1-minute rolling)">
+          <span class="stat-dot"></span><span class="stat-value">0</span><span class="stat-label">ev/s</span>
+        </span>
+        <span class="stat-chip" id="stat-running" title="currently running runs">
+          <span class="stat-value">0</span><span class="stat-label">running</span>
+        </span>
+        <span class="stat-chip" id="stat-dropped" title="events dropped due to backpressure">
+          <span class="stat-value">0</span><span class="stat-label">dropped</span>
+        </span>
+        <span class="stat-chip" id="stat-conn" title="connection status">
+          <span class="conn-indicator" data-state="connecting"></span>
+          <span class="stat-label" id="stat-conn-label">connecting</span>
+        </span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="search-box">
+        <input
+          type="search"
+          id="search-input"
+          placeholder="Search runs, tags... (press /)"
+          aria-label="Search runs by id or tag"
+          autocomplete="off"
+        >
+      </div>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme (t)">
+        <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke-linecap="round"/>
+        </svg>
+        <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="help-btn" aria-label="Keyboard shortcuts" title="Shortcuts (?)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.5 9a2.5 2.5 0 1 1 4.5 1.5c-.6.6-2 1-2 2.5"/>
+          <circle cx="12" cy="17" r="0.7" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="settings-btn" aria-label="Settings" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <aside class="pane pane-runs" aria-label="Run list">
+      <button class="pane-collapse-btn pane-collapse-left" id="collapse-runs" type="button"
+              aria-label="Collapse run list" title="Collapse runs panel">
+        <span class="pane-chevron" aria-hidden="true">&#x00AB;</span>
+      </button>
+      <button class="pane-expand-btn" id="expand-runs" type="button"
+              aria-label="Expand run list" title="Show runs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" aria-hidden="true">
+          <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="pane-expand-label">Runs</span>
+      </button>
+      <div class="pane-content">
+        <div class="pane-header">
+          <h2>Runs</h2>
+          <select id="status-filter" aria-label="Filter by status">
+            <option value="all">all</option>
+            <option value="running">running</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+          </select>
+        </div>
+        <div class="run-list" id="run-list" role="list" tabindex="0" aria-label="Runs">
+          <div class="skeleton-list" aria-hidden="true">
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+          </div>
+        </div>
+        <div class="pane-footer" id="run-list-footer">
+          <span id="run-count">0 runs</span>
+        </div>
+      </div>
+    </aside>
+
+    <section class="pane pane-graph" aria-label="Topology and trace graph">
+      <div class="graph-controls">
+        <div class="graph-controls-left">
+          <div class="seg-toggle" role="tablist" aria-label="Graph mode">
+            <button class="seg-btn active" data-mode="topology" role="tab" aria-selected="true">Topology</button>
+            <button class="seg-btn" data-mode="trace" role="tab" aria-selected="false" disabled>Run trace</button>
+          </div>
+          <div class="replay-controls hidden" id="replay-controls" role="group" aria-label="Replay controls">
+            <div class="replay-mode-toggle" role="tablist" aria-label="Replay mode">
+              <button class="replay-mode-btn active" data-replay-mode="auto" role="tab" aria-selected="true" type="button">Auto</button>
+              <button class="replay-mode-btn" data-replay-mode="manual" role="tab" aria-selected="false" type="button">Manual</button>
+            </div>
+            <div class="replay-controls-auto" id="replay-controls-auto">
+              <button class="icon-btn small" id="replay-btn" aria-label="Play replay" title="Play replay">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <polygon points="6,4 20,12 6,20"/>
+                </svg>
+              </button>
+              <select id="replay-speed" aria-label="Replay speed">
+                <option value="1">1x</option>
+                <option value="2">2x</option>
+                <option value="5">5x</option>
+              </select>
+            </div>
+            <div class="replay-controls-manual hidden" id="replay-controls-manual">
+              <button class="icon-btn small" id="replay-prev" aria-label="Previous step" title="Previous step" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                  <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <span class="manual-step-label" id="manual-step-label" aria-live="polite">Step <span id="manual-step-current">0</span> / <span id="manual-step-total">0</span></span>
+              <button class="icon-btn small" id="replay-next" aria-label="Next step" title="Next step">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                  <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="graph-controls-right">
+          <button class="icon-btn small" id="layout-toggle" aria-label="Toggle layout direction" title="Toggle direction (TD/LR)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M4 6h16M4 12h10M4 18h7"/>
+            </svg>
+          </button>
+          <button class="icon-btn small" id="zoom-in" aria-label="Zoom in" title="Zoom in">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+          <button class="icon-btn small" id="zoom-out" aria-label="Zoom out" title="Zoom out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+          <button class="icon-btn small" id="zoom-fit" aria-label="Fit to view" title="Fit to view">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="graph-container" class="graph-container" role="img" aria-label="Agent topology graph"></div>
+      <div id="graph-tooltip" class="graph-tooltip hidden" role="tooltip"></div>
+      <div id="replay-step-badge" class="replay-step-badge" aria-live="polite">
+        <span class="step-label">Replay step <span id="replay-step-current">0</span> / <span id="replay-step-total">0</span></span>
+        <span class="step-detail" id="replay-step-detail"></span>
+      </div>
+      <div id="graph-legend" class="graph-legend" aria-hidden="true">
+        <div class="legend-item"><span class="legend-shape agent"></span>agent</div>
+        <div class="legend-item"><span class="legend-shape tool"></span>tool</div>
+        <div class="legend-item"><span class="legend-shape llm"></span>llm</div>
+        <div class="legend-item"><span class="legend-shape retriever"></span>retriever</div>
+        <div class="legend-item"><span class="legend-shape chain"></span>chain</div>
+      </div>
+      <div id="graph-empty" class="graph-empty hidden">
+        <div class="empty-card">
+          <h3>No runs yet</h3>
+          <p>Start tracing your LangChain or LangGraph agent and live events will appear here.</p>
+          <pre class="snippet"><code id="empty-snippet">from tracelens import TraceLens
+
+tracer = await TraceLens.create()
+
+result = await graph.ainvoke(
+    {"input": ...},
+    config={"callbacks": [tracer.handler]},
+)</code></pre>
+          <div class="empty-actions">
+            <button id="copy-snippet" class="btn-primary" aria-label="Copy snippet">Copy</button>
+            <button id="reload-empty" class="btn-secondary" aria-label="Reload">Reload</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="pane pane-timeline" aria-label="Step timeline">
+      <button class="pane-collapse-btn pane-collapse-right" id="collapse-timeline" type="button"
+              aria-label="Collapse timeline" title="Collapse timeline panel">
+        <span class="pane-chevron" aria-hidden="true">&#x00BB;</span>
+      </button>
+      <button class="pane-expand-btn" id="expand-timeline" type="button"
+              aria-label="Expand timeline" title="Show timeline">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" aria-hidden="true">
+          <path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="pane-expand-label">Timeline</span>
+      </button>
+      <div class="pane-content">
+        <div class="pane-header">
+          <h2>Timeline</h2>
+          <span class="timeline-meta" id="timeline-meta">no run selected</span>
+        </div>
+        <div class="timeline" id="timeline" role="list" aria-live="polite">
+          <div class="timeline-empty">
+            <p>Select a run to inspect its timeline.</p>
+          </div>
+        </div>
+        <button id="newest-pill" class="newest-pill hidden" aria-label="Jump to newest events">↓ <span id="newest-count">0</span> new</button>
+      </div>
+    </aside>
+  </main>
+
+  <div id="drawer" class="drawer" aria-hidden="true" role="dialog" aria-labelledby="drawer-title">
+    <div class="drawer-header">
+      <button class="icon-btn" id="drawer-close" aria-label="Close drawer">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+      <h3 id="drawer-title">Step</h3>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </div>
+  <div id="drawer-backdrop" class="drawer-backdrop hidden" aria-hidden="true"></div>
+
+  <div id="modal-settings" class="modal hidden" role="dialog" aria-labelledby="settings-title" aria-hidden="true">
+    <div class="modal-content">
+      <header>
+        <h3 id="settings-title">Settings</h3>
+        <button class="icon-btn" data-modal-close aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+      <div class="modal-body">
+        <label for="auth-token-input">Auth token</label>
+        <input type="password" id="auth-token-input" placeholder="(empty if server has no token)" autocomplete="off">
+        <p class="dim">Stored locally in your browser only. Used for both REST and WebSocket.</p>
+        <hr>
+        <div class="kv">
+          <span class="dim">REST status</span>
+          <span id="diag-rest">…</span>
+        </div>
+        <div class="kv">
+          <span class="dim">Global WS</span>
+          <span id="diag-ws">…</span>
+        </div>
+        <div class="kv">
+          <span class="dim">Server version</span>
+          <span id="diag-version">…</span>
+        </div>
+      </div>
+      <footer>
+        <button class="btn-secondary" data-modal-close>Cancel</button>
+        <button class="btn-primary" id="settings-save">Save</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="modal-help" class="modal hidden" role="dialog" aria-labelledby="help-title" aria-hidden="true">
+    <div class="modal-content">
+      <header>
+        <h3 id="help-title">Keyboard shortcuts</h3>
+        <button class="icon-btn" data-modal-close aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+      <div class="modal-body">
+        <dl class="shortcuts">
+          <dt><kbd>j</kbd></dt><dd>Next run</dd>
+          <dt><kbd>k</kbd></dt><dd>Previous run</dd>
+          <dt><kbd>/</kbd></dt><dd>Focus search</dd>
+          <dt><kbd>t</kbd></dt><dd>Toggle theme</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Close drawer / modal</dd>
+          <dt><kbd>?</kbd></dt><dd>This help</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-host" class="toast-host" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Graph is rendered by our own SVG code in graph.js — no CDN deps. -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

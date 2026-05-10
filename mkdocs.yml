@@ -1,0 +1,110 @@
+site_name: tracelens
+site_description: Production observability for LangChain & LangGraph multi-agent systems.
+site_url: https://kjgpta.github.io/tracelens/
+site_author: tracelens contributors
+
+repo_url: https://github.com/kjgpta/tracelens
+repo_name: kjgpta/tracelens
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kjgpta/tracelens
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/tracelens/
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+  - autorefs
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts: concepts.md
+  - Configuration: configuration.md
+  - CLI: cli.md
+  - Production: production.md
+  - Extending: extending.md
+  - Comparison: comparison.md
+  - Integration guide:
+      - Overview: integration_guide/README.md
+      - Tutorial: integration_guide/INTEGRATION.md
+      - Production: integration_guide/PRODUCTION.md
+      - "01 — Customer Support Triage": integration_guide/before/01_customer_support/README.md
+      - "02 — Research Pipeline": integration_guide/before/02_research_pipeline/README.md
+      - "03 — Code Review Assistant": integration_guide/before/03_code_review/README.md
+      - "04 — Data Analyst Multi-Agent": integration_guide/before/04_data_analyst/README.md
+      - "05 — RAG with Reranker": integration_guide/before/05_rag_reranker/README.md
+      - "06 — Writer-Critic Loop": integration_guide/before/06_writer_critic/README.md
+      - "07 — Map-Reduce Summarizer": integration_guide/before/07_map_reduce/README.md
+      - "08 — Streaming Token Agent": integration_guide/before/08_streaming_agent/README.md
+      - "09 — Error Recovery Pipeline": integration_guide/before/09_error_recovery/README.md
+      - "10 — Planner-Executor": integration_guide/before/10_planner_executor/README.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
+  - Releasing: releasing.md
+
+watch:
+  - docs/
+  - README.md
+  - RELEASING.md

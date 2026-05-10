@@ -1,0 +1,52 @@
+version: 2
+updates:
+  # Python runtime + dev deps from pyproject.toml
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      runtime:
+        patterns:
+          - "fastapi"
+          - "uvicorn*"
+          - "aiosqlite"
+          - "aiofiles"
+          - "pydantic*"
+          - "typer"
+          - "websockets"
+      langchain:
+        patterns:
+          - "langchain*"
+          - "langgraph*"
+      dev:
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "build"
+          - "twine"
+          - "httpx"
+
+  # GitHub Actions used in workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"

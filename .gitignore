@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+evaluation
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tooling
+.ruff_cache/
+.mypy_cache/
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+.tracelens/
+tracelens_test/
+
+# Build artifacts
+*.tar.gz
+*.whl
+
+# MkDocs build output
+site/

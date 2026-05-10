@@ -1,0 +1,67 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for git-revision-date plugins, if added later
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+
+      - name: Install MkDocs + Material
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "mkdocs>=1.6" \
+            "mkdocs-material>=9.5" \
+            "mkdocs-autorefs>=1.0" \
+            "pymdown-extensions>=10.7"
+
+      - name: Build site
+        # `--strict` is intentionally NOT set: the included CONTRIBUTING.md and
+        # CHANGELOG.md contain repo-root-relative links that mkdocs flags as
+        # warnings even though they resolve correctly on github.com. We rely
+        # on the workflow exit code from non-strict build instead.
+        run: mkdocs build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

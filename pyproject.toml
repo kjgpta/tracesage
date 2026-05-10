@@ -1,0 +1,109 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracelens"
+version = "0.1.0"
+description = "Production observability adapter for LangChain/LangGraph multi-agent systems"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "tracelens contributors" },
+]
+keywords = ["langchain", "langgraph", "observability", "tracing", "agents", "llm", "multi-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Monitoring",
+    "Framework :: FastAPI",
+]
+
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "aiosqlite>=0.20.0",
+    "aiofiles>=23.2.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "typer>=0.12.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+langchain = [
+    "langchain-core>=0.2.0,<0.4.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "httpx>=0.27.0",
+    "ruff>=0.5.0",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+    "langchain>=0.2.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.2.0",
+]
+
+[project.scripts]
+tracelens = "tracelens.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tracelens"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/tracelens",
+    "tests",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: integration tests using real LangChain components",
+    "slow: long-running tests (excluded from default CI)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "ASYNC", "S", "PT", "SIM", "RUF"]
+ignore = ["E501", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "ASYNC230", "ASYNC109", "E741", "F401", "SIM105", "UP017", "UP041"]
+"src/tracelens/cli.py" = ["B008", "UP007"]  # Typer requires call expressions in defaults
+"src/tracelens/storage/sqlite_backend.py" = ["UP017"]  # CLAUDE.md mandates timezone.utc form
+"src/tracelens/models.py" = ["UP042"]  # str-Enum inheritance is intentional for JSON serialization
+"tools/**/*.py" = ["S311", "SIM105"]  # bench uses random + try/except is fine here
+
+[tool.coverage.run]
+source = ["src/tracelens"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]

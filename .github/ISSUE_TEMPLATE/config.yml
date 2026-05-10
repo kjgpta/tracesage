@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / how-to
+    url: https://github.com/kjgpta/tracelens/discussions/categories/q-a
+    about: Ask a question — please don't open an issue for support requests.
+  - name: Idea / proposal discussion
+    url: https://github.com/kjgpta/tracelens/discussions/categories/ideas
+    about: Discuss an idea before opening a feature request.
+  - name: Show & tell
+    url: https://github.com/kjgpta/tracelens/discussions/categories/show-and-tell
+    about: Share a project that uses tracelens or a cool screenshot of your trace.

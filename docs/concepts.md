@@ -1,0 +1,277 @@
+# Concepts: the five topology kinds
+
+When a run completes, tracelens groups every callback event into one of
+**five "kinds"** of topology nodes:
+
+`agent` &nbsp;·&nbsp; `tool` &nbsp;·&nbsp; `llm` &nbsp;·&nbsp; `retriever` &nbsp;·&nbsp; `chain`
+
+This page is the reference for what each kind means, how tracelens
+classifies events into it, and why the distinction matters when you're
+debugging a run.
+
+If you opened the UI after running an example and wondered "what does
+`agent:something` vs `chain:something` mean?", this is the page.
+
+---
+
+## At a glance
+
+| Kind | What it is | Common examples |
+|---|---|---|
+| `agent` | A **named function you defined** as a LangGraph node, that calls other components | `agent:billing_agent`, `agent:fact_extractor`, `agent:supervisor` |
+| `tool` | A **side-effect function** the agent invokes (DB query, API call, calculation) | `tool:lookup_account`, `tool:run_sql`, `tool:cite_sources` |
+| `llm` | A **language model** call (chat or completion) | `llm:FakeListChatModel`, `llm:ChatOpenAI`, `llm:ChatAnthropic` |
+| `retriever` | A **`BaseRetriever` subclass** invocation — the "R" in RAG | `retriever:FastFakeRetriever`, `retriever:Chroma`, `retriever:FAISS` |
+| `chain` | **Plumbing** — LCEL primitives, the LangGraph state machine, routing functions | `chain:LangGraph`, `chain:RunnableSequence`, `chain:ChatPromptTemplate`, `chain:route_after_quality` |
+
+In the UI, each kind renders with its own color/shape and click-to-detail
+behavior. Edges between nodes show "this kind invoked that kind, N times
+across all runs".
+
+---
+
+## How tracelens decides which kind a node is
+
+When events land in storage, tracelens classifies each event by walking a
+priority list (defined in `storage/sqlite_backend.py::get_topology`):
+
+1. **`event_type` first.**
+   - `chat_model_start` / `llm_start` / `llm_end` / `llm_error` → **`llm`**
+   - `retriever_start` / `retriever_end` / `retriever_error` → **`retriever`**
+
+2. **`tool_name` set** (because the event came from a `BaseTool`)
+   - → **`tool`**
+
+3. **`agent_name` matches a known LangChain primitive**
+   - `RunnableSequence`, `RunnablePassthrough`, etc.
+   - `ChatPromptTemplate`, `StrOutputParser`, `LangGraph`
+   - → **`chain`**
+
+4. **Any other `agent_name`**
+   - → **`agent`**
+
+5. **Demotion pass.** After the first four steps, any node classified as
+   `agent` that has *no descendant events* (no children calling it) is
+   demoted to `chain`. This catches LangGraph routing functions (e.g.
+   `route_after_quality`) — they get a `chain_start`/`chain_end` pair with
+   an `agent_name`, but never call anything, so they're plumbing, not
+   cognition.
+
+You don't need to remember this rule — it's deterministic and you'll see
+the result in the UI directly. The point is: **what's an agent vs. a chain
+is a property of what the function actually does at runtime, not what
+LangChain calls the callback**.
+
+---
+
+## The five kinds in detail
+
+### `agent` — your code
+
+An `agent` node represents a function **you registered** as a LangGraph
+node, that **calls something else** (an LLM, a tool, a sub-agent).
+Conceptually: the place "your business logic" runs.
+
+In the integration guide:
+
+- System 1 (`docs/integration_guide/before/01_customer_support/`):
+  `agent:billing_agent`, `agent:tech_agent`, `agent:escalation_agent`,
+  `agent:triage`
+- System 2 (`docs/integration_guide/before/02_research_pipeline/`):
+  `agent:ingest`, `agent:retrieve`, `agent:fact_extractor`,
+  `agent:sentiment`, `agent:entities`, `agent:synthesize`
+- System 4 (`docs/integration_guide/before/04_data_analyst/`):
+  `agent:supervisor`, `agent:sql_agent`, `agent:chart_agent`,
+  `agent:narrative_agent`
+
+**In the UI:** typically the most prominent nodes — they sit in the middle
+of the topology and connect outward to the tools / LLMs / retrievers they
+use.
+
+**Why it matters:** edges *from* `agent:` nodes tell you what each part of
+your code calls. A common debugging move is "is `agent:answer` reaching
+`tool:cite_sources` in every run, or only some?"
+
+### `tool` — side-effect functions
+
+A `tool` node represents a function decorated with `@tool` (or otherwise
+registered as a `BaseTool`). Tools do **real work**: DB queries, API calls,
+file I/O, calculations. They don't call other things — they're terminal
+in the topology.
+
+In the integration guide:
+
+- System 1: `tool:lookup_account`, `tool:issue_refund`, `tool:run_diagnostic`,
+  `tool:check_logs`
+- System 5: `tool:cite_sources`
+- System 9: `tool:flaky_fetch` (this is where the failure path lives —
+  `error_count = 1`)
+
+**In the UI:** usually leaves of the topology graph. Their full payload
+(via "show full payload") shows the input and output of each invocation.
+
+**Why distinguish from agents?**
+
+- Tools are where you'd add retries, caching, rate-limiting, authn
+- Tools are where bugs *outside* the LLM live — wrong query, stale cache,
+  bad API response
+- "How many tool calls did this run make?" is a useful cost / latency
+  signal, separate from "how many agent invocations".
+
+### `llm` — language models
+
+An `llm` node represents a chat model or completion model invocation.
+Every direct `model.ainvoke(...)`, `LLMChain`, or LCEL chain ending in an
+LLM lands here.
+
+In the integration guide:
+
+- All systems with the default `LLM_PROVIDER=fake`: `llm:FakeListChatModel`
+- With `LLM_PROVIDER=openai`: `llm:ChatOpenAI`
+- With `LLM_PROVIDER=anthropic`: `llm:ChatAnthropic`
+- With multiple models: each appears as a separate `llm:<name>` node
+
+**In the UI:** the LLM step's full payload contains the prompts, the
+generated text, and (if the model reports it) `token_usage`. For streaming
+models, the `_stream` field shows TTFT, streamed token count, and
+tokens/sec. See system 8 (`docs/integration_guide/before/08_streaming_agent/`)
+for an example.
+
+**Why distinguish from `chain`?** An LLM call is the thing you want to
+**count, cost, and cache**. The `chain:RunnableSequence` that wraps it is
+plumbing — it doesn't generate tokens.
+
+### `retriever` — context fetchers
+
+A `retriever` node represents a `BaseRetriever` subclass invocation. This
+is the "R" in RAG: vector stores, BM25, hybrid search, custom retrievers.
+
+In the integration guide:
+
+- System 2 (`docs/integration_guide/before/02_research_pipeline/`):
+  `retriever:_FixedCorpusRetriever`
+- System 5 (`docs/integration_guide/before/05_rag_reranker/`):
+  `retriever:FastFakeRetriever` — the *first* stage of a two-stage
+  retrieval pipeline. The reranker is an `llm:` invocation in this design,
+  not a second retriever.
+
+In production: `retriever:Chroma`, `retriever:FAISS`,
+`retriever:MultiQueryRetriever`, `retriever:ParentDocumentRetriever`, etc.
+
+**In the UI:** retrievers have their own callback events
+(`retriever_start` / `retriever_end`) that capture the query *and* the
+returned documents (with metadata + scores) in one structured payload.
+
+**Why distinguish?** Retrieval quality is its own debugging dimension.
+"Did we retrieve the right docs?" is a different question from "Did the
+LLM use them well?". When you have multiple retrievers (e.g. fast index
++ reranker, see system 5), you want to see them as separate boxes in the
+topology so you can compare their behavior.
+
+### `chain` — plumbing
+
+A `chain` node represents **infrastructure**, not business logic. It
+covers four things:
+
+1. **LCEL `RunnableSequence`** — the value `prompt | llm | parser`
+   produces. tracelens decomposes the sequence into its components, so an
+   LCEL chain shows up as `chain:RunnableSequence` connected to
+   `chain:ChatPromptTemplate`, `llm:<name>`, and `chain:StrOutputParser`.
+2. **LCEL primitives** — `ChatPromptTemplate`, `StrOutputParser`,
+   `RunnablePassthrough`, `RunnableLambda`, etc.
+3. **The LangGraph state machine itself** — `chain:LangGraph` appears in
+   every run as the orchestrator that dispatches between your nodes.
+4. **Demoted "agents" with no children** — typically routing functions in
+   `add_conditional_edges`, e.g. `chain:route_after_critic`,
+   `chain:route_after_supervisor`.
+
+In the integration guide:
+
+- All systems: `chain:LangGraph` (the orchestrator)
+- System 3 (`docs/integration_guide/before/03_code_review/`): both LCEL
+  chains decompose — you'll see `chain:RunnableSequence`,
+  `chain:ChatPromptTemplate`, `chain:StrOutputParser` each at multiple
+  invocations
+- System 6 (`docs/integration_guide/before/06_writer_critic/`):
+  `chain:route_after_critic` — a routing function with no LLM/tool
+  inside, demoted from `agent` to `chain`
+
+**In the UI:** usually upstream of agents — they're the "wrapping"
+machinery.
+
+**Why distinguish from `agent`?** Counting `chain:LangGraph` and
+`chain:route_after_critic` as agents would inflate the "how many of my
+agents ran" metric to noise. Real agents do reasoning; chains are
+plumbing. Keeping them separate makes per-agent metrics meaningful.
+
+---
+
+## Putting it together: System 2 walked through
+
+If you ran `docs/integration_guide/before/02_research_pipeline/` and
+opened the UI, here's what each topology node was:
+
+```
+[topology]
+chain:LangGraph              ← the LangGraph orchestrator
+├ agent:ingest               ← your `ingest()` LangGraph node
+│   ├ tool:web_search        ← @tool function
+│   ├ tool:fetch_document    ← @tool function
+│   └ llm:FakeListChatModel  ← LLM call inside ingest()
+├ agent:retrieve             ← your `retrieve()` LangGraph node
+│   └ retriever:_FixedCorpusRetriever  ← BaseRetriever subclass
+├ agent:fact_extractor       ← your `fact_extractor()` node
+│   └ llm:FakeListChatModel  ← LLM call (same model class as above)
+├ agent:sentiment            ← parallel branch
+│   └ llm:FakeListChatModel
+├ agent:entities             ← parallel branch
+│   └ llm:FakeListChatModel
+└ agent:synthesize
+    ├ llm:FakeListChatModel
+    └ tool:cite_sources
+```
+
+So when you saw 12 topology nodes after running 3 topics, they were:
+
+- 6 × `agent:` (your LangGraph nodes)
+- 1 × `chain:LangGraph` (the orchestrator)
+- 1 × `llm:FakeListChatModel` (one node, multiple invocations)
+- 1 × `retriever:_FixedCorpusRetriever`
+- 3 × `tool:` (web_search, fetch_document, cite_sources)
+
+Same logic applies to every other system in the integration guide.
+
+---
+
+## Event types vs topology kinds
+
+There's a separate-but-related concept worth knowing: **event types**.
+A topology kind tells you *what a node is*; an event type tells you *what
+just happened*. Each topology kind is fed by a specific subset of event
+types:
+
+| Kind | Event types that produce it |
+|---|---|
+| `agent` | `chain_start`, `chain_end`, `chain_error`, `agent_action`, `agent_finish` (with a non-primitive `agent_name` and descendants) |
+| `tool` | `tool_start`, `tool_end`, `tool_error` |
+| `llm` | `llm_start`, `llm_end`, `llm_error`, `chat_model_start` |
+| `retriever` | `retriever_start`, `retriever_end`, `retriever_error` |
+| `chain` | Same as `agent`, but with primitive `agent_name` *or* no descendants |
+
+Synthetic events (`run_start`, `run_end`) are tracelens-internal and
+don't produce topology nodes — they exist so the dashboard's run list
+gets lifecycle pings.
+
+---
+
+## Where to go next
+
+- **Run an example to see the kinds in your own UI:**
+  `cd docs/integration_guide/after/02_research_pipeline && python main.py`
+  then open `http://localhost:7842/ui`
+- **Browse all 10 systems** to see different combinations of kinds:
+  [`docs/integration_guide/`](integration_guide/README.md)
+- **Check the topology source-of-truth** in `src/tracelens/models.py`
+  (the `TopologyNode` and `EventType` definitions) and
+  `src/tracelens/storage/sqlite_backend.py::get_topology()` (the
+  classification SQL).
