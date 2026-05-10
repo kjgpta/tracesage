@@ -547,12 +547,12 @@ class SQLiteBackend:
         }
 
         # Event types that count as one "invocation" of the node.
-        START_TYPES = {
+        start_types = {
             "chain_start", "tool_start", "llm_start", "chat_model_start",
             "retriever_start", "agent_action",
         }
         # Event types that count as an error of the node.
-        ERROR_TYPES = {
+        error_types = {
             "chain_error", "tool_error", "llm_error", "retriever_error",
         }
 
@@ -584,9 +584,9 @@ class SQLiteBackend:
             bucket["name"] = display_name
             if row_run_id:
                 bucket["run_ids"].add(row_run_id)
-            if event_type in START_TYPES:
+            if event_type in start_types:
                 bucket["invocations"] += 1
-            if event_type in ERROR_TYPES:
+            if event_type in error_types:
                 bucket["errors"] += 1
             if duration is not None:
                 bucket["total_duration_ms"] += int(duration)
