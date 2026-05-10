@@ -1,5 +1,4 @@
 # CLAUDE.md — tracelens project conventions
-
 Shared context for all Claude agents working on this codebase. Read this before any change.
 
 ## Project facts
