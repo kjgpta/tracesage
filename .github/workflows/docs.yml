@@ -52,7 +52,7 @@ jobs:
         # on the workflow exit code from non-strict build instead.
         run: mkdocs build
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site/
 
