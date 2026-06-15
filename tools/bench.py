@@ -23,7 +23,7 @@ from pathlib import Path
 # allow running without install: src on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from tracelens import TraceLens, TraceLensConfig, EventType, RawEvent
+from tracelens import EventType, RawEvent, TraceLens, TraceLensConfig
 
 
 async def run_bench(n: int, num_runs: int, blob_rate: float, data_dir: Path) -> dict:

@@ -53,16 +53,21 @@ def create_app(
     app.state.config = config
     app.state.stats = stats if stats is not None else Stats()
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     @app.middleware("http")
     async def _auth(request, call_next):
         return await auth_middleware(request, call_next)
+
+    # CORS is registered AFTER the auth middleware so it becomes the OUTERMOST
+    # layer. A browser CORS preflight (OPTIONS, no Authorization header) is then
+    # answered by CORSMiddleware before the auth gate ever sees it; and auth's
+    # own 401 responses still pass back out through CORS so they carry the
+    # Access-Control-Allow-Origin header the browser requires.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     app.include_router(rest_router)
 

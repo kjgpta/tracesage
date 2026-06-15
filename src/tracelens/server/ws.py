@@ -30,40 +30,67 @@ GLOBAL_FEED_KEY = "__all__"
 class WebSocketManager:
     """Tracks per-run subscribers and a global feed under a single asyncio lock."""
 
-    def __init__(self) -> None:
+    def __init__(self, send_timeout: float = 5.0) -> None:
         self._subscribers: defaultdict[str, set[WebSocket]] = defaultdict(set)
         self._lock = asyncio.Lock()
+        self._send_timeout = send_timeout
+        # Per-socket send lock. A single WebSocket does not support overlapping
+        # writes, so every send to a given socket — the per-run catchup snapshot
+        # AND concurrent worker broadcasts — is serialized through its own lock.
+        self._send_locks: dict[WebSocket, asyncio.Lock] = {}
 
     async def connect(self, run_id: str, websocket: WebSocket) -> None:
         await websocket.accept()
         async with self._lock:
             self._subscribers[run_id].add(websocket)
+            self._send_locks.setdefault(websocket, asyncio.Lock())
 
     async def disconnect(self, run_id: str, websocket: WebSocket) -> None:
         async with self._lock:
             subs = self._subscribers.get(run_id)
-            if subs is None:
-                return
-            subs.discard(websocket)
-            if not subs:
-                del self._subscribers[run_id]
+            if subs is not None:
+                subs.discard(websocket)
+                if not subs:
+                    del self._subscribers[run_id]
+            # Each connection subscribes under exactly one key, so once removed
+            # the socket's send lock can be dropped.
+            self._send_locks.pop(websocket, None)
+
+    async def _send_one(self, ws: WebSocket, payload: str) -> WebSocket | None:
+        """Send to one socket with a timeout, serialized per-socket. Returns the socket if dead, else None."""
+        lock = self._send_locks.get(ws)
+        try:
+            if lock is not None:
+                async with lock:
+                    await asyncio.wait_for(ws.send_text(payload), timeout=self._send_timeout)
+            else:
+                await asyncio.wait_for(ws.send_text(payload), timeout=self._send_timeout)
+            return None
+        except Exception as e:
+            _LOG.debug("ws send failed/timed out: %s", e)
+            return ws
+
+    async def send_personal(self, websocket: WebSocket, message: WSMessage) -> bool:
+        """Send one message to a single socket, serialized with broadcasts via
+        the per-socket lock. Returns True on success, False if the socket is dead."""
+        return await self._send_one(websocket, message.model_dump_json()) is None
 
     async def broadcast(self, run_id: str, message: WSMessage) -> None:
         """Send `message` to every subscriber on `run_id`. Dead sockets are removed."""
         async with self._lock:
-            subs = set(self._subscribers.get(run_id, set()))
+            subs = list(self._subscribers.get(run_id, set()))
 
         if not subs:
             return
 
         payload = message.model_dump_json()
-        dead: set[WebSocket] = set()
-        for ws in subs:
-            try:
-                await ws.send_text(payload)
-            except Exception as e:
-                _LOG.debug("ws send failed for run %s: %s", run_id, e)
-                dead.add(ws)
+        results = await asyncio.gather(
+            *(self._send_one(ws, payload) for ws in subs), return_exceptions=True
+        )
+        # _send_one returns the socket itself when it died, or None on success.
+        # Filter by identity (not isinstance WebSocket) so it works for any socket
+        # object and ignores BaseExceptions gather may surface (e.g. CancelledError).
+        dead = {r for r in results if r is not None and not isinstance(r, BaseException)}
 
         if dead:
             async with self._lock:
@@ -84,13 +111,13 @@ class WebSocketManager:
             return
 
         payload = message.model_dump_json()
-        dead: set[WebSocket] = set()
-        for ws in all_subs:
-            try:
-                await ws.send_text(payload)
-            except Exception as e:
-                _LOG.debug("ws broadcast_all send failed: %s", e)
-                dead.add(ws)
+        results = await asyncio.gather(
+            *(self._send_one(ws, payload) for ws in all_subs), return_exceptions=True
+        )
+        # _send_one returns the socket itself when it died, or None on success.
+        # Filter by identity (not isinstance WebSocket) so it works for any socket
+        # object and ignores BaseExceptions gather may surface (e.g. CancelledError).
+        dead = {r for r in results if r is not None and not isinstance(r, BaseException)}
 
         if dead:
             async with self._lock:
@@ -122,7 +149,10 @@ async def ws_trace(websocket: WebSocket, run_id: str) -> None:
                 run_id=run_id,
                 payload={"steps": [s.model_dump(mode="json") for s in steps]},
             )
-            await websocket.send_text(catchup.model_dump_json())
+            # Routed through the manager so it shares the per-socket send lock
+            # with worker broadcasts — the socket is broadcast-eligible the
+            # moment connect() returns, so this serializes the two writers.
+            await manager.send_personal(websocket, catchup)
         except Exception as e:
             _LOG.warning("catchup failed for run %s: %s", run_id, e)
             err = WSMessage(
@@ -130,10 +160,7 @@ async def ws_trace(websocket: WebSocket, run_id: str) -> None:
                 run_id=run_id,
                 payload={"detail": "catchup failed"},
             )
-            try:
-                await websocket.send_text(err.model_dump_json())
-            except Exception:
-                return
+            await manager.send_personal(websocket, err)
 
         # Keep connection open until the client disconnects. Reading drains any
         # ping/keepalive frames the client sends.

@@ -54,9 +54,7 @@ def _is_public_path(path: str) -> bool:
         return True
     if path == "/":
         return True
-    if path == "/ui" or path.startswith("/ui/"):
-        return True
-    return False
+    return path == "/ui" or path.startswith("/ui/")
 
 
 async def auth_middleware(
@@ -67,6 +65,13 @@ async def auth_middleware(
 
     No-ops when no token is configured.
     """
+    # CORS preflight requests never carry an Authorization header. Let them
+    # through so the (outer) CORSMiddleware can answer them; the subsequent
+    # actual request is still gated normally. Defensive even though CORS is
+    # registered as the outermost layer in app.py.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     if _is_public_path(request.url.path):
         return await call_next(request)
 

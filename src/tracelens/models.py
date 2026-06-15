@@ -26,6 +26,7 @@ class EventType(str, Enum):
     RETRIEVER_ERROR = "retriever_error"
     RUN_START = "run_start"
     RUN_END = "run_end"
+    RETRY = "retry"
 
 
 # Event types whose payloads are large enough to warrant separate gzipped blob storage.
@@ -36,6 +37,11 @@ BLOB_ELIGIBLE_EVENTS: frozenset[EventType] = frozenset(
         EventType.AGENT_FINISH,
         EventType.TOOL_END,
         EventType.RETRIEVER_END,
+        # Error events carry a (small) traceback payload worth persisting for debugging.
+        EventType.CHAIN_ERROR,
+        EventType.TOOL_ERROR,
+        EventType.LLM_ERROR,
+        EventType.RETRIEVER_ERROR,
     }
 )
 
@@ -73,6 +79,7 @@ class RawEvent(BaseModel):
     timestamp: datetime = Field(default_factory=_utcnow)
     agent_name: str | None = None
     tool_name: str | None = None
+    mcp_server: str | None = None  # provenance: MCP server this tool came from (None = local)
     summary: str
     full_blob_eligible: bool = False
     raw_payload: dict[str, Any] = Field(default_factory=dict)
@@ -93,6 +100,7 @@ class StoredEvent(BaseModel):
     timestamp: datetime
     agent_name: str | None = None
     tool_name: str | None = None
+    mcp_server: str | None = None  # provenance: MCP server this tool came from (None = local)
     summary: str
     blob_path: str | None = None
     duration_ms: int | None = None
@@ -143,7 +151,8 @@ class TopologyNode(BaseModel):
 
     id: str  # e.g., "agent:OrderProcessor", "tool:search_web"
     name: str
-    type: Literal["agent", "tool", "llm", "retriever", "chain"]
+    type: Literal["agent", "tool", "llm", "retriever", "chain", "mcp"]
+    source: str | None = None  # MCP server name (for tool + mcp nodes); None = local/other
     invocation_count: int = 0
     error_count: int = 0
     total_duration_ms: int = 0

@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.1.1/css/pico.min.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="modulepreload" href="graph.js">
-  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='6' cy='6' r='3' fill='%2358a6ff'/><circle cx='18' cy='18' r='3' fill='%233fb950'/><path d='M8 8 L16 16' stroke='%23c9d1d9' stroke-width='1.5' fill='none'/></svg>">
+  <!-- Favicon mirrors the header brand mark (3 nodes + gradient connectors). -->
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='bg' x1='0' x2='1' y1='0' y2='1'><stop offset='0' stop-color='%2358a6ff'/><stop offset='1' stop-color='%233fb950'/></linearGradient></defs><circle cx='7' cy='7' r='4' fill='%2358a6ff'/><circle cx='25' cy='16' r='4' fill='%23a371f7'/><circle cx='7' cy='25' r='4' fill='%233fb950'/><path d='M10 9 L22 14 M10 23 L22 18' stroke='url(%23bg)' stroke-width='2' fill='none' stroke-linecap='round'/></svg>">
 </head>
 <body>
   <header class="app-header" role="banner">
@@ -182,11 +183,25 @@
         <span class="step-detail" id="replay-step-detail"></span>
       </div>
       <div id="graph-legend" class="graph-legend" aria-hidden="true">
-        <div class="legend-item"><span class="legend-shape agent"></span>agent</div>
-        <div class="legend-item"><span class="legend-shape tool"></span>tool</div>
-        <div class="legend-item"><span class="legend-shape llm"></span>llm</div>
-        <div class="legend-item"><span class="legend-shape retriever"></span>retriever</div>
-        <div class="legend-item"><span class="legend-shape chain"></span>chain</div>
+        <div class="legend-section">
+          <div class="legend-item"><span class="legend-shape agent"></span>agent</div>
+          <div class="legend-item"><span class="legend-shape mcp"></span>mcp server</div>
+          <div class="legend-item"><span class="legend-shape tool"></span>tool</div>
+          <div class="legend-item"><span class="legend-shape llm"></span>llm</div>
+          <div class="legend-item"><span class="legend-shape retriever"></span>retriever</div>
+          <div class="legend-item"><span class="legend-shape chain"></span>chain</div>
+        </div>
+        <div id="legend-mcp-servers" class="legend-section legend-mcp hidden"></div>
+      </div>
+      <div id="tools-panel" class="tools-panel" aria-label="Tools by source">
+        <div class="tools-panel-header" title="Drag to move · click to collapse">
+          <span class="tools-panel-title">Tools by source</span>
+          <button class="tools-panel-toggle" id="tools-panel-toggle" type="button"
+                  aria-label="Collapse tools panel" aria-expanded="true">&#x2212;</button>
+        </div>
+        <div class="tools-panel-body" id="tools-panel-body">
+          <div class="tools-panel-empty">No tools yet</div>
+        </div>
       </div>
       <div id="graph-empty" class="graph-empty hidden">
         <div class="empty-card">
@@ -225,6 +240,12 @@ result = await graph.ainvoke(
         <div class="pane-header">
           <h2>Timeline</h2>
           <span class="timeline-meta" id="timeline-meta">no run selected</span>
+        </div>
+        <div class="timeline-search">
+          <input type="search" id="timeline-search" class="timeline-search-input"
+                 placeholder="Filter steps… (tool, agent, text, type)"
+                 aria-label="Filter timeline steps" autocomplete="off" spellcheck="false" />
+          <span class="timeline-search-count" id="timeline-search-count" aria-live="polite"></span>
         </div>
         <div class="timeline" id="timeline" role="list" aria-live="polite">
           <div class="timeline-empty">

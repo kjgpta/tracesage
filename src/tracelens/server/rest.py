@@ -6,8 +6,11 @@ user-supplied filesystem paths — `blob_path` is always read from the DB row.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path as FsPath
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
@@ -22,6 +25,17 @@ from tracelens.storage.blob_store import BlobStore
 _LOG = logging.getLogger("tracelens.server.rest")
 
 router = APIRouter(prefix="/api")
+
+
+def _scan_blob_size_bytes(base_dir: FsPath) -> int:
+    total = 0
+    for p in base_dir.rglob("*"):
+        if p.is_file():
+            try:
+                total += p.stat().st_size
+            except OSError:
+                continue
+    return total
 
 
 # ---------- Dependency helpers ----------
@@ -162,18 +176,17 @@ async def stats_endpoint(
     db_stats = await db.get_stats()
     merged: dict[str, Any] = {**db_stats}
     merged.update(runtime_stats.model_dump())
+    # runtime Stats.db_size_bytes is never populated (defaults to 0) and the merge
+    # above would clobber the DB-computed value; restore it from db_stats.
+    if not merged.get("db_size_bytes"):
+        merged["db_size_bytes"] = db_stats.get("db_size_bytes", 0)
     # blob_size_bytes from runtime stats may be stale; fill from blob_store if 0.
     if not merged.get("blob_size_bytes"):
         try:
-            base = blob_store.base_dir
-            total = 0
-            for p in base.rglob("*"):
-                if p.is_file():
-                    try:
-                        total += p.stat().st_size
-                    except OSError:
-                        continue
-            merged["blob_size_bytes"] = total
+            loop = asyncio.get_running_loop()
+            merged["blob_size_bytes"] = await loop.run_in_executor(
+                None, _scan_blob_size_bytes, blob_store.base_dir
+            )
         except Exception as e:
             _LOG.debug("blob size scan failed: %s", e)
     return merged
@@ -184,6 +197,15 @@ async def topology_endpoint(
     db: Annotated[StorageBackend, Depends(get_db)],
 ) -> Topology:
     return await db.get_topology()
+
+
+@router.get("/tools")
+async def tools_endpoint(
+    db: Annotated[StorageBackend, Depends(get_db)],
+) -> dict[str, Any]:
+    """Tools grouped by source: each MCP server plus a 'local' bucket for
+    unattributed (hardcoded) tools."""
+    return await db.get_tool_inventory()
 
 
 @router.get("/runs/{run_id}/export")
@@ -199,9 +221,18 @@ async def export_run(
     async def lines() -> AsyncIterator[bytes]:
         # First line: the Run itself.
         yield (run.model_dump_json() + "\n").encode("utf-8")
-        events = await db.get_journey(run_id)
-        for ev in events:
-            yield (ev.model_dump_json() + "\n").encode("utf-8")
+        # Stream events lazily so the full journey is never materialized. The
+        # 200 status + headers are already committed once the body starts, so a
+        # mid-stream failure cannot become a 5xx — instead we emit a terminal
+        # error record so consumers can distinguish a complete export from a
+        # truncated one (a clean cutoff would otherwise look complete).
+        try:
+            async for ev in db.iter_journey(run_id):
+                yield (ev.model_dump_json() + "\n").encode("utf-8")
+        except Exception as e:
+            _LOG.warning("export stream failed mid-run for %s: %s", run_id, e)
+            marker = json.dumps({"_kind": "error", "detail": "export truncated"})
+            yield (marker + "\n").encode("utf-8")
 
     return StreamingResponse(
         lines(),
