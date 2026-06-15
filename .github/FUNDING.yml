@@ -52,7 +52,7 @@ Thanks for sending a PR! Please fill in the sections below.
 
 ## Checklist
 
-- [ ] I have read [`CONTRIBUTING.md`](../blob/main/CONTRIBUTING.md)
-- [ ] I have updated `CHANGELOG.md` under the next unreleased version
+- [ ] I have read [`CONTRIBUTING.md`](../blob/main/docs/contributing.md)
+- [ ] I have updated `docs/changelog.md` under the next unreleased version
 - [ ] I have updated docs in `docs/` if user-visible behaviour changed
-- [ ] My commits follow the project's [convention](../blob/main/CONTRIBUTING.md#commit-style)
+- [ ] My commits follow the project's [convention](../blob/main/docs/contributing.md#commit-style)

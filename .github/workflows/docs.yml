@@ -7,8 +7,6 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "README.md"
-      - "CHANGELOG.md"
-      - "CONTRIBUTING.md"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -46,9 +44,8 @@ jobs:
             "pymdown-extensions>=10.7"
 
       - name: Build site
-        # `--strict` fails the build on any broken link or missing snippet. The
-        # few repo-root-relative links in included files (CONTRIBUTING.md, etc.)
-        # now use absolute URLs, so strict passes — keep it on as a docs gate.
+        # `--strict` fails the build on any broken link. All docs (incl. changelog,
+        # contributing, releasing) live under docs/, so it passes — keep it as a gate.
         run: mkdocs build --strict
 
       - uses: actions/upload-pages-artifact@v5

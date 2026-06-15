@@ -303,13 +303,13 @@ throughput on Windows, raise `TRACELENS_WORKER_BATCH_SIZE` to 200 and
 single-Python-process deployments; centralized multi-process / remote-collector mode
 is on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
 
-See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+See [the changelog](docs/changelog.md) for release notes.
 
 ## Contributing
 
 Issues and pull requests are welcome.
 
-- Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before sending a PR
+- Read [`docs/contributing.md`](docs/contributing.md) before sending a PR
 - For non-trivial changes, open a [discussion](https://github.com/kjgpta/tracelens/discussions/categories/ideas) first
 - Bugs and feature requests use the [issue templates](https://github.com/kjgpta/tracelens/issues/new/choose)
 - Security reports: see [`SECURITY.md`](.github/SECURITY.md) — please don't open public issues for vulnerabilities

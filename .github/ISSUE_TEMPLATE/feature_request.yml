@@ -10,7 +10,7 @@ body:
 
         Before submitting, please:
         - Search [existing issues](https://github.com/kjgpta/tracelens/issues) and the [roadmap](https://github.com/kjgpta/tracelens/discussions/categories/ideas).
-        - Read [CONTRIBUTING.md](https://github.com/kjgpta/tracelens/blob/main/CONTRIBUTING.md) — non-goals and design constraints are documented there.
+        - Read [CONTRIBUTING.md](https://github.com/kjgpta/tracelens/blob/main/docs/contributing.md) — non-goals and design constraints are documented there.
 
   - type: textarea
     id: problem

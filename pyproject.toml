@@ -41,7 +41,7 @@ dependencies = [
 Homepage = "https://github.com/kjgpta/tracelens"
 Repository = "https://github.com/kjgpta/tracelens"
 Documentation = "https://kjgpta.github.io/tracelens/"
-Changelog = "https://github.com/kjgpta/tracelens/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/kjgpta/tracelens/blob/main/docs/changelog.md"
 Issues = "https://github.com/kjgpta/tracelens/issues"
 
 [project.optional-dependencies]
@@ -88,9 +88,6 @@ include = [
     "examples",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md",
-    "CONTRIBUTING.md",
-    "RELEASING.md",
     "production_roadmap.md",
     "docs",
     "pyproject.toml",
