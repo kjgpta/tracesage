@@ -17,7 +17,7 @@ result = await graph.ainvoke(
 ```
 
 [Get started in 5 minutes →](quickstart.md){ .md-button .md-button--primary }
-[See the integration guide →](integration_guide/README.md){ .md-button }
+[Browse the examples →](examples.md){ .md-button }
 
 ---
 
@@ -32,8 +32,10 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
 - **Production-grade safety.** The handler never raises. The tracer never crashes
   your pipeline.
-- **Interactive graph view.** Cytoscape.js + dagre layout. Hover, click, replay any run.
-- **Pluggable storage.** SQLite in v0.1; Postgres / remote-server / JSONL backends planned.
+- **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
+- **MCP-aware.** Tools loaded from MCP servers are attributed by source — see which tools
+  came from which server vs. which are hardcoded. See [MCP support](mcp.md).
+- **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned.
 - **MIT licensed.** Free forever.
 
 ## Where to go next
@@ -46,7 +48,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 -   :material-graph: **[Concepts](concepts.md)**
 
-    What `agent`, `tool`, `llm`, `retriever`, and `chain` mean — read
+    What `agent`, `tool`, `llm`, `retriever`, `chain`, and `mcp` mean — read
     this first if you want to interpret a topology.
 
 -   :material-cog: **[Configuration](configuration.md)**
@@ -57,10 +59,10 @@ and renders it in an interactive graph + timeline UI in real time.
 
     Auth, sampling, retention, monitoring, multi-tenant deployments.
 
--   :material-book-open-variant: **[Integration guide](integration_guide/README.md)**
+-   :material-book-open-variant: **[Examples](examples.md)**
 
-    10 multi-agent systems in `before/`-`after/` form. Pick the closest match
-    to your architecture and copy the pattern.
+    30 before/after apps across popular use cases. Pick the closest match to
+    your architecture and copy the integration.
 
 -   :material-console: **[CLI reference](cli.md)**
 
@@ -85,6 +87,6 @@ Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?`
 
 ## Status
 
-**v0.1 — alpha.** API may shift before v1.0. Production-monitoring-ready for
-single-Python-process deployments. Centralized multi-process server mode comes
-in v0.2. See the [changelog](changelog.md) for release notes.
+**v0.2 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
+single-Python-process deployments; centralized multi-process / remote-collector mode
+is on the roadmap. See the [changelog](changelog.md) for release notes.

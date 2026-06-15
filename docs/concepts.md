@@ -1,9 +1,10 @@
-# Concepts: the five topology kinds
+# Concepts: topology node kinds
 
 When a run completes, tracelens groups every callback event into one of
-**five "kinds"** of topology nodes:
+**five "kinds"** of topology nodes — plus a synthesized **`mcp`** node when you
+attribute tools to an MCP server:
 
-`agent` &nbsp;·&nbsp; `tool` &nbsp;·&nbsp; `llm` &nbsp;·&nbsp; `retriever` &nbsp;·&nbsp; `chain`
+`agent` &nbsp;·&nbsp; `tool` &nbsp;·&nbsp; `llm` &nbsp;·&nbsp; `retriever` &nbsp;·&nbsp; `chain` &nbsp;·&nbsp; `mcp`
 
 This page is the reference for what each kind means, how tracelens
 classifies events into it, and why the distinction matters when you're
@@ -23,10 +24,18 @@ If you opened the UI after running an example and wondered "what does
 | `llm` | A **language model** call (chat or completion) | `llm:FakeListChatModel`, `llm:ChatOpenAI`, `llm:ChatAnthropic` |
 | `retriever` | A **`BaseRetriever` subclass** invocation — the "R" in RAG | `retriever:FastFakeRetriever`, `retriever:Chroma`, `retriever:FAISS` |
 | `chain` | **Plumbing** — LCEL primitives, the LangGraph state machine, routing functions | `chain:LangGraph`, `chain:RunnableSequence`, `chain:ChatPromptTemplate`, `chain:route_after_quality` |
+| `mcp` | An **MCP server** (synthesized, not an event) — groups the tools loaded from that server | `mcp:weather`, `mcp:math`, `mcp:github` |
 
 In the UI, each kind renders with its own color/shape and click-to-detail
 behavior. Edges between nodes show "this kind invoked that kind, N times
 across all runs".
+
+The topology is **de-duplicated**: a node that runs many times (or a loop, e.g. a
+write→critic cycle) is one box with a back-edge, not one box per visit — each individual
+invocation/iteration is a separate step in the **timeline / replay**. Parallel and
+concurrent (`asyncio.gather`) branches are attributed correctly to their own run/parent
+even though they share one tracer — LangChain's `run_id`/`parent_run_id` drives the
+grouping, and the handler is safe under concurrency.
 
 ---
 
@@ -57,6 +66,11 @@ priority list (defined in `storage/sqlite_backend.py::get_topology`):
    an `agent_name`, but never call anything, so they're plumbing, not
    cognition.
 
+6. **MCP overlay (synthesized).** If you've registered MCP attribution, tracelens
+   also adds one `mcp:<server>` node per server and wires `mcp → tool` and
+   `agent → mcp` edges. These don't come from callback events — they're a
+   provenance overlay (see [MCP server nodes](#mcp-server-nodes-a-synthesized-node)).
+
 You don't need to remember this rule — it's deterministic and you'll see
 the result in the UI directly. The point is: **what's an agent vs. a chain
 is a property of what the function actually does at runtime, not what
@@ -72,17 +86,14 @@ An `agent` node represents a function **you registered** as a LangGraph
 node, that **calls something else** (an LLM, a tool, a sub-agent).
 Conceptually: the place "your business logic" runs.
 
-In the integration guide:
+Example agent nodes (you'll build your own — see the [examples gallery](examples.md)):
 
-- System 1 (`docs/integration_guide/before/01_customer_support/`):
-  `agent:billing_agent`, `agent:tech_agent`, `agent:escalation_agent`,
-  `agent:triage`
-- System 2 (`docs/integration_guide/before/02_research_pipeline/`):
-  `agent:ingest`, `agent:retrieve`, `agent:fact_extractor`,
+- A support-triage app: `agent:triage`, `agent:billing_agent`,
+  `agent:tech_agent`, `agent:escalation_agent`
+- A research pipeline: `agent:ingest`, `agent:retrieve`, `agent:fact_extractor`,
   `agent:sentiment`, `agent:entities`, `agent:synthesize`
-- System 4 (`docs/integration_guide/before/04_data_analyst/`):
-  `agent:supervisor`, `agent:sql_agent`, `agent:chart_agent`,
-  `agent:narrative_agent`
+- A data-analyst supervisor: `agent:supervisor`, `agent:sql_agent`,
+  `agent:chart_agent`, `agent:narrative_agent`
 
 **In the UI:** typically the most prominent nodes — they sit in the middle
 of the topology and connect outward to the tools / LLMs / retrievers they
@@ -134,8 +145,7 @@ In the integration guide:
 **In the UI:** the LLM step's full payload contains the prompts, the
 generated text, and (if the model reports it) `token_usage`. For streaming
 models, the `_stream` field shows TTFT, streamed token count, and
-tokens/sec. See system 8 (`docs/integration_guide/before/08_streaming_agent/`)
-for an example.
+tokens/sec (reported when you stream tokens from the model).
 
 **Why distinguish from `chain`?** An LLM call is the thing you want to
 **count, cost, and cache**. The `chain:RunnableSequence` that wraps it is
@@ -146,26 +156,25 @@ plumbing — it doesn't generate tokens.
 A `retriever` node represents a `BaseRetriever` subclass invocation. This
 is the "R" in RAG: vector stores, BM25, hybrid search, custom retrievers.
 
-In the integration guide:
+Examples (see the RAG apps in the [examples gallery](examples.md)):
 
-- System 2 (`docs/integration_guide/before/02_research_pipeline/`):
-  `retriever:_FixedCorpusRetriever`
-- System 5 (`docs/integration_guide/before/05_rag_reranker/`):
-  `retriever:FastFakeRetriever` — the *first* stage of a two-stage
-  retrieval pipeline. The reranker is an `llm:` invocation in this design,
-  not a second retriever.
+- A research pipeline: `retriever:_FixedCorpusRetriever`
+- A two-stage RAG app: a fast `retriever:` followed by an `llm:` reranker — the
+  reranker is an LLM invocation in this design, not a second retriever.
 
 In production: `retriever:Chroma`, `retriever:FAISS`,
 `retriever:MultiQueryRetriever`, `retriever:ParentDocumentRetriever`, etc.
 
 **In the UI:** retrievers have their own callback events
 (`retriever_start` / `retriever_end`) that capture the query *and* the
-returned documents (with metadata + scores) in one structured payload.
+returned documents (with their metadata, and relevance scores when the retriever
+provides them) in one structured payload. The node label is `retriever:<class name>`
+of the `BaseRetriever` subclass whose callback fired (e.g. `retriever:Chroma`).
 
 **Why distinguish?** Retrieval quality is its own debugging dimension.
 "Did we retrieve the right docs?" is a different question from "Did the
 LLM use them well?". When you have multiple retrievers (e.g. fast index
-+ reranker, see system 5), you want to see them as separate boxes in the
++ reranker), you want to see them as separate boxes in the
 topology so you can compare their behavior.
 
 ### `chain` — plumbing
@@ -185,16 +194,14 @@ covers four things:
    `add_conditional_edges`, e.g. `chain:route_after_critic`,
    `chain:route_after_supervisor`.
 
-In the integration guide:
+Examples:
 
-- All systems: `chain:LangGraph` (the orchestrator)
-- System 3 (`docs/integration_guide/before/03_code_review/`): both LCEL
-  chains decompose — you'll see `chain:RunnableSequence`,
+- Every LangGraph app: `chain:LangGraph` (the orchestrator)
+- LCEL pipelines decompose — you'll see `chain:RunnableSequence`,
   `chain:ChatPromptTemplate`, `chain:StrOutputParser` each at multiple
   invocations
-- System 6 (`docs/integration_guide/before/06_writer_critic/`):
-  `chain:route_after_critic` — a routing function with no LLM/tool
-  inside, demoted from `agent` to `chain`
+- A writer-critic loop: `chain:route_after_critic` — a routing function with no
+  LLM/tool inside, demoted from `agent` to `chain`
 
 **In the UI:** usually upstream of agents — they're the "wrapping"
 machinery.
@@ -206,10 +213,28 @@ plumbing. Keeping them separate makes per-agent metrics meaningful.
 
 ---
 
-## Putting it together: System 2 walked through
+## MCP server nodes (a synthesized node)
 
-If you ran `docs/integration_guide/before/02_research_pipeline/` and
-opened the UI, here's what each topology node was:
+The five kinds above each map to a LangChain *callback event*. There is one more
+node type you'll see in the topology — **`mcp`** — but it is **synthesized**, not
+emitted by a callback.
+
+When you attribute tools to their MCP server (via `register_mcp_client`, see
+[mcp.md](mcp.md)), tracelens adds one `mcp:<server>` node per server and draws edges
+**mcp → tool** (the tools that server provides) and **agent → mcp** (agents that called
+them). The tool nodes themselves are still ordinary `tool` nodes — the `mcp` node is a
+grouping/provenance overlay so you can answer "which tools came from which server, and
+which are hardcoded?" A server's tools appear even if a given run never called them.
+
+`mcp` nodes only exist when you've registered MCP attribution; a pure-LangChain trace
+has just the five event-based kinds.
+
+---
+
+## Putting it together: a research pipeline walked through
+
+A representative research-pipeline topology — run any app in `examples/showcase/`
+to see your own — decomposes like this:
 
 ```
 [topology]
@@ -239,7 +264,7 @@ So when you saw 12 topology nodes after running 3 topics, they were:
 - 1 × `retriever:_FixedCorpusRetriever`
 - 3 × `tool:` (web_search, fetch_document, cite_sources)
 
-Same logic applies to every other system in the integration guide.
+The same logic applies to every app in the [examples gallery](examples.md).
 
 ---
 
@@ -257,20 +282,22 @@ types:
 | `llm` | `llm_start`, `llm_end`, `llm_error`, `chat_model_start` |
 | `retriever` | `retriever_start`, `retriever_end`, `retriever_error` |
 | `chain` | Same as `agent`, but with primitive `agent_name` *or* no descendants |
+| `mcp` | None — **synthesized** from MCP tool attribution, not a callback event |
 
-Synthetic events (`run_start`, `run_end`) are tracelens-internal and
-don't produce topology nodes — they exist so the dashboard's run list
-gets lifecycle pings.
+The synthetic `run_start` event is tracelens-internal and doesn't produce
+a topology node — it exists so the dashboard's run list gets a lifecycle
+ping when a root run begins. (`run_end` is a reserved event type but is not
+currently emitted; run completion is inferred from the root chain ending.)
 
 ---
 
 ## Where to go next
 
 - **Run an example to see the kinds in your own UI:**
-  `cd docs/integration_guide/after/02_research_pipeline && python main.py`
+  `python examples/showcase/11_supervisor_research_team/after.py`
   then open `http://localhost:7842/ui`
-- **Browse all 10 systems** to see different combinations of kinds:
-  [`docs/integration_guide/`](integration_guide/README.md)
+- **Browse the gallery** to see different combinations of kinds:
+  [the examples gallery](examples.md)
 - **Check the topology source-of-truth** in `src/tracelens/models.py`
   (the `TopologyNode` and `EventType` definitions) and
   `src/tracelens/storage/sqlite_backend.py::get_topology()` (the

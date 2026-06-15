@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 async def child_main(data_dir: Path, n_events: int) -> None:
     """Run as the doomed child: emit events, then sleep until killed."""
-    from tracelens import TraceLens, TraceLensConfig, EventType, RawEvent
+    from tracelens import EventType, RawEvent, TraceLens, TraceLensConfig
 
     cfg = TraceLensConfig(
         data_dir=data_dir,
@@ -157,7 +157,7 @@ async def _inspect_db(data_dir: Path) -> tuple[int, int]:
 
 async def _recover_and_emit(data_dir: Path) -> int:
     """Open a new TraceLens against the same dir, emit more events, verify."""
-    from tracelens import TraceLens, TraceLensConfig, EventType, RawEvent
+    from tracelens import EventType, RawEvent, TraceLens, TraceLensConfig
 
     cfg = TraceLensConfig(data_dir=data_dir, port=0, log_level="WARNING")
     tracer = await TraceLens.create(cfg, start_server=False)

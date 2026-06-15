@@ -13,6 +13,7 @@ import {
   escapeHtml,
   formatMs,
   formatRelTime,
+  mcpServerColor,
 } from './graph.js';
 
 /* ============================================================
@@ -22,19 +23,22 @@ import {
 const STORAGE_THEME = 'tracelens.theme';
 const STORAGE_TOKEN = 'tracelens.auth_token';
 const STORAGE_PANES = 'tracelens.panes';
+const STORAGE_TOOLS_POS = 'tracelens.tools_panel_pos';
 const TIMELINE_MAX = 500;
 const STATS_POLL_MS = 5000;
 const RUNS_POLL_MS = 30000;
 const WS_BACKOFF = [1000, 2000, 4000, 8000, 16000, 30000];
 
+// Short, portable uppercase text tags. Avoids mojibake / replacement glyphs
+// and renders identically across all platforms and fonts.
 const EVENT_ICONS = {
-  chain_start: '��', chain_end: '��', chain_error: '❌',
-  agent_action: '��', agent_finish: '✅',
-  tool_start: '��', tool_end: '��', tool_error: '❌',
-  llm_start: '��', llm_end: '��', llm_error: '❌',
-  chat_model_start: '��',
-  retriever_start: '��', retriever_end: '��', retriever_error: '❌',
-  run_start: '▶', run_end: '✅',
+  chain_start: 'CHAIN', chain_end: 'CHAIN', chain_error: 'ERR',
+  agent_action: 'AGENT', agent_finish: 'AGENT',
+  tool_start: 'TOOL', tool_end: 'TOOL', tool_error: 'ERR',
+  llm_start: 'LLM', llm_end: 'LLM', llm_error: 'ERR',
+  chat_model_start: 'LLM',
+  retriever_start: 'RETR', retriever_end: 'RETR', retriever_error: 'ERR',
+  run_start: 'RUN', run_end: 'RUN',
 };
 
 /** Single source of truth for everything that lives in memory. */
@@ -51,6 +55,7 @@ const state = {
   newEventCount: 0,
   autoScrollTimeline: true,
   graphMode: 'topology',       // 'topology' | 'trace'
+  toolsCollapsed: true,        // "Tools by source" panel starts minimized
   layoutDir: 'LR',
   evRateWindow: [],            // sliding window of timestamps for ev/s
   graphRenderTimer: null,
@@ -63,6 +68,8 @@ const state = {
   replaySteps: [],             // [{source, target, eventId}, ...]
   manualStepIdx: -1,           // -1 = nothing yet selected, 0..N-1 = current step
   autoReplayInProgress: false, // true while graph.playRun is running
+  currentDrawerEventId: null,  // guards async blob fetch against a re-opened drawer
+  timelineFilter: '',          // within-run timeline search query (lowercased on use)
 };
 
 // WebSocket holders.
@@ -100,6 +107,72 @@ class ApiError extends Error {
     super(`HTTP ${status}: ${detail}`);
     this.status = status;
     this.detail = detail;
+  }
+}
+
+/* ============================================================
+ * Run actions — export (JSONL download) + delete
+ * ============================================================ */
+
+/** Download the run's JSONL export. Uses fetch + blob with the Bearer header
+ *  (buildHeaders) so it works when an auth token is configured, and keeps the
+ *  token out of the URL / server access logs (an anchor navigation can't send
+ *  an Authorization header, and the HTTP middleware ignores ?token=). */
+async function exportRun(runId) {
+  try {
+    const r = await fetch(
+      `/api/runs/${encodeURIComponent(runId)}/export?format=jsonl`,
+      { headers: buildHeaders() },
+    );
+    if (!r.ok) {
+      const detail = await r.text().catch(() => r.statusText);
+      throw new ApiError(r.status, detail || r.statusText);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${runId}.jsonl`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    if (e.status === 401) {
+      toast('Authentication failed. Open settings to set token.', 'error');
+    } else {
+      toast(`Could not export run: ${e.message}`, 'error');
+    }
+  }
+}
+
+/** Confirm, then DELETE the run via the REST API (Bearer auth, mirroring the
+ *  other authed fetches), then refresh the run list. */
+async function deleteRun(runId) {
+  if (!window.confirm(`Delete run ${runId}? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(`/api/runs/${encodeURIComponent(runId)}`, {
+      method: 'DELETE',
+      headers: buildHeaders(),
+    });
+    if (!r.ok) {
+      const detail = await r.text().catch(() => r.statusText);
+      throw new ApiError(r.status, detail || r.statusText);
+    }
+    // If the deleted run was selected, clear selection + its trace WS.
+    if (state.selectedRunId === runId) {
+      state.selectedRunId = null;
+      closeTraceWS();
+      renderTimeline();
+    }
+    toast('Run deleted', 'success', 1500);
+    await loadRuns();
+  } catch (e) {
+    if (e.status === 401) {
+      toast('Authentication failed. Open settings to set token.', 'error');
+    } else {
+      toast(`Could not delete run: ${e.message}`, 'error');
+    }
   }
 }
 
@@ -196,8 +269,12 @@ function buildRunRow(run) {
 
   row.innerHTML = `
     <div class="run-row-top">
-      <span class="status-badge ${escapeHtml(run.status)}" aria-label="${run.status}"></span>
+      <span class="status-badge ${escapeHtml(run.status)}" aria-label="${escapeHtml(run.status)}"></span>
       <span class="run-id" title="${escapeHtml(run.run_id)}">${escapeHtml(run.run_id.slice(0, 12))}…</span>
+      <span class="run-row-actions">
+        <button class="run-action export" data-run-action="export" data-run-id="${escapeHtml(run.run_id)}" type="button" title="Export run as JSONL" aria-label="Export run ${escapeHtml(run.run_id)} as JSONL">Export</button>
+        <button class="run-action delete" data-run-action="delete" data-run-id="${escapeHtml(run.run_id)}" type="button" title="Delete run" aria-label="Delete run ${escapeHtml(run.run_id)}">Delete</button>
+      </span>
     </div>
     <div class="run-row-bottom">
       <span class="meta-step">${run.total_steps} step${run.total_steps === 1 ? '' : 's'}</span>
@@ -213,6 +290,21 @@ function buildRunRow(run) {
       selectRun(run.run_id);
     }
   });
+  // Run-level actions: stop propagation so clicking them doesn't select the row.
+  const exportBtn = row.querySelector('[data-run-action="export"]');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportRun(run.run_id);
+    });
+  }
+  const deleteBtn = row.querySelector('[data-run-action="delete"]');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteRun(run.run_id);
+    });
+  }
   return row;
 }
 
@@ -351,6 +443,29 @@ function renderTimeline() {
 
   if (state.autoScrollTimeline) tl.scrollTop = tl.scrollHeight;
   hideNewestPill();
+  applyTimelineFilter();
+}
+
+/** Show/hide timeline step cards based on `state.timelineFilter`. Matches against
+ *  each card's pre-computed `data-search` haystack (kind/name/summary/error). */
+function applyTimelineFilter() {
+  const q = (state.timelineFilter || '').trim().toLowerCase();
+  const tl = document.getElementById('timeline');
+  if (!tl) return;
+  const cards = tl.querySelectorAll('.step-card');
+  const countEl = document.getElementById('timeline-search-count');
+  if (!q) {
+    cards.forEach((c) => c.classList.remove('filtered-out'));
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  let shown = 0;
+  cards.forEach((c) => {
+    const hit = (c.dataset.search || '').includes(q);
+    c.classList.toggle('filtered-out', !hit);
+    if (hit) shown += 1;
+  });
+  if (countEl) countEl.textContent = `${shown} / ${cards.length}`;
 }
 
 function buildStepCard(ev) {
@@ -364,6 +479,8 @@ function buildStepCard(ev) {
   const ts = formatTs(ev.timestamp);
   const name = ev.tool_name || ev.agent_name || ev.event_type;
   const summary = ev.summary || '';
+  // Pre-computed haystack for the timeline filter (kind/name/summary/error).
+  card.dataset.search = `${ev.event_type} ${name} ${summary} ${ev.error_message || ''}`.toLowerCase();
   const dur = ev.duration_ms != null ? `<span class="badge duration">${formatMs(ev.duration_ms)}</span>` : '';
   const tokens = (ev.token_input != null || ev.token_output != null)
     ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}</span>`
@@ -410,6 +527,7 @@ function appendStepCard(ev) {
   }
 
   tl.appendChild(buildStepCard(ev));
+  if (state.timelineFilter) applyTimelineFilter();
 
   if (state.autoScrollTimeline) {
     tl.scrollTop = tl.scrollHeight;
@@ -420,6 +538,14 @@ function appendStepCard(ev) {
 
   // Pulse graph node + flash edge from previous event's node.
   pulseGraphForEvent(ev);
+
+  // Keep the manual-replay step list current as live events stream in, so the
+  // "Step X / N" total and prev/next reach later-arriving events without the
+  // user re-selecting the run. manualStepIdx is preserved.
+  if (state.replayMode === 'manual') {
+    state.replaySteps = buildReplaySteps();
+    updateManualStepUI();
+  }
 }
 
 function showNewestPill() {
@@ -449,6 +575,10 @@ function formatTs(iso) {
 function openStepDrawer(ev) {
   const drawer = document.getElementById('drawer');
   const body = document.getElementById('drawer-body');
+  // Token for the async blob fetch below: if the user opens another step before
+  // the fetch resolves, this changes and the stale response is discarded rather
+  // than written into the now-different drawer.
+  state.currentDrawerEventId = ev.event_id;
   document.getElementById('drawer-title').textContent =
     `${(EVENT_ICONS[ev.event_type] || '•')} ${ev.event_type}`;
 
@@ -489,15 +619,22 @@ function openStepDrawer(ev) {
   showDrawer();
 
   if (ev.blob_path) {
+    const fetchedEventId = ev.event_id;
     apiGet(`/runs/${encodeURIComponent(ev.run_id)}/steps/${encodeURIComponent(ev.event_id)}/full`)
       .then((data) => {
-        document.getElementById('drawer-blob-status').classList.add('hidden');
+        // Drawer moved on (or closed) while we were fetching — drop the result.
+        if (state.currentDrawerEventId !== fetchedEventId) return;
+        const status = document.getElementById('drawer-blob-status');
         const pre = document.getElementById('drawer-blob');
+        if (!status || !pre) return;
+        status.classList.add('hidden');
         pre.classList.remove('hidden');
         pre.innerHTML = highlightJson(data.full_payload);
       })
       .catch((err) => {
-        document.getElementById('drawer-blob-status').textContent = `Failed: ${err.message}`;
+        if (state.currentDrawerEventId !== fetchedEventId) return;
+        const status = document.getElementById('drawer-blob-status');
+        if (status) status.textContent = `Failed: ${err.message}`;
       });
   }
 }
@@ -506,6 +643,7 @@ function openStepDrawer(ev) {
  *  connections list and elsewhere where a quick visual signifier helps. */
 const TYPE_ICONS = {
   agent: '⬡',
+  mcp: '▥',
   tool: '▭',
   llm: '◯',
   retriever: '⌭',
@@ -513,6 +651,7 @@ const TYPE_ICONS = {
 };
 const TYPE_LABEL = {
   agent: 'Agent',
+  mcp: 'MCP server',
   tool: 'Tool',
   llm: 'LLM',
   retriever: 'Retriever',
@@ -561,6 +700,37 @@ function renderConnectionsList(connections) {
     </button>`).join('')}</div>`;
 }
 
+/** Render the "Calls" area of a node drawer. For an MCP server it lists the tools
+ *  it provides (called or not); for an agent it groups what it calls into MCP
+ *  servers vs in-code (local) tools vs everything else; otherwise a flat list. */
+function renderCallsSection(nodeData, calls) {
+  const block = (title, items) => `
+    <section class="drawer-section">
+      <h4>${escapeHtml(title)} <span class="count-pill">${items.length}</span></h4>
+      ${renderConnectionsList(items)}
+    </section>`;
+
+  if (nodeData.type === 'mcp') {
+    return block('Provides tools', calls);
+  }
+  if (nodeData.type === 'agent') {
+    const servers = calls.filter((c) => c.node.type === 'mcp');
+    const localTools = calls.filter((c) => c.node.type === 'tool' && !c.node.source);
+    // MCP tools (tool with a source) are reachable by drilling into their server,
+    // so they're not repeated here — keeps the agent view to servers + local tools.
+    const other = calls.filter(
+      (c) => c.node.type !== 'mcp' && !(c.node.type === 'tool'),
+    );
+    let html = '';
+    if (servers.length) html += block('MCP servers', servers);
+    if (localTools.length) html += block('In-code tools', localTools);
+    if (other.length) html += block('Also calls', other);
+    if (!html) html = block('Calls', []);
+    return html;
+  }
+  return block('Calls', calls);
+}
+
 /** Navigate to a node: highlight in graph + reopen drawer with that node's
  *  details. Used when the user clicks a connection row. */
 function navigateToNode(nodeId) {
@@ -572,6 +742,7 @@ function navigateToNode(nodeId) {
     id: target.id,
     type: target.type,
     label: target.name,
+    source: target.source,
     invocations: target.invocation_count,
     errors: target.error_count,
     avgMs: target.avg_duration_ms,
@@ -626,6 +797,7 @@ function openNodeDrawer(nodeData) {
   const body = document.getElementById('drawer-body');
   const labelByType = {
     agent: 'Agent',
+    mcp: 'MCP server',
     tool: 'Tool',
     llm: 'LLM',
     retriever: 'Retriever',
@@ -643,6 +815,15 @@ function openNodeDrawer(nodeData) {
 
   // Connections derived from topology — what does this node call, and who calls it.
   const { calls, calledBy } = getNodeConnections(nodeData.id);
+
+  // Tool-source provenance (MCP server vs local), looked up from topology by id.
+  const topoNode = (state.topology?.nodes || []).find((n) => n.id === nodeData.id);
+  const toolSource = topoNode?.source;
+  const sourceFoot = nodeData.type === 'tool'
+    ? (toolSource
+        ? ` · Source: <strong>MCP ${escapeHtml(toolSource)}</strong>`
+        : ' · Source: <strong>local</strong>')
+    : '';
 
   body.innerHTML = `
     <section class="drawer-section drawer-hero">
@@ -673,16 +854,13 @@ function openNodeDrawer(nodeData) {
           <span class="stat-value">${formatMs(nodeData.p99Ms)}</span>
         </div>
       </div>
-      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}</div>
+      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}</div>
     </section>
 
-    <section class="drawer-section">
-      <h4>Calls <span class="count-pill">${calls.length}</span></h4>
-      ${renderConnectionsList(calls)}
-    </section>
+    ${renderCallsSection(nodeData, calls)}
 
     <section class="drawer-section">
-      <h4>Called by <span class="count-pill">${calledBy.length}</span></h4>
+      <h4>${nodeData.type === 'mcp' ? 'Used by' : 'Called by'} <span class="count-pill">${calledBy.length}</span></h4>
       ${renderConnectionsList(calledBy)}
     </section>
 
@@ -724,7 +902,12 @@ function openEdgeDrawer(edgeData) {
   document.getElementById('drawer-title').textContent = `Edge: ${edgeData.source} → ${edgeData.target}`;
 
   // Build a synthetic node descriptor for the target, then reuse the matcher.
-  const [tgtType, tgtName] = (edgeData.target || ':').split(':');
+  // Node ids are `${kind}:${name}` — split on the FIRST colon only so names
+  // that themselves contain a colon (e.g. `llama3:8b`, `openai:gpt-4`) survive.
+  const tgt = edgeData.target || ':';
+  const ci = tgt.indexOf(':');
+  const tgtType = ci >= 0 ? tgt.slice(0, ci) : '';
+  const tgtName = ci >= 0 ? tgt.slice(ci + 1) : tgt;
   const targetNode = { type: tgtType, label: tgtName };
   const matching = (state.journey || []).filter((ev) => eventMatchesNode(ev, targetNode));
   matching.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
@@ -778,6 +961,8 @@ function closeDrawer() {
   document.getElementById('drawer-backdrop').classList.remove('visible');
   setTimeout(() => document.getElementById('drawer-backdrop').classList.add('hidden'), 220);
   document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+  // Invalidate any in-flight blob fetch so it can't write into a reopened drawer.
+  state.currentDrawerEventId = null;
 }
 
 /* ============================================================
@@ -785,8 +970,12 @@ function closeDrawer() {
  * ============================================================ */
 
 function highlightJson(value) {
+  // Guard FIRST: null/undefined (and anything that stringifies to undefined,
+  // e.g. a bare `undefined` payload) must short-circuit before any .replace,
+  // otherwise we'd call String.prototype.replace on `undefined` and throw.
+  if (value == null) return '';
   const json = JSON.stringify(value, null, 2);
-  if (json == null) return '';
+  if (typeof json !== 'string') return '';
   // Escape HTML once; then use class-tagged spans for tokens.
   const escaped = json
     .replace(/&/g, '&amp;')
@@ -863,9 +1052,10 @@ function handleRunsWsMessage(msg) {
   if (!msg || !msg.msg_type) return;
   if (msg.msg_type === 'run_update' && msg.payload?.run) {
     upsertRun(msg.payload.run);
-  } else if (msg.msg_type === 'event' && msg.payload?.event) {
+  } else if (msg.msg_type === 'event' && msg.payload?.event_id) {
     // The global feed may not carry per-run events depending on backend wiring;
     // keep a defensive path that bumps run.total_steps when we see events.
+    // (StoredEvent fields are flat in payload — gate on event_id, not .event.)
     const run = state.runsById.get(msg.run_id);
     if (run) {
       run.total_steps += 1;
@@ -949,8 +1139,10 @@ function handleTraceWsMessage(msg) {
     });
     renderTimeline();
     applyRunTraceToGraph();
-  } else if (msg.msg_type === 'event' && msg.payload?.event) {
-    appendStepCard(msg.payload.event);
+  } else if (msg.msg_type === 'event' && msg.payload?.event_id) {
+    // The worker broadcasts the StoredEvent fields flat in `payload` (no nested
+    // `event` key), so the live step is `msg.payload` itself.
+    appendStepCard(msg.payload);
     addEventToRateWindow();
     scheduleGraphTopologyRefresh();
   } else if (msg.msg_type === 'run_update' && msg.payload?.run) {
@@ -1007,9 +1199,166 @@ async function loadTopology() {
   try {
     state.topology = await apiGet('/topology');
     if (graph?.isReady()) graph.setTopology(state.topology);
+    renderMcpLegend();
   } catch (e) {
     toast(`Could not load topology: ${e.message}`, 'error', 3000);
   }
+  // Tools-by-source derives from the same events; refresh it alongside topology.
+  loadTools();
+}
+
+async function loadTools() {
+  try {
+    renderToolsPanel(await apiGet('/tools'));
+  } catch {
+    /* non-fatal: leave the panel showing its last state */
+  }
+}
+
+function renderToolsPanel(data) {
+  const body = document.getElementById('tools-panel-body');
+  if (!body) return;
+  const sources = (data && data.sources) || [];
+  if (!sources.length) {
+    body.innerHTML = '<div class="tools-panel-empty">No tools yet</div>';
+    applyToolsCollapsed();
+    return;
+  }
+  body.innerHTML = sources.map((s) => {
+    const isMcp = s.kind === 'mcp';
+    // Per-server colour shared with the graph rings + legend (mcpServerColor).
+    const color = isMcp ? mcpServerColor(s.source) : 'var(--text-dim)';
+    const label = isMcp ? escapeHtml(s.source) : 'Local';
+    const badge = isMcp ? 'MCP' : 'LOCAL';
+    const count = `${s.tool_count}`;
+    const rows = (s.tools || []).map((t) => `
+      <div class="tool-row">
+        <span class="tool-dot" style="background:${color}"></span>
+        <span class="tool-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</span>
+        <span class="tool-invocations" title="invocations">${Number(t.invocations) || 0}×</span>
+        ${t.errors ? `<span class="tool-errors" title="errors">${Number(t.errors)} err</span>` : ''}
+      </div>`).join('');
+    return `
+      <div class="tool-source-group" style="border-left-color:${color}">
+        <div class="tool-source-head">
+          <span class="tool-source-badge ${isMcp ? 'mcp' : 'local'}" style="${isMcp ? `background:${color}1f;color:${color};border-color:${color}` : ''}">${badge}</span>
+          <span class="tool-source-name">${label}</span>
+          <span class="tool-source-count" title="tools">${count}</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
+  applyToolsCollapsed();
+}
+
+/** Rebuild the dynamic "MCP servers" legend section from the current topology,
+ *  using the same colours as the graph rings + the panel. Hidden when none. */
+function renderMcpLegend() {
+  const container = document.getElementById('legend-mcp-servers');
+  if (!container) return;
+  const servers = [
+    ...new Set(
+      (state.topology?.nodes || [])
+        .filter((n) => n.type === 'tool' && n.source)
+        .map((n) => n.source),
+    ),
+  ].sort();
+  if (!servers.length) {
+    container.innerHTML = '';
+    container.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  container.innerHTML =
+    '<div class="legend-section-title">MCP servers</div>' +
+    servers.map((s) =>
+      `<div class="legend-item"><span class="legend-mcp-dot" style="background:${mcpServerColor(s)}"></span>${escapeHtml(s)}</div>`
+    ).join('');
+}
+
+/** Apply the persisted collapsed state to the panel (class + toggle glyph). Called
+ *  on toggle AND after every renderToolsPanel so the two never desync. */
+function applyToolsCollapsed() {
+  const panel = document.getElementById('tools-panel');
+  const toggle = document.getElementById('tools-panel-toggle');
+  if (!panel) return;
+  panel.classList.toggle('collapsed', state.toolsCollapsed);
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', state.toolsCollapsed ? 'false' : 'true');
+    toggle.innerHTML = state.toolsCollapsed ? '&#x2b;' : '&#x2212;';
+  }
+}
+
+function wireToolsPanel() {
+  const panel = document.getElementById('tools-panel');
+  const header = panel && panel.querySelector('.tools-panel-header');
+  if (!panel || !header) return;
+
+  // Restore a saved position so the panel stays where the user parked it (out of
+  // the way of the llm/retriever columns on the right).
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_TOOLS_POS) || 'null');
+    if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+      panel.style.left = `${saved.left}px`;
+      panel.style.top = `${saved.top}px`;
+      panel.style.right = 'auto';
+    }
+  } catch { /* ignore bad saved value */ }
+
+  // Drag the header to MOVE the panel; a plain click (no drag) toggles collapse.
+  let startX = 0, startY = 0, origLeft = 0, origTop = 0, pressed = false, dragging = false;
+
+  const onMove = (e) => {
+    if (!pressed) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!dragging && Math.hypot(dx, dy) < 4) return;   // below threshold = still a click
+    dragging = true;
+    const pane = panel.parentElement;
+    const pb = pane.getBoundingClientRect();
+    const left = Math.max(4, Math.min(origLeft + dx, pb.width - panel.offsetWidth - 4));
+    const top = Math.max(4, Math.min(origTop + dy, pb.height - 40));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = 'auto';
+  };
+
+  const onUp = () => {
+    if (!pressed) return;
+    pressed = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (dragging) {
+      try {
+        localStorage.setItem(STORAGE_TOOLS_POS, JSON.stringify({
+          left: parseFloat(panel.style.left),
+          top: parseFloat(panel.style.top),
+        }));
+      } catch { /* ignore */ }
+    } else {
+      state.toolsCollapsed = !state.toolsCollapsed;
+      applyToolsCollapsed();
+    }
+    dragging = false;
+  };
+
+  header.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    pressed = true;
+    dragging = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    const pane = panel.parentElement;
+    const pr = panel.getBoundingClientRect();
+    const pb = pane.getBoundingClientRect();
+    origLeft = pr.left - pb.left;
+    origTop = pr.top - pb.top;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault();   // prevent text selection while dragging
+  });
+
+  applyToolsCollapsed();
 }
 
 function setGraphMode(mode) {
@@ -1092,12 +1441,22 @@ function scheduleGraphTopologyRefresh() {
   if (state.graphRenderTimer) clearTimeout(state.graphRenderTimer);
   state.graphRenderTimer = setTimeout(async () => {
     state.pendingTopologyUpdate = false;
+    // An in-flight auto-replay holds references to the current node/edge
+    // elements; rebuilding the graph would orphan them and drop the moving
+    // dot mid-step. Skip — a live run keeps emitting events that retrigger
+    // this, and a finished run's topology is already static.
+    if (state.autoReplayInProgress) return;
     try {
       const topo = await apiGet('/topology');
       state.topology = topo;
       if (graph?.isReady()) graph.setTopology(topo);
-      // Re-apply trace highlight after topology mutation.
+      // setTopology rebuilds the node/edge elements, dropping all step-*
+      // highlight classes — re-apply whatever should currently be showing.
       if (state.graphMode === 'trace') applyRunTraceToGraph();
+      if (state.replayMode === 'manual' && state.manualStepIdx >= 0 && graph?.isReady()) {
+        const step = state.replaySteps[state.manualStepIdx];
+        if (step) graph.highlightStep(step.source, step.target, { animate: false, pulse: false });
+      }
     } catch { /* swallow */ }
   }, 300);
 }
@@ -1443,6 +1802,10 @@ function wireUI() {
     state.searchQuery = e.target.value;
     renderRunList();
   });
+  document.getElementById('timeline-search').addEventListener('input', (e) => {
+    state.timelineFilter = e.target.value;
+    applyTimelineFilter();
+  });
 
   document.querySelectorAll('.seg-btn').forEach((b) => {
     b.addEventListener('click', () => {
@@ -1552,6 +1915,7 @@ async function main() {
 
   wireUI();
   wireKeyboard();
+  wireToolsPanel();
   applyPaneState();
 
   // Read initial hash before first load.

@@ -10,7 +10,7 @@ import contextlib
 import logging
 import time
 from collections import OrderedDict, deque
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from tracelens.models import (
@@ -54,8 +54,27 @@ _START_TO_KEY: dict[EventType, str] = {
 }
 
 
-_TERMINAL_AT_ROOT: frozenset[EventType] = frozenset(
-    {EventType.CHAIN_END, EventType.AGENT_FINISH}
+# Root-level (parent_run_id is None) events that mark a run terminal. Includes
+# llm/tool/retriever ends so a "bare" root (e.g. a direct llm.ainvoke with no
+# wrapping chain) is marked COMPLETED instead of stuck RUNNING forever. For a
+# chain/graph root these never fire at root level (the llm/tool is nested under
+# the chain), so this does not affect normal chain roots.
+_ROOT_TERMINAL_OK: frozenset[EventType] = frozenset(
+    {
+        EventType.CHAIN_END,
+        EventType.AGENT_FINISH,
+        EventType.LLM_END,
+        EventType.TOOL_END,
+        EventType.RETRIEVER_END,
+    }
+)
+_ROOT_TERMINAL_ERR: frozenset[EventType] = frozenset(
+    {
+        EventType.CHAIN_ERROR,
+        EventType.LLM_ERROR,
+        EventType.TOOL_ERROR,
+        EventType.RETRIEVER_ERROR,
+    }
 )
 
 
@@ -106,8 +125,9 @@ class StorageWorker:
                     if events:
                         await self._process_batch(events)
                 except asyncio.CancelledError:
-                    if events:
-                        self._ack_batch(events)
+                    # Do NOT ack here — the `finally` below acks exactly once.
+                    # Acking in both places double-counts task_done() and
+                    # corrupts the queue's unfinished-task counter.
                     raise
                 except Exception as e:  # pragma: no cover - defensive top-level
                     log.error("StorageWorker batch error: %s", e, exc_info=True)
@@ -208,20 +228,18 @@ class StorageWorker:
                     runs_to_upsert.append(self._raw_to_run(event))
                     self._mark_run_seen(event.run_id)
 
-                # Terminal updates: at-root chain_end / agent_finish, or chain_error anywhere.
-                is_terminal = (
-                    event.event_type == EventType.CHAIN_ERROR
-                    or (
-                        event.event_type in _TERMINAL_AT_ROOT
-                        and event.parent_run_id is None
-                    )
+                # Terminal updates: only a ROOT-level event (parent_run_id is None)
+                # marks a run terminal. A nested/recovered error must NOT fail the
+                # whole root run — if it is uncaught it propagates and the root also
+                # emits its own error (parent_run_id is None); if it is caught inside
+                # the graph the root completes normally. With the monotonic backend
+                # guard (WHERE status='running'), the first terminal event wins.
+                is_error = event.event_type in _ROOT_TERMINAL_ERR
+                is_terminal = event.parent_run_id is None and (
+                    is_error or event.event_type in _ROOT_TERMINAL_OK
                 )
                 if is_terminal:
-                    status = (
-                        RunStatus.FAILED
-                        if event.event_type == EventType.CHAIN_ERROR
-                        else RunStatus.COMPLETED
-                    )
+                    status = RunStatus.FAILED if is_error else RunStatus.COMPLETED
                     terminal_updates.append(
                         (event.root_run_id, status, event.timestamp, event.error_message)
                     )
@@ -396,6 +414,7 @@ class StorageWorker:
             timestamp=event.timestamp,
             agent_name=event.agent_name,
             tool_name=event.tool_name,
+            mcp_server=event.mcp_server,
             summary=event.summary,
             blob_path=blob_path,
             duration_ms=duration_ms,
@@ -420,7 +439,3 @@ class StorageWorker:
         sorted_l = sorted(self._latencies)
         idx = max(0, int(len(sorted_l) * 0.99) - 1)
         return sorted_l[idx]
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)

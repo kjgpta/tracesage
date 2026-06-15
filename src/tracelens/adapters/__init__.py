@@ -1,4 +1,4 @@
-"""Framework adapters. v0.1 ships LangChain only.
+"""Framework adapters. Ships the LangChain adapter (plus an MCP attribution helper).
 
 Future:
 - adapters.crewai

@@ -46,15 +46,15 @@ Thanks for sending a PR! Please fill in the sections below.
 
 ## Checklist
 
-- [ ] I have read [`CONTRIBUTING.md`](../blob/main/CONTRIBUTING.md)
-- [ ] I have updated `CHANGELOG.md` under the next unreleased version
+- [ ] I have read [`CONTRIBUTING.md`](../blob/main/docs/contributing.md)
+- [ ] I have updated `docs/changelog.md` under the next unreleased version
 - [ ] I have updated docs in `docs/` if user-visible behaviour changed
-- [ ] My commits follow the project's [convention](../blob/main/CONTRIBUTING.md#commit-style)
+- [ ] My commits follow the project's [convention](../blob/main/docs/contributing.md#commit-style)
 # Security policy
 
 ## Supported versions
 
-tracelens is currently in v0.1 alpha. Only the latest minor release receives
+tracelens is currently in v0.2 alpha. Only the latest minor release receives
 security fixes. Once v1.0 ships, the previous minor will receive fixes for
 6 months after the next release.
 
@@ -105,7 +105,7 @@ Out of scope:
 ## Hardening recommendations
 
 If you operate tracelens in production, please review
-[`docs/integration_guide/PRODUCTION.md`](../docs/integration_guide/PRODUCTION.md)
+[`docs/production.md`](../docs/production.md)
 which covers:
 
 - The hard fail-stop on non-loopback binding without `auth_token`

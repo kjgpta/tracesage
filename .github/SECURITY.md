@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-tracelens is currently in v0.1 alpha. Only the latest minor release receives
+tracelens is currently in v0.2 alpha. Only the latest minor release receives
 security fixes. Once v1.0 ships, the previous minor will receive fixes for
 6 months after the next release.
 
@@ -53,7 +53,7 @@ Out of scope:
 ## Hardening recommendations
 
 If you operate tracelens in production, please review
-[`docs/integration_guide/PRODUCTION.md`](../docs/integration_guide/PRODUCTION.md)
+[`docs/production.md`](../docs/production.md)
 which covers:
 
 - The hard fail-stop on non-loopback binding without `auth_token`

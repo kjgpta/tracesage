@@ -9,18 +9,66 @@ pip install tracelens[langchain]
 ```
 
 `tracelens` requires Python 3.11+ and pulls `langchain-core` as the only mandatory
-external dependency for the LangChain adapter.
+external dependency for the LangChain adapter. If your app uses **LangGraph**, also
+`pip install langgraph` (tracelens doesn't pull it). tracelens is **provider-agnostic** —
+it traces the LangChain callback stream, so OpenAI, Anthropic, local models, etc. are all
+captured automatically; there is no provider setting in tracelens.
 
-## Two-line integration
+### Using a real provider
+
+The examples use a fake model so they need no key. For your own app, install a provider
+and set its key:
+
+```bash
+# OpenAI
+pip install langchain-openai      && export OPENAI_API_KEY=...
+# or Anthropic
+pip install langchain-anthropic   && export ANTHROPIC_API_KEY=...
+```
+
+You construct the model exactly as you normally would (`ChatOpenAI(...)`,
+`ChatAnthropic(...)`, or `init_chat_model("anthropic:claude-...")`) — tracelens captures it
+whichever you choose.
+
+## See it in 5 seconds
+
+```bash
+tracelens demo      # seeds a sample trace, opens the UI
+```
+
+## Integrate (the whole thing)
+
+**Sync scripts / notebooks** — wrap your run; every LangChain call is captured
+automatically (no `callbacks=` wiring), and a clickable trace link prints:
+
+```python
+import tracelens
+
+with tracelens.trace():                 # starts the UI + global capture
+    result = agent.invoke("your input")  # 🔍 tracelens: http://127.0.0.1:7842/ui/#run=...
+    input("Trace ready — open the printed link, then press Enter to exit.")
+```
+
+The embedded UI server stops when the `with` block (and the process) exits, so a one-shot
+script needs to stay alive while you look — hence the `input(...)`. (Traces also persist to
+`~/.tracelens`, so you can always reopen them later with `tracelens serve`.)
+
+**Async apps** — use the context manager (or `await TraceLens.create()` for full control):
 
 ```python
 from tracelens import TraceLens
 
-tracer = await TraceLens.create()  # starts background worker + UI server
+async with TraceLens.session(install=True) as tl:   # install=True → global capture
+    result = await graph.ainvoke({"input": payload})
+    await tl.flush()                                 # ensure events are persisted
+```
 
+Prefer explicit wiring (or finer control)? Skip `install=True` and pass the handler:
+
+```python
 result = await graph.ainvoke(
     {"input": payload},
-    config={"callbacks": [tracer.handler]},   # the only line you add to your code
+    config={"callbacks": [tl.handler]},   # the only line you add
 )
 ```
 
@@ -90,7 +138,9 @@ a different machine pointed at a synced data directory.
 
 ## Next steps
 
-- [configuration.md](configuration.md) — every knob
-- [production.md](production.md) — sampling, auth, retention, deployment patterns
-- [cli.md](cli.md) — `serve`, `export`, `stats`, `gc`
+- [development.md](development.md) — trace links, sync/notebook setup, terminal debugging (`show`/`watch`/`diff`), the `tracelens_capture` pytest fixture
+- [configuration.md](configuration.md) — every knob (including the `TRACELENS_ENABLED` kill switch)
+- [production.md](production.md) — sampling, auth, retention, disabling, deployment patterns
+- [cli.md](cli.md) — `serve`, `demo`, `show`, `watch`, `diff`, `view`, `export`, `stats`, `gc`
+- [mcp.md](mcp.md) — attributing tools to their MCP server
 - [comparison.md](comparison.md) — when to use tracelens vs LangSmith / Phoenix / LangFuse

@@ -8,7 +8,10 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import threading
+import traceback
 import uuid
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +37,19 @@ log = logging.getLogger("tracelens.handler")
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _traceback_str(error: BaseException, max_len: int = 4000) -> str | None:
+    """Best-effort formatted traceback for an exception (for richer error debugging),
+    or None if the exception carries no traceback. Never raises."""
+    tb = getattr(error, "__traceback__", None)
+    if tb is None:
+        return None
+    try:
+        formatted = "".join(traceback.format_exception(type(error), error, tb))
+        return _safe_str(formatted, max_len)
+    except Exception:
+        return None
 
 
 def _safe_str(obj: Any, max_len: int) -> str:
@@ -118,14 +134,79 @@ def _extract_name(
     return default
 
 
-def _extract_token_usage(response: Any) -> tuple[int | None, int | None]:
-    """Pull (token_input, token_output) from an LLMResult-like object."""
+def _coerce_int(value: Any) -> int | None:
+    """Best-effort int coercion that never raises (a bad value yields None rather
+    than discarding the complementary count)."""
+    if value is None:
+        return None
     try:
-        llm_output = getattr(response, "llm_output", None) or {}
-        usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
-        ti = usage.get("prompt_tokens") or usage.get("input_tokens")
-        to = usage.get("completion_tokens") or usage.get("output_tokens")
-        return (int(ti) if ti is not None else None, int(to) if to is not None else None)
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_present(d: dict[str, Any], *keys: str) -> Any:
+    """First value present (not None) among `keys`.
+
+    Uses an explicit ``is not None`` test rather than ``a or b`` so a legitimate
+    ``0`` (e.g. a cached/empty prompt with ``prompt_tokens == 0``) is preserved
+    instead of being treated as falsy and dropped.
+    """
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _extract_token_usage(response: Any) -> tuple[int | None, int | None]:
+    """Pull (token_input, token_output) from an LLMResult-like object.
+
+    Fills the input and output counts INDEPENDENTLY, taking the first non-None for
+    each across locations: (1) generation message usage_metadata (modern, all
+    providers), (2) legacy llm_output token_usage/usage, (3) message
+    response_metadata. This merges complementary counts that live in different
+    places rather than returning early with a partial pair.
+    """
+    ti: Any = None
+    to: Any = None
+    try:
+        gens = getattr(response, "generations", None) or []
+
+        # 1. usage_metadata on generation messages (canonical in modern langchain).
+        for batch in gens:
+            for gen in (batch or []):
+                msg = getattr(gen, "message", None)
+                um = getattr(msg, "usage_metadata", None) if msg is not None else None
+                if um:
+                    if ti is None:
+                        ti = um.get("input_tokens")
+                    if to is None:
+                        to = um.get("output_tokens")
+
+        # 2. Legacy aggregate location.
+        if ti is None or to is None:
+            llm_output = getattr(response, "llm_output", None) or {}
+            usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
+            if ti is None:
+                ti = _first_present(usage, "prompt_tokens", "input_tokens")
+            if to is None:
+                to = _first_present(usage, "completion_tokens", "output_tokens")
+
+        # 3. response_metadata token_usage on a generation message.
+        if ti is None or to is None:
+            for batch in gens:
+                for gen in (batch or []):
+                    msg = getattr(gen, "message", None)
+                    rm = getattr(msg, "response_metadata", None) if msg is not None else None
+                    if rm:
+                        u = rm.get("token_usage") or rm.get("usage") or {}
+                        if ti is None:
+                            ti = _first_present(u, "prompt_tokens", "input_tokens")
+                        if to is None:
+                            to = _first_present(u, "completion_tokens", "output_tokens")
+
+        return (_coerce_int(ti), _coerce_int(to))
     except Exception:
         return (None, None)
 
@@ -154,6 +235,11 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
     def __init__(self, tracer: TraceLens) -> None:
         super().__init__()
         self._tracer = tracer
+        # Callbacks fire on arbitrary executor threads, so the per-run caches
+        # below are guarded by a lock around every read-modify-write (trim,
+        # insert, pop) — mirroring tracer._state_lock. Without it a trim racing
+        # an insert can evict a still-active run's state.
+        self._cache_lock = threading.Lock()
         # run_id → name cache so *_end events can recover the name set at *_start.
         # Capped to avoid unbounded growth in long-lived processes.
         self._names: dict[str, str] = {}
@@ -164,34 +250,55 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
         # that would flood the queue at production scale.
         self._token_state: dict[str, dict[str, Any]] = {}
         self._token_state_cap = 50_000
+        # run_id → llm/chat start timestamp, for true TTFT (first-token - start).
+        # Bounded like the other caches; always popped on on_llm_end/on_llm_error.
+        self._llm_start_ts: dict[str, datetime] = {}
+        self._llm_start_ts_cap = 50_000
 
     def _remember_name(self, run_id: str, name: str | None) -> None:
         if name is None:
             return
-        if len(self._names) >= self._names_cap:
-            # Trim oldest half (set is unordered but bounded — acceptable for v0.1).
-            keys = list(self._names.keys())
-            for k in keys[: self._names_cap // 2]:
-                self._names.pop(k, None)
-        self._names[run_id] = name
+        with self._cache_lock:
+            if len(self._names) >= self._names_cap:
+                # Trim oldest half (set is unordered but bounded — acceptable for v0.1).
+                keys = list(self._names.keys())
+                for k in keys[: self._names_cap // 2]:
+                    self._names.pop(k, None)
+            self._names[run_id] = name
 
     def _recall_name(self, run_id: str) -> str | None:
-        return self._names.pop(run_id, None)
+        with self._cache_lock:
+            return self._names.pop(run_id, None)
 
     def _record_token(self, run_id: str) -> None:
-        st = self._token_state.get(run_id)
-        if st is None:
-            if len(self._token_state) >= self._token_state_cap:
-                # Trim oldest half — bounded for long-running processes.
-                keys = list(self._token_state.keys())
-                for k in keys[: self._token_state_cap // 2]:
-                    self._token_state.pop(k, None)
-            self._token_state[run_id] = {"first_ts": _utcnow(), "count": 1}
-        else:
-            st["count"] += 1
+        with self._cache_lock:
+            st = self._token_state.get(run_id)
+            if st is None:
+                if len(self._token_state) >= self._token_state_cap:
+                    # Trim oldest half — bounded for long-running processes.
+                    keys = list(self._token_state.keys())
+                    for k in keys[: self._token_state_cap // 2]:
+                        self._token_state.pop(k, None)
+                self._token_state[run_id] = {"first_ts": _utcnow(), "count": 1}
+            else:
+                st["count"] += 1
 
     def _consume_token_state(self, run_id: str) -> dict[str, Any] | None:
-        return self._token_state.pop(run_id, None)
+        with self._cache_lock:
+            return self._token_state.pop(run_id, None)
+
+    def _record_llm_start(self, run_id: str, ts: datetime) -> None:
+        with self._cache_lock:
+            if len(self._llm_start_ts) >= self._llm_start_ts_cap:
+                # Trim oldest half — bounded for long-running processes.
+                keys = list(self._llm_start_ts.keys())
+                for k in keys[: self._llm_start_ts_cap // 2]:
+                    self._llm_start_ts.pop(k, None)
+            self._llm_start_ts[run_id] = ts
+
+    def _consume_llm_start(self, run_id: str) -> datetime | None:
+        with self._cache_lock:
+            return self._llm_start_ts.pop(run_id, None)
 
     # ------------------------------------------------------------------ chain
 
@@ -313,8 +420,14 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                 summary=_safe_str(
                     f"{agent_name or 'chain'} ERROR: {err_text}", max_chars
                 ),
-                full_blob_eligible=False,
-                raw_payload={"error": err_text, "type": type(error).__name__},
+                # Error events are blob-eligible so the full traceback (below) is
+                # retrievable in the UI drawer / /full endpoint for debugging.
+                full_blob_eligible=True,
+                raw_payload={
+                    "error": err_text,
+                    "type": type(error).__name__,
+                    "traceback": _traceback_str(error),
+                },
                 error_message=err_text,
             )
             self._tracer.emit(event)
@@ -391,6 +504,27 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
 
     # ------------------------------------------------------------------ tool
 
+    def _resolve_tool_source(
+        self, tool_name: str | None, serialized: dict | None, kwargs: dict
+    ) -> str | None:
+        """Best-effort MCP-server attribution for a tool. Registry (explicit, reliable)
+        first, then tool metadata (``mcp_server_name``). Never raises."""
+        try:
+            registered = self._tracer.tool_source(tool_name)
+            if registered:
+                return registered
+            metas = [kwargs.get("metadata")]
+            if isinstance(serialized, dict):
+                metas.append(serialized.get("metadata"))
+            for meta in metas:
+                if isinstance(meta, dict):
+                    server = meta.get("mcp_server_name") or meta.get("mcp_server")
+                    if server:
+                        return str(server)
+        except Exception:
+            return None
+        return None
+
     def on_tool_start(
         self,
         serialized: dict | None,
@@ -417,6 +551,7 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=_utcnow(),
                 tool_name=tool_name,
+                mcp_server=self._resolve_tool_source(tool_name, serialized, kwargs),
                 summary=_safe_str(
                     f"{tool_name}({_safe_str(input_str, 300)})", max_chars
                 ),
@@ -454,6 +589,7 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=_utcnow(),
                 tool_name=tool_name,
+                mcp_server=self._resolve_tool_source(tool_name, None, kwargs),
                 summary=_safe_str(
                     f"{tool_name or 'tool'} -> {_safe_str(output, 300)}", max_chars
                 ),
@@ -489,11 +625,18 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=_utcnow(),
                 tool_name=tool_name,
+                mcp_server=self._resolve_tool_source(tool_name, None, kwargs),
                 summary=_safe_str(
                     f"{tool_name or 'tool'} ERROR: {err_text}", max_chars
                 ),
-                full_blob_eligible=False,
-                raw_payload={"error": err_text, "type": type(error).__name__},
+                # Error events are blob-eligible so the full traceback (below) is
+                # retrievable in the UI drawer / /full endpoint for debugging.
+                full_blob_eligible=True,
+                raw_payload={
+                    "error": err_text,
+                    "type": type(error).__name__,
+                    "traceback": _traceback_str(error),
+                },
                 error_message=err_text,
             )
             self._tracer.emit(event)
@@ -520,13 +663,15 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
             agent_name = _extract_name(serialized)
             num_prompts = len(prompts) if prompts else 0
             last = _safe_str(prompts[-1], 100) if prompts else ""
+            ts = _utcnow()
+            self._record_llm_start(run_id_s, ts)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.LLM_START,
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
-                timestamp=_utcnow(),
+                timestamp=ts,
                 agent_name=agent_name,
                 summary=_safe_str(
                     f"LLM prompt ({num_prompts} prompts, last: {last})", max_chars
@@ -565,13 +710,15 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                     if flat:
                         last = flat[-1]
                         last_content = _safe_str(getattr(last, "content", last), 100)
+            ts = _utcnow()
+            self._record_llm_start(run_id_s, ts)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.CHAT_MODEL_START,
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
-                timestamp=_utcnow(),
+                timestamp=ts,
                 agent_name=agent_name,
                 summary=_safe_str(
                     f"Chat ({num} messages, last: {last_content})", max_chars
@@ -626,25 +773,21 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
             # Streaming telemetry: pop any first-token state and compute
             # time-to-first-token (TTFT) plus streamed token count.
             tok_state = self._consume_token_state(run_id_s)
+            # Always pop the start-ts so this cache cannot grow unboundedly.
+            start_ts = self._consume_llm_start(run_id_s)
             ttft_ms: int | None = None
             streamed_tokens: int | None = None
             ts_now = _utcnow()
+            stream_duration_ms: int | None = None
             if tok_state:
                 streamed_tokens = int(tok_state.get("count") or 0)
                 first_ts = tok_state.get("first_ts")
                 if first_ts is not None:
-                    # We don't have the LLM's start timestamp easily; the
-                    # delta between first token and end is "stream duration"
-                    # (useful) but not TTFT. We instead approximate TTFT by
-                    # storing the first_ts itself and let the worker (which
-                    # knows the matching llm_start timestamp) compute TTFT.
-                    pass
-                # Stream duration (first-token to end) is well-defined here.
-                stream_duration_ms = max(
-                    0, int((ts_now - first_ts).total_seconds() * 1000)
-                )
-            else:
-                stream_duration_ms = None
+                    if start_ts is not None:
+                        # True TTFT: llm_start timestamp → first streamed token.
+                        ttft_ms = max(0, int((first_ts - start_ts).total_seconds() * 1000))
+                    # Stream duration (first-token to end).
+                    stream_duration_ms = max(0, int((ts_now - first_ts).total_seconds() * 1000))
 
             summary_parts = [f"LLM response ({tokens_label} tokens): {text}"]
             if streamed_tokens is not None:
@@ -666,6 +809,7 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                         if tok_state and tok_state.get("first_ts") else None
                     ),
                     "stream_duration_ms": stream_duration_ms,
+                    "ttft_ms": ttft_ms,
                 }
 
             event = RawEvent(
@@ -702,6 +846,10 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
             max_chars = self._tracer._config.summary_max_chars
             err_text = _safe_str(error, 400)
+            # Free any pending start-ts / token state so the caches cannot leak
+            # on a failed LLM call (no on_llm_end fires in that case).
+            self._consume_llm_start(run_id_s)
+            self._consume_token_state(run_id_s)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.LLM_ERROR,
@@ -710,13 +858,68 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=_utcnow(),
                 summary=_safe_str(f"ERROR: {err_text}", max_chars),
-                full_blob_eligible=False,
-                raw_payload={"error": err_text, "type": type(error).__name__},
+                # Error events are blob-eligible so the full traceback (below) is
+                # retrievable in the UI drawer / /full endpoint for debugging.
+                full_blob_eligible=True,
+                raw_payload={
+                    "error": err_text,
+                    "type": type(error).__name__,
+                    "traceback": _traceback_str(error),
+                },
                 error_message=err_text,
             )
             self._tracer.emit(event)
         except Exception as e:
             log.error("on_llm_error error: %s", e, exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------ retry
+
+    def on_retry(
+        self,
+        retry_state: Any,
+        *,
+        run_id: Any,
+        parent_run_id: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """LangChain fires this when a runnable retries (backoff / transient error).
+
+        Informational only: no agent_name / tool_name, so it produces no topology
+        node. Best-effort attempt info is pulled from the retry_state.
+        """
+        try:
+            run_id_s = str(run_id)
+            parent_s = str(parent_run_id) if parent_run_id else None
+            root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            max_chars = self._tracer._config.summary_max_chars
+            # Defensive: a hostile retry_state (e.g. an `outcome`/`attempt_number`
+            # property that raises) must NOT drop the RETRY event. getattr's default
+            # only catches AttributeError, so guard the access itself.
+            attempt = None
+            with contextlib.suppress(Exception):
+                attempt = getattr(retry_state, "attempt_number", None)
+            outcome = None
+            with contextlib.suppress(Exception):
+                outcome = getattr(retry_state, "outcome", None)
+            event = RawEvent(
+                event_id=str(uuid.uuid4()),
+                event_type=EventType.RETRY,
+                run_id=run_id_s,
+                parent_run_id=parent_s,
+                root_run_id=root,
+                timestamp=_utcnow(),
+                summary=_safe_str(f"retry attempt {attempt}", max_chars),
+                full_blob_eligible=False,
+                raw_payload={
+                    "attempt": attempt,
+                    "outcome": _safe_str(outcome, 300) if outcome is not None else None,
+                    "info": _safe_str(retry_state, 300),
+                },
+            )
+            self._tracer.emit(event)
+        except Exception as e:
+            log.error("on_retry error: %s", e, exc_info=True)
             return None
 
     # ------------------------------------------------------------------ retriever
@@ -813,11 +1016,58 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=_utcnow(),
                 summary=_safe_str(f"ERROR: {err_text}", max_chars),
-                full_blob_eligible=False,
-                raw_payload={"error": err_text, "type": type(error).__name__},
+                # Error events are blob-eligible so the full traceback (below) is
+                # retrievable in the UI drawer / /full endpoint for debugging.
+                full_blob_eligible=True,
+                raw_payload={
+                    "error": err_text,
+                    "type": type(error).__name__,
+                    "traceback": _traceback_str(error),
+                },
                 error_message=err_text,
             )
             self._tracer.emit(event)
         except Exception as e:
             log.error("on_retriever_error error: %s", e, exc_info=True)
             return None
+
+
+# --------------------------------------------------------------------------- #
+# Global handler registration
+#
+# Lets users opt every LangChain call into tracing without threading
+# `callbacks=[handler]` through each invocation. Backed by langchain-core's
+# configure-hook mechanism: a hook reads a ContextVar each time a callback
+# manager is configured and adds the handler (inheritably, so nested runs are
+# captured too). The hook is registered at most once; the active handler lives
+# in the ContextVar and is cleared by uninstall.
+# --------------------------------------------------------------------------- #
+
+_GLOBAL_HANDLER_VAR: ContextVar[BaseCallbackHandler | None] = ContextVar(
+    "tracelens_global_handler", default=None
+)
+_global_hook_registered = False
+_global_hook_lock = threading.Lock()
+
+
+def install_global_handler(handler: BaseCallbackHandler) -> None:
+    """Register `handler` as a global LangChain callback (idempotent).
+
+    After this, every chain/agent/LLM/tool invocation is captured even without an
+    explicit ``callbacks=`` argument. Call :func:`uninstall_global_handler` to stop.
+    """
+    global _global_hook_registered
+    with _global_hook_lock:
+        if not _global_hook_registered:
+            # register_configure_hook lives in langchain_core.tracers.context.
+            from langchain_core.tracers.context import register_configure_hook
+
+            register_configure_hook(_GLOBAL_HANDLER_VAR, True)  # inheritable
+            _global_hook_registered = True
+    _GLOBAL_HANDLER_VAR.set(handler)
+
+
+def uninstall_global_handler() -> None:
+    """Clear the globally-registered tracelens handler (the hook itself stays
+    registered but becomes a no-op once the ContextVar holds None)."""
+    _GLOBAL_HANDLER_VAR.set(None)

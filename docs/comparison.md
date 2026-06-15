@@ -25,13 +25,14 @@ sweet spot. Here's when to pick which.
 | LangChain native | ✓ | ✓ (auto-instrument) | ✓ (SDK) | ✓ (OpenInference) |
 | Live UI (WebSocket) | ✓ | ✓ | ✓ | ✓ |
 | Interactive graph view | ✓ | ✓ | ✓ | ✓ |
+| MCP tool attribution | ✓ | ✗ | ✗ | ✗ |
 | Multi-user / RBAC | v0.4+ | ✓ | ✓ | ✓ |
 | Eval framework | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Dataset management | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Prompt versioning | ✗ (non-goal) | ✓ | ✓ | ✗ |
 | OpenTelemetry export | v0.3+ | partial | ✓ | ✓ |
-| Cost tracking | v0.2+ | ✓ | ✓ | ✓ |
-| PII redaction | v0.2+ | ✓ | ✓ | partial |
+| Cost tracking | v0.3+ | ✓ | ✓ | ✓ |
+| PII redaction | ✓ | ✓ | ✓ | partial |
 | MIT licensed | ✓ | proprietary | MIT | Elastic v2 |
 
 ## Why tracelens exists
@@ -69,7 +70,6 @@ The data directory is portable JSONL-exportable. You can:
 
 - OpenInference / OTLP export
 - Cost tracking
-- PII redaction
 - React-based UI with eval scaffolding
 - Postgres backend for centralized deployments
 - CrewAI / AutoGen / LlamaIndex adapters

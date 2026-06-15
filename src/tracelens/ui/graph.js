@@ -25,11 +25,28 @@
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// Column ordering left-to-right. Any unknown kind falls back to 'agent'.
-const KIND_COLUMNS = ['chain', 'agent', 'tool', 'llm', 'retriever'];
+// Deterministic per-MCP-server colour. The SAME function is imported by app.js so
+// the graph rings, the dynamic legend, and the "Tools by source" panel always agree
+// on a server's colour. Hash the name into a fixed, theme-friendly palette.
+const MCP_PALETTE = [
+  '#58a6ff', '#3fb950', '#d29922', '#a371f7', '#ec6cb9',
+  '#39c5cf', '#ff7b72', '#bc8cff', '#7ee787', '#ffa657',
+];
+export function mcpServerColor(name) {
+  if (!name) return '';
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return MCP_PALETTE[h % MCP_PALETTE.length];
+}
+
+// Column ordering left-to-right. Any unknown kind falls back to 'agent'. The 'mcp'
+// column sits just left of 'tool' so each MCP server's "provides" edges point right
+// into the tools it supplies.
+const KIND_COLUMNS = ['chain', 'agent', 'mcp', 'tool', 'llm', 'retriever'];
 const KIND_LABEL = {
   chain: 'CHAIN',
   agent: 'AGENT',
+  mcp: 'MCP',
   tool: 'TOOL',
   llm: 'LLM',
   retriever: 'RETRIEVER',
@@ -38,6 +55,7 @@ const KIND_LABEL = {
 const KIND_SUBTITLE = {
   chain: 'Pipelines & orchestration',
   agent: 'Workers (your nodes)',
+  mcp: 'MCP servers (tool sources)',
   tool: 'Functions called by agents',
   llm: 'Language models',
   retriever: 'Document retrievers',
@@ -103,6 +121,11 @@ export class GraphView {
     this.bgLayer = null;
 
     this._dragOrigin = null;
+    // User-dragged node positions (id -> {x,y}) so manual de-cluttering survives
+    // re-renders within a mode; cleared on mode switch. _suppressClick swallows the
+    // click that browsers fire at the end of a node drag.
+    this.manualPositions = new Map();
+    this._suppressClick = false;
     this._initialized = false;
     this._init();
   }
@@ -253,6 +276,7 @@ export class GraphView {
         id: n.id,
         name: n.name,
         type: kind,
+        source: n.source || null,  // MCP server name for tool nodes (null = local)
         invocations: n.invocation_count || 0,
         errors: n.error_count || 0,
         avgMs: n.avg_duration_ms,
@@ -293,6 +317,19 @@ export class GraphView {
       this._layoutTrace();
     } else {
       this._layoutColumns();
+    }
+    this._applyManualPositions();
+  }
+
+  /** Re-apply any user-dragged positions on top of the computed layout (so manual
+   *  de-cluttering survives topology refreshes). Skips hidden (non-participating)
+   *  nodes so a dragged node does not reappear in a trace it is not part of. */
+  _applyManualPositions() {
+    if (!this.manualPositions.size) return;
+    for (const n of this.nodes) {
+      if (n.x < -50000) continue;   // keep hidden nodes hidden
+      const p = this.manualPositions.get(n.id);
+      if (p) { n.x = p.x; n.y = p.y; }
     }
   }
 
@@ -396,9 +433,12 @@ export class GraphView {
       colIdx++;
     }
 
-    // Hide nodes that did not participate in this run.
+    // Hide nodes that did not participate in this run. Guard against missing
+    // run data: setRunTrace populates runNodeIds, but _layoutTrace can be
+    // reached (e.g. via setTopology) before a trace has been set.
+    const runNodeIds = this.runNodeIds || new Set();
     for (const n of this.nodes) {
-      if (!this.runNodeIds.has(n.id)) {
+      if (!runNodeIds.has(n.id)) {
         n.x = -100000;
         n.y = -100000;
       }
@@ -637,6 +677,45 @@ export class GraphView {
       g.appendChild(flagTxt);
     }
 
+    // MCP-server provenance for tool nodes, shown INLINE on the tool itself: a ring
+    // in the server's colour (always) plus a server-name chip. In topology the
+    // chip is redundant (the connected mcp node labels the server), so the chip is
+    // shown in TRACE mode — where each tool directly/distinctly carries its MCP
+    // server, instead of a far-off mcp node + long edge across a multi-agent trace.
+    if (n.type === 'tool' && n.source) {
+      const serverColor = mcpServerColor(n.source);
+      g.appendChild(el('rect', {
+        class: 'node-source-ring',
+        x: -NODE_HALF - 5, y: -NODE_HALF * 0.7 - 5,
+        width: NODE_HALF * 2 + 10, height: NODE_HALF * 1.4 + 10,
+        rx: 13, ry: 13,
+        fill: 'none',
+        stroke: serverColor,
+        'stroke-width': 2.5,
+        'stroke-dasharray': '4 3',
+      }));
+      if (this.mode === 'trace') {
+        const chipText = `mcp · ${this._truncate(n.source, 12)}`;
+        const chipW = Math.max(40, chipText.length * 6.2 + 12);
+        const chipY = -NODE_HALF * 0.7 - 23;
+        const chip = el('g', { class: 'node-source-chip' });
+        chip.appendChild(el('rect', {
+          x: -chipW / 2, y: chipY,
+          width: chipW, height: 16, rx: 8, ry: 8,
+          fill: serverColor, 'fill-opacity': 0.95,
+        }));
+        const chipLabel = el('text', {
+          x: 0, y: chipY + 11.5,
+          'text-anchor': 'middle',
+          'font-size': 9.5, 'font-weight': 700,
+          fill: '#0d1117',
+        });
+        chipLabel.textContent = chipText;
+        chip.appendChild(chipLabel);
+        g.appendChild(chip);
+      }
+    }
+
     // Shape by kind.
     const shape = this._shapeForKind(n.type, n);
     g.appendChild(shape);
@@ -675,14 +754,55 @@ export class GraphView {
     countBubble.appendChild(cn);
     g.appendChild(countBubble);
 
+    // Drag to reposition (de-clutter) in both topology and trace; a small movement
+    // is treated as a click (focus + open drawer). Edges follow the node live.
+    let dragStart = null;
+    let didDrag = false;
+    const onDragMove = (e) => {
+      if (!dragStart) return;
+      if (!didDrag && Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) < 4) return;
+      didDrag = true;
+      this.svg.style.cursor = 'grabbing';
+      const scale = this.viewBox.w / (this.svg.clientWidth || 1);
+      n.x = dragStart.nx + (e.clientX - dragStart.x) * scale;
+      n.y = dragStart.ny + (e.clientY - dragStart.y) * scale;
+      g.setAttribute('transform', `translate(${n.x},${n.y})`);
+      this.manualPositions.set(n.id, { x: n.x, y: n.y });
+      this._renderEdges();   // keep connected edges attached while dragging
+    };
+    const onDragUp = () => {
+      window.removeEventListener('mousemove', onDragMove);
+      window.removeEventListener('mouseup', onDragUp);
+      dragStart = null;
+      this.svg.style.cursor = 'grab';
+      if (didDrag) {
+        // Cancel the click that immediately follows a drag. If the drag ended
+        // OFF the node, no click fires on `g` to clear this flag, so also reset
+        // it on the next macrotask — otherwise the next click on ANY node would
+        // be swallowed. The trailing on-node click (if any) runs before this
+        // timeout and resets the flag itself.
+        this._suppressClick = true;
+        setTimeout(() => { this._suppressClick = false; }, 0);
+      }
+    };
+    g.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();   // don't start a canvas pan
+      dragStart = { x: e.clientX, y: e.clientY, nx: n.x, ny: n.y };
+      didDrag = false;
+      window.addEventListener('mousemove', onDragMove);
+      window.addEventListener('mouseup', onDragUp);
+    });
+
     // Click + hover.
     g.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (this._suppressClick) { this._suppressClick = false; return; }
       // Toggle focus: clicking the same node again clears focus.
       if (this.focusedNodeId === n.id) this.setFocusedNode(null);
       else this.setFocusedNode(n.id);
       this.handlers.onNodeClick && this.handlers.onNodeClick({
-        id: n.id, type: n.type, label: n.name,
+        id: n.id, type: n.type, label: n.name, source: n.source,
         invocations: n.invocations, errors: n.errors,
         avgMs: n.avgMs, p99Ms: n.p99Ms, lastSeen: n.lastSeen,
       });
@@ -851,7 +971,11 @@ export class GraphView {
   getLayoutDir() { return 'LR'; }
 
   _shapeForKind(kind, n) {
-    const fill = cssVar(`--node-${kind}`) || cssVar('--accent');
+    // MCP server nodes are filled with their own per-server colour (matching the
+    // tool rings + legend); every other kind uses its --node-{kind} theme colour.
+    const fill = (kind === 'mcp' && n.source)
+      ? mcpServerColor(n.source)
+      : (cssVar(`--node-${kind}`) || cssVar('--accent'));
     const stroke = (this.runNodeIds && this.runNodeIds.has(n.id))
       ? cssVar('--success')
       : ((n.errors || 0) > 0 ? cssVar('--error') : cssVar('--border'));
@@ -880,6 +1004,16 @@ export class GraphView {
           x: -NODE_HALF, y: -NODE_HALF * 0.7,
           width: NODE_HALF * 2, height: NODE_HALF * 1.4,
           rx: 8, ry: 8,
+        });
+        break;
+      }
+      case 'mcp': {
+        // Server "card" — a tall rounded rectangle, distinct from the tool box and
+        // filled with the per-server colour.
+        shape = el('rect', {
+          x: -NODE_HALF * 0.85, y: -NODE_HALF,
+          width: NODE_HALF * 1.7, height: NODE_HALF * 2,
+          rx: 7, ry: 7,
         });
         break;
       }
@@ -1070,9 +1204,13 @@ export class GraphView {
   /* ----------------------------------------------------------- run trace */
 
   setRunTrace(nodeIds, traversedEdges = [], journey = null) {
+    this.manualPositions.clear();   // each mode starts from its own clean layout
     this.runNodeIds = new Set(nodeIds);
     this.runEdges = new Set(traversedEdges.map(e => `${e.source}->${e.target}`));
     this.runJourney = journey;
+    // MCP provenance in the trace is shown INLINE on each tool (colour ring +
+    // server chip in _makeNodeElement), not as a separate node — which keeps
+    // multi-agent traces readable. So no mcp nodes are injected into the trace.
     // Determine first / last node for START / END markers.
     if (traversedEdges.length > 0) {
       this.runFirstNodeId = traversedEdges[0].source;
@@ -1093,6 +1231,7 @@ export class GraphView {
   }
 
   clearRunTrace() {
+    this.manualPositions.clear();   // back to topology: start from its clean layout
     this.runNodeIds = null;
     this.runEdges = null;
     this.runFirstNodeId = null;

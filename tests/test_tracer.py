@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import json
 import uuid
 import warnings
 from datetime import UTC, datetime
@@ -141,10 +142,10 @@ async def test_get_or_set_root_propagation(tmp_data_dir) -> None:
 
 
 async def test_lru_eviction_caps_unbounded_state(tmp_data_dir) -> None:
-    """Sampling/throttling/counter dicts must FIFO-evict at the cap.
+    """Throttling/counter dicts must FIFO-evict at the cap.
 
-    Regression for the audit finding that _sampled_in_runs/_sampled_out_runs/
-    _throttled_runs/_run_event_counts grew unbounded.
+    Regression for the audit finding that _throttled_runs/_run_event_counts grew
+    unbounded. (Sampling is now deterministic and keeps no per-run state.)
     """
     cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=10_000, sample_rate=1.0)
     tracer = await TraceLens.create(cfg, start_server=False)
@@ -167,12 +168,163 @@ async def test_lru_eviction_caps_unbounded_state(tmp_data_dir) -> None:
                 )
             )
 
-        # Each map must respect the cap.
-        assert len(tracer._sampled_in_runs) <= 100
+        # The per-run counter map must respect the cap.
         assert len(tracer._run_event_counts) <= 100
         # Oldest entries evicted (FIFO): r-0000 should be gone, recent r-0249 kept.
-        assert "r-0249" in tracer._sampled_in_runs
-        assert "r-0000" not in tracer._sampled_in_runs
+        assert "r-0249" in tracer._run_event_counts
+        assert "r-0000" not in tracer._run_event_counts
+    finally:
+        await tracer.stop()
+
+
+async def test_deterministic_sampling_is_stable(tmp_data_dir) -> None:
+    """_is_sampled_in must be deterministic per root (no mid-run flip after eviction),
+    and a 50% rate must sample some-but-not-all distinct roots.
+    """
+    cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=100, sample_rate=0.5)
+    tracer = await TraceLens.create(cfg, start_server=False)
+    try:
+        # Determinism: repeated calls for the same root return the same verdict.
+        root = "stable-root-abc"
+        first = tracer._is_sampled_in(root)
+        for _ in range(50):
+            assert tracer._is_sampled_in(root) == first
+
+        # Roughly-but-not-all roots are sampled in at rate=0.5.
+        roots = [f"root-{i:05d}" for i in range(1000)]
+        sampled = sum(1 for r in roots if tracer._is_sampled_in(r))
+        assert 0 < sampled < len(roots)
+        # Should land near the 50% mark; allow generous slack for hash distribution.
+        assert 300 < sampled < 700
+
+        # Edge rates short-circuit deterministically.
+        tracer._config.sample_rate = 1.0
+        assert tracer._is_sampled_in("anything") is True
+        tracer._config.sample_rate = 0.0
+        assert tracer._is_sampled_in("anything") is False
+    finally:
+        await tracer.stop()
+
+
+async def test_redaction_scrubs_summary_and_payload(tmp_data_dir) -> None:
+    """Opt-in redaction must scrub configured patterns from the summary, the
+    error_message, and (recursively) the raw_payload that becomes the blob.
+    """
+    cfg = TraceLensConfig(
+        data_dir=tmp_data_dir,
+        queue_maxsize=100,
+        redact_patterns=[r"sk-[A-Za-z0-9]+"],
+    )
+    tracer = await TraceLens.create(cfg, start_server=False)
+    try:
+        run_id = str(uuid.uuid4())
+        event = RawEvent(
+            event_id=str(uuid.uuid4()),
+            event_type=EventType.AGENT_ACTION,
+            run_id=run_id,
+            parent_run_id=None,
+            root_run_id=run_id,
+            timestamp=_utcnow(),
+            summary="calling with key sk-SECRET123",
+            raw_payload={
+                "prompt": "use sk-SECRET123 now",
+                "messages": ["nothing", "still sk-SECRET123 here"],
+                "nested": {"token": "sk-SECRET123"},
+            },
+            error_message="failed using sk-SECRET123",
+        )
+
+        tracer._redact_event(event)
+
+        assert "sk-SECRET123" not in event.summary
+        assert tracer._config.redact_replacement in event.summary
+        assert event.error_message is not None
+        assert "sk-SECRET123" not in event.error_message
+        assert "sk-SECRET123" not in json.dumps(event.raw_payload)
+        assert tracer._config.redact_replacement in json.dumps(event.raw_payload)
+    finally:
+        await tracer.stop()
+
+
+async def test_redaction_default_is_noop(tmp_data_dir) -> None:
+    """Default config (no patterns) must leave the event untouched."""
+    cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=100)
+    tracer = await TraceLens.create(cfg, start_server=False)
+    try:
+        assert tracer._redactors == []
+        run_id = str(uuid.uuid4())
+        event = RawEvent(
+            event_id=str(uuid.uuid4()),
+            event_type=EventType.AGENT_ACTION,
+            run_id=run_id,
+            parent_run_id=None,
+            root_run_id=run_id,
+            timestamp=_utcnow(),
+            summary="key sk-SECRET123 stays",
+            raw_payload={"prompt": "sk-SECRET123 stays"},
+            error_message="sk-SECRET123 stays",
+        )
+
+        tracer._redact_event(event)
+
+        assert event.summary == "key sk-SECRET123 stays"
+        assert event.raw_payload == {"prompt": "sk-SECRET123 stays"}
+        assert event.error_message == "sk-SECRET123 stays"
+    finally:
+        await tracer.stop()
+
+
+async def test_redaction_handles_deep_and_cyclic_payload(tmp_data_dir) -> None:
+    """Deeply nested or self-referential raw_payload must not raise/hang, and must
+    fail CLOSED (top-level secrets still redacted, over-deep subtrees replaced)."""
+    cfg = TraceLensConfig(data_dir=tmp_data_dir, redact_patterns=[r"sk-[A-Za-z0-9]+"])
+    tracer = await TraceLens.create(cfg, start_server=False)
+    try:
+        # Nested far beyond the depth cap.
+        deep: dict = {}
+        cur = deep
+        for _ in range(200):
+            cur["child"] = {}
+            cur = cur["child"]
+        cur["secret"] = "sk-DEEP"
+
+        # Self-referential cycle.
+        cyc: dict = {"secret": "sk-CYC"}
+        cyc["self"] = cyc
+
+        for payload in (deep, cyc):
+            event = RawEvent(
+                event_id=str(uuid.uuid4()),
+                event_type=EventType.LLM_END,
+                run_id="r",
+                parent_run_id=None,
+                root_run_id="r",
+                timestamp=_utcnow(),
+                summary="key sk-TOP here",
+                raw_payload=payload,
+            )
+            tracer._redact_event(event)  # must terminate (no RecursionError/hang)
+            assert "sk-TOP" not in event.summary
+            # Fail-closed: no secret leaks through, and the structure is finite/JSON-able.
+            dumped = json.dumps(event.raw_payload)
+            assert "sk-DEEP" not in dumped
+            assert "sk-CYC" not in dumped
+
+        # The cyclic payload's top-level secret is redacted (not just dropped).
+        cyc2: dict = {"secret": "sk-CYC2"}
+        cyc2["self"] = cyc2
+        event2 = RawEvent(
+            event_id=str(uuid.uuid4()),
+            event_type=EventType.LLM_END,
+            run_id="r",
+            parent_run_id=None,
+            root_run_id="r",
+            timestamp=_utcnow(),
+            summary="s",
+            raw_payload=cyc2,
+        )
+        tracer._redact_event(event2)
+        assert event2.raw_payload["secret"] == cfg.redact_replacement
     finally:
         await tracer.stop()
 

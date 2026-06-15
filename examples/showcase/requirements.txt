@@ -1,0 +1,28 @@
+# tracelens showcase — dependencies for the example gallery.
+#
+# Every app needs tracelens + an LLM provider. RAG / search / MCP apps need a few
+# extras (each app's README lists exactly which). Install the union with:
+#   pip install -r requirements.txt
+#
+# Provider: apps use init_chat_model, so pick your provider with env vars:
+#   export LLM_PROVIDER=openai   LLM_MODEL=gpt-4o-mini   OPENAI_API_KEY=...
+#   export LLM_PROVIDER=anthropic LLM_MODEL=claude-haiku-4-5 ANTHROPIC_API_KEY=...
+
+# --- core (all apps) ---
+tracelens[langchain]
+langchain>=0.3
+langgraph>=0.3
+langchain-openai>=0.2          # swap for langchain-anthropic if LLM_PROVIDER=anthropic
+
+# --- RAG / knowledge apps (06-10) ---
+langchain-chroma>=0.1
+chromadb>=0.5
+
+# --- web-search apps (02, 14) — free, no API key ---
+duckduckgo-search>=6.0
+langchain-community>=0.3
+
+# --- MCP apps (18, 20) ---
+tracelens[mcp]
+langchain-mcp-adapters>=0.1
+mcp>=1.0

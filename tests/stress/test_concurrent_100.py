@@ -14,9 +14,9 @@ from collections import Counter
 
 import pytest
 
-from tracelens.models import EventType, RunStatus
 from tests.integration.conftest import wait_for_drain
-from tests.integration.systems.test_system_1_order_pipeline import build_order_pipeline
+from tests.integration.systems.test_system1_order_pipeline import build_order_pipeline
+from tracelens.models import EventType, RunStatus
 
 
 @pytest.mark.slow

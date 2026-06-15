@@ -1,10 +1,11 @@
 """StorageBackend protocol — the contract that v0.2 backends (Postgres, JSONL, remote HTTP) implement.
 
-v0.1 ships SQLiteBackend. The protocol is defined here so the protocol surface stays
+Ships SQLiteBackend. The protocol is defined here so the protocol surface stays
 backend-neutral.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -95,6 +96,14 @@ class StorageBackend(Protocol):
         """
         ...
 
+    def iter_journey(self, run_id: str, batch_size: int = 500) -> AsyncIterator[StoredEvent]:
+        """Async-iterate all events for a run AND its descendants, chronologically.
+
+        Streams in fetchmany(batch_size) chunks so large journeys stay O(batch_size)
+        in memory. Same root_run_id matching semantics as get_journey.
+        """
+        ...
+
     async def get_event(self, event_id: str) -> StoredEvent | None:
         """Return a single event by event_id, or None."""
         ...
@@ -111,4 +120,21 @@ class StorageBackend(Protocol):
         Nodes: unique (agent_name | tool_name | retriever) seen across events.
         Edges: parent→child run relationships.
         """
+        ...
+
+    async def get_tool_inventory(self) -> dict:
+        """Return tools grouped by source (MCP server name, or 'local').
+
+        Shape: {"sources": [{source, kind, tool_count, invocation_count,
+        error_count, tools: [{name, invocations, errors}]}]}.
+        """
+        ...
+
+    async def upsert_mcp_tools(self, server: str, tool_names: list[str]) -> None:
+        """Persist which tools an MCP server provides (idempotent). Lets topology +
+        inventory show a server's tools even when they were never invoked."""
+        ...
+
+    async def get_mcp_tools(self) -> dict[str, list[str]]:
+        """Return {mcp_server: [tool names]} from the registry (empty if none)."""
         ...

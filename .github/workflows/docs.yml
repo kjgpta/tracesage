@@ -7,8 +7,6 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "README.md"
-      - "CHANGELOG.md"
-      - "CONTRIBUTING.md"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -46,11 +44,9 @@ jobs:
             "pymdown-extensions>=10.7"
 
       - name: Build site
-        # `--strict` is intentionally NOT set: the included CONTRIBUTING.md and
-        # CHANGELOG.md contain repo-root-relative links that mkdocs flags as
-        # warnings even though they resolve correctly on github.com. We rely
-        # on the workflow exit code from non-strict build instead.
-        run: mkdocs build
+        # `--strict` fails the build on any broken link. All docs (incl. changelog,
+        # contributing, releasing) live under docs/, so it passes — keep it as a gate.
+        run: mkdocs build --strict
 
       - uses: actions/upload-pages-artifact@v5
         with:

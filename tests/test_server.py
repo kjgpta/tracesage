@@ -111,6 +111,7 @@ def _make_event(
     blob_path: str | None = None,
     agent_name: str | None = "AgentA",
     tool_name: str | None = None,
+    mcp_server: str | None = None,
     parent_run_id: str | None = None,
     seconds_offset: int = 0,
 ) -> StoredEvent:
@@ -123,6 +124,7 @@ def _make_event(
         timestamp=datetime.now(UTC) + timedelta(seconds=seconds_offset),
         agent_name=agent_name,
         tool_name=tool_name,
+        mcp_server=mcp_server,
         summary=f"{event_id} summary",
         blob_path=blob_path,
         duration_ms=10,
@@ -328,6 +330,61 @@ async def test_root_path_skips_auth(auth_client):
     assert r.status_code != 401
 
 
+@pytest.mark.asyncio
+async def test_auth_preflight_options_not_blocked(auth_client):
+    """A CORS preflight (OPTIONS, no Authorization) to a protected endpoint must NOT
+    be 401'd — otherwise a token-configured cross-origin frontend can never call the
+    API (the preflight fails before the real request is ever sent)."""
+    r = await auth_client.options(
+        "/api/runs",
+        headers={
+            "Origin": "http://example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert r.status_code != 401
+    assert "access-control-allow-origin" in {k.lower() for k in r.headers}
+
+
+@pytest.mark.asyncio
+async def test_get_full_step_404_on_traversal_blob_path(client, db):
+    """A stored blob_path that escapes base_dir must trip the store's path-traversal
+    guard and surface as 404 — never a 500 or an out-of-tree file read."""
+    await db.upsert_run(_make_run("r-trav"))
+    ev = _make_event("e-trav", run_id="r-trav", blob_path="../../../../etc/passwd")
+    await db.upsert_event(ev)
+    r = await client.get("/api/runs/r-trav/steps/e-trav/full")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ws_rejected_without_token(app_with_auth):
+    """WS handshake must be refused (close 4401) when a token is configured but none
+    is supplied via ?token= or the subprotocol header."""
+    from fastapi import WebSocketDisconnect
+
+    with (
+        TestClient(app_with_auth) as tclient,
+        pytest.raises(WebSocketDisconnect) as exc,
+        tclient.websocket_connect("/ws/trace/ws-auth-rej"),
+    ):
+        pass
+    assert exc.value.code == 4401
+
+
+@pytest.mark.asyncio
+async def test_ws_accepts_with_query_token(app_with_auth, db):
+    """WS handshake succeeds and delivers catchup when the correct ?token= is supplied."""
+    await db.upsert_run(_make_run("ws-auth-ok"))
+    with (
+        TestClient(app_with_auth) as tclient,
+        tclient.websocket_connect("/ws/trace/ws-auth-ok?token=secret-test-token") as ws,
+    ):
+        first = ws.receive_json()
+        assert first["msg_type"] == "catchup"
+        assert first["run_id"] == "ws-auth-ok"
+
+
 # ---------- Topology ----------
 
 
@@ -380,13 +437,47 @@ async def test_topology_endpoint(client, db):
     )
 
 
+# ---------- Tools by source (MCP attribution) ----------
+
+
+@pytest.mark.asyncio
+async def test_tools_endpoint_groups_by_source(client, db):
+    await db.upsert_run(_make_run("r-mcp"))
+    await db.upsert_event(_make_event("t1", run_id="r-mcp", event_type=EventType.TOOL_START,
+                                      tool_name="get_weather", mcp_server="weather"))
+    await db.upsert_event(_make_event("t2", run_id="r-mcp", event_type=EventType.TOOL_START,
+                                      tool_name="add", mcp_server="math"))
+    await db.upsert_event(_make_event("t3", run_id="r-mcp", event_type=EventType.TOOL_START,
+                                      tool_name="local_calc"))
+
+    r = await client.get("/api/tools")
+    assert r.status_code == 200
+    sources = {s["source"]: s for s in r.json()["sources"]}
+    assert sources["weather"]["kind"] == "mcp"
+    assert sources["weather"]["tool_count"] == 1
+    assert sources["math"]["tool_count"] == 1
+    assert sources["local"]["kind"] == "local"
+    assert sources["local"]["tool_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_topology_node_carries_source(client, db):
+    await db.upsert_run(_make_run("r-src"))
+    await db.upsert_event(_make_event("ts", run_id="r-src", event_type=EventType.TOOL_START,
+                                      tool_name="get_weather", mcp_server="weather"))
+    r = await client.get("/api/topology")
+    nodes = {n["id"]: n for n in r.json()["nodes"]}
+    assert nodes["tool:get_weather"]["source"] == "weather"
+
+
 # ---------- Export ----------
 
 
 @pytest.mark.asyncio
 async def test_export_jsonl_streams(client, db):
+    n_events = 7
     await db.upsert_run(_make_run("exp"))
-    for i in range(3):
+    for i in range(n_events):
         await db.upsert_event(
             _make_event(f"e{i}", run_id="exp", seconds_offset=i)
         )
@@ -396,13 +487,16 @@ async def test_export_jsonl_streams(client, db):
     assert r.headers["content-type"].startswith("application/x-ndjson")
     body_text = r.text
     lines = [ln for ln in body_text.splitlines() if ln.strip()]
-    # 1 run + 3 events
-    assert len(lines) == 4
+    # 1 run + n_events events
+    assert len(lines) == 1 + n_events
     parsed = [json.loads(ln) for ln in lines]
+    # First NDJSON line is the Run (has run status, no per-event event_id).
     assert parsed[0]["run_id"] == "exp"
     assert parsed[0]["status"] in {"running", "completed", "failed"}
+    assert "event_id" not in parsed[0]
+    # Subsequent lines are the events, in timestamp order, count matching.
     event_ids = [p["event_id"] for p in parsed[1:]]
-    assert event_ids == ["e0", "e1", "e2"]
+    assert event_ids == [f"e{i}" for i in range(n_events)]
 
 
 # ---------- Stats ----------
@@ -420,6 +514,14 @@ async def test_stats_endpoint(client, db):
     # Includes runtime stats fields
     assert "queue_depth" in body
     assert "events_dropped" in body
+    # blob_size_bytes is populated (scanned off the event loop) and numeric.
+    assert "blob_size_bytes" in body
+    assert isinstance(body["blob_size_bytes"], int)
+    assert body["blob_size_bytes"] >= 0
+    # db_size_bytes must reflect the real DB file, not be clobbered to 0 by the
+    # runtime-stats merge (regression guard for the merge-order fix).
+    assert isinstance(body["db_size_bytes"], int)
+    assert body["db_size_bytes"] > 0
 
 
 # ---------- Single-run fetch 404 ----------
