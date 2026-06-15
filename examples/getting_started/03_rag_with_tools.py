@@ -10,7 +10,7 @@ view shows all five columns populated:
     tool    - summarize_documents, cite_sources
 
 Run:
-    python examples/03_rag_with_tools.py
+    python examples/getting_started/03_rag_with_tools.py
     # Open http://localhost:7842/ui
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 from typing import TypedDict
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun  # noqa: E402
 from langchain_core.documents import Document  # noqa: E402

@@ -18,7 +18,7 @@ After all four runs:
       three are faded (dashed border, low opacity).
 
 Run:
-    python examples/01_smart_search_agent.py
+    python examples/getting_started/01_smart_search_agent.py
     # Open http://localhost:7842/ui
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import TypedDict
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
