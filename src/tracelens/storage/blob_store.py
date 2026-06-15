@@ -30,21 +30,34 @@ def _safe_serialize(payload: Any) -> str:
 
 
 def _reject_unsafe_id(name: str, kind: str) -> None:
-    """Reject ids that could escape base_dir before they touch the filesystem."""
-    if not name or name in (".", "..") or "/" in name or "\\" in name or os.sep in name:
+    """Reject ids that could escape base_dir before they touch the filesystem.
+
+    After this passes, the id is a single clean path component — no separators
+    (`/` or `\\`), no parent/cur refs, no drive/ADS colon, no NUL — so
+    ``base_dir / run_id / <event_id>.json.gz`` is provably under base_dir on
+    every OS, with no need for a resolve()-based check (which is unreliable on
+    Windows for a path that doesn't exist yet).
+    """
+    if (
+        not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or ":" in name      # Windows drive letter / NTFS alternate-data-stream
+        or "\x00" in name
+    ):
         raise ValueError(f"unsafe {kind} for blob path: {name!r}")
 
 
 def _write_blob_sync(base_dir: Path, run_id: str, event_id: str, payload: dict) -> str:
-    # Enforce the "blob_path stays relative under base_dir" invariant on WRITE,
-    # symmetrically with read()'s guard — so a stored blob_path can never escape
-    # base_dir (defense-in-depth; ids are framework UUIDs today).
+    # run_id/event_id are validated as clean single components, so the join below
+    # can never escape base_dir — no resolve()-based traversal check on write (it
+    # false-positives on Windows for a not-yet-created path). read() still guards
+    # its caller-supplied blob_path, which legitimately contains a separator.
     _reject_unsafe_id(run_id, "run_id")
     _reject_unsafe_id(event_id, "event_id")
     run_dir = base_dir / run_id
     final_path = run_dir / f"{event_id}.json.gz"
-    if not final_path.resolve().is_relative_to(base_dir.resolve()):
-        raise ValueError("blob path escapes base_dir")
     run_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = run_dir / f"{event_id}.json.gz.{uuid.uuid4().hex}.tmp"
     data = gzip.compress(_safe_serialize(payload).encode("utf-8"))
