@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracelens"
-version = "0.1.0"
+version = "0.2.0"
 description = "Production observability adapter for LangChain/LangGraph multi-agent systems"
 readme = "README.md"
 license = { text = "MIT" }
@@ -37,9 +37,23 @@ dependencies = [
     "websockets>=12.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/kjgpta/tracelens"
+Repository = "https://github.com/kjgpta/tracelens"
+Documentation = "https://kjgpta.github.io/tracelens/"
+Changelog = "https://github.com/kjgpta/tracelens/blob/main/CHANGELOG.md"
+Issues = "https://github.com/kjgpta/tracelens/issues"
+
 [project.optional-dependencies]
 langchain = [
     "langchain-core>=0.2.0,<1.4.0",
+]
+# MCP tool-source attribution + the examples/mcp scenario. Optional: the
+# core package and `import tracelens` never require these (imported lazily).
+mcp = [
+    "langchain-mcp-adapters>=0.1.0",
+    "mcp>=1.0.0",
+    "langgraph>=0.2.0",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -47,15 +61,22 @@ dev = [
     "pytest-cov>=5.0.0",
     "httpx>=0.27.0",
     "ruff>=0.5.0",
+    "mypy>=1.10.0",
     "build>=1.0.0",
     "twine>=5.0.0",
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.2.0",
+    "langchain-mcp-adapters>=0.1.0",
+    "mcp>=1.0.0",
 ]
 
 [project.scripts]
 tracelens = "tracelens.cli:app"
+
+# Expose the trace-capture fixture (`tracelens_capture`) to users' pytest suites.
+[project.entry-points.pytest11]
+tracelens = "tracelens.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tracelens"]
@@ -68,6 +89,10 @@ include = [
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "RELEASING.md",
+    "production_roadmap.md",
+    "docs",
     "pyproject.toml",
 ]
 
@@ -90,11 +115,17 @@ select = ["E", "F", "I", "B", "UP", "N", "ASYNC", "S", "PT", "SIM", "RUF"]
 ignore = ["E501", "S101"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "S105", "S106", "ASYNC230", "ASYNC109", "E741", "F401", "SIM105", "UP017", "UP041"]
+"tests/**/*.py" = ["S101", "S105", "S106", "ASYNC230", "ASYNC109", "ASYNC240", "E741", "F401", "SIM105", "UP017", "UP041"]
 "src/tracelens/cli.py" = ["B008", "UP007"]  # Typer requires call expressions in defaults
 "src/tracelens/storage/sqlite_backend.py" = ["UP017"]  # CLAUDE.md mandates timezone.utc form
 "src/tracelens/models.py" = ["UP042"]  # str-Enum inheritance is intentional for JSON serialization
 "tools/**/*.py" = ["S311", "SIM105"]  # bench uses random + try/except is fine here
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = false
 
 [tool.coverage.run]
 source = ["src/tracelens"]

@@ -206,6 +206,24 @@ plumbing. Keeping them separate makes per-agent metrics meaningful.
 
 ---
 
+## MCP server nodes (a synthesized node)
+
+The five kinds above each map to a LangChain *callback event*. There is one more
+node type you'll see in the topology — **`mcp`** — but it is **synthesized**, not
+emitted by a callback.
+
+When you attribute tools to their MCP server (via `register_mcp_client`, see
+[mcp.md](mcp.md)), tracelens adds one `mcp:<server>` node per server and draws edges
+**mcp → tool** (the tools that server provides) and **agent → mcp** (agents that called
+them). The tool nodes themselves are still ordinary `tool` nodes — the `mcp` node is a
+grouping/provenance overlay so you can answer "which tools came from which server, and
+which are hardcoded?" A server's tools appear even if a given run never called them.
+
+`mcp` nodes only exist when you've registered MCP attribution; a pure-LangChain trace
+has just the five event-based kinds.
+
+---
+
 ## Putting it together: System 2 walked through
 
 If you ran `docs/integration_guide/before/02_research_pipeline/` and
@@ -258,9 +276,10 @@ types:
 | `retriever` | `retriever_start`, `retriever_end`, `retriever_error` |
 | `chain` | Same as `agent`, but with primitive `agent_name` *or* no descendants |
 
-Synthetic events (`run_start`, `run_end`) are tracelens-internal and
-don't produce topology nodes — they exist so the dashboard's run list
-gets lifecycle pings.
+The synthetic `run_start` event is tracelens-internal and doesn't produce
+a topology node — it exists so the dashboard's run list gets a lifecycle
+ping when a root run begins. (`run_end` is a reserved event type but is not
+currently emitted; run completion is inferred from the root chain ending.)
 
 ---
 

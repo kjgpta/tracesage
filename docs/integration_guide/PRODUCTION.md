@@ -191,22 +191,21 @@ Before pointing real traffic at tracelens:
 
 ## Upgrades
 
-The on-disk schema is versioned (currently v0.1). Future versions will:
+The on-disk schema is versioned via `PRAGMA user_version`. On connect, tracelens:
 
-- Run automatic schema migrations on first connect (additive only)
-- Refuse to start if a forward-incompatible schema is detected (clear error
-  message + upgrade path)
+- Runs automatic schema migrations (additive only) — your data dir survives upgrades
+- Leaves existing rows intact (new columns/tables are added, never dropped)
 
 You don't need to do anything on upgrade except deploy the new package and
 restart your process. The data dir survives across upgrades.
 
-## What v0.1 doesn't ship
+## What tracelens doesn't ship yet
 
 Be aware of these limits before standardizing on tracelens for critical
 production:
 
 - **Single-writer per data dir.** Multiple producer processes against the
-  same data dir is not supported in v0.1 (planned for v0.2).
+  same data dir is not supported yet (on the roadmap — see `production_roadmap.md`).
 - **No OpenTelemetry export yet.** Planned for v0.3+. If you need OTel today,
   consider Phoenix or LangFuse alongside tracelens.
 - **No built-in eval framework.** tracelens is for tracing; pair it with a

@@ -1,6 +1,6 @@
 # Running tracelens in production
 
-`tracelens` v0.1 is a single-process embedded library. It is suitable for
+`tracelens` is a single-process embedded library. It is suitable for
 production monitoring of a single Python application, and architected so future
 versions can split the producer (your app) from the consumer (a centralized
 trace server).
@@ -12,6 +12,59 @@ trace server).
 - `per_run_event_cap=50000` — single runaway run won't fill the queue.
 - Queue drops events instead of blocking the user's pipeline. Counter exposed in `/api/stats`.
 
+## Turning tracelens off (kill switch)
+
+Wire tracelens in once and disable it per-environment — no code change:
+
+```bash
+export TRACELENS_ENABLED=false      # prod: complete no-op
+```
+
+When disabled, `TraceLens.create()` / `tracelens.trace()` / `TraceLens.session()`
+return an **inert tracer**: no embedded server is started, no DB/worker/queue is
+created, `.handler` is a no-op callback, and overhead is near zero. Your
+`callbacks=[tracer.handler]` (or global `install()`) wiring keeps working untouched —
+it just does nothing. This is the recommended way to ship the integration in code but
+keep it out of an environment that doesn't want it.
+
+**Overhead when disabled** (measured against a near-instant fake LLM, so it's a
+worst-case microbenchmark — real LLM latency dwarfs all of these):
+
+- **Startup:** `TraceLens.create()` returns in ~0.3 ms and binds nothing — no port, no
+  DB file, no worker task, no background thread.
+- **Per call, global-install pattern** (`tracelens.trace()` / `install=True`):
+  effectively zero — `install()` is a no-op, so nothing is registered with LangChain
+  and your calls take the same path as if tracelens weren't there.
+- **Per call, explicit `callbacks=[tracer.handler]` pattern:** a small *fixed* cost
+  (~14 µs/call in the microbenchmark) from LangChain building a callback manager and
+  doing one skip-check per event. It does not scale with your workload; against a real
+  LLM call (hundreds of ms) it is < 0.01%. The disabled handler sets every LangChain
+  `ignore_*` flag, so its methods are never actually invoked.
+
+For literal zero overhead with the same code in every environment, prefer the
+global-install pattern and toggle `TRACELENS_ENABLED`.
+
+## Recommended production config
+
+If you DO want tracing in prod but not the dev conveniences:
+
+```python
+from tracelens import TraceLens, TraceLensConfig
+
+cfg = TraceLensConfig(
+    enabled=True,
+    start_server=False,     # don't run the embedded UI server in your app process
+    print_run_url=False,    # no stderr trace-link spam
+    sample_rate=0.1,        # capture a slice (see Sampling guidance below)
+)
+tracer = await TraceLens.create(cfg, start_server=False)
+```
+
+Then view the data out-of-band with `tracelens serve --data-dir <dir>` (or point it at
+durable storage). Note the embedded SQLite + local blobs are best for single-process /
+single-node today; centralized multi-process collection is on the roadmap (see
+[`production_roadmap.md`](https://github.com/kjgpta/tracelens/blob/main/production_roadmap.md)).
+
 ## Sampling guidance
 
 | Volume | Recommended sample_rate |
@@ -19,7 +72,7 @@ trace server).
 | < 100 runs/day | 1.0 (capture everything) |
 | 100–10,000 runs/day | 0.5 to 1.0 |
 | 10,000–100,000 runs/day | 0.1 to 0.5 |
-| > 100,000 runs/day | 0.01 to 0.1, plus consider centralizing in v0.2 |
+| > 100,000 runs/day | 0.01 to 0.1, plus consider a centralized collector (roadmap) |
 
 Sampling is per-root-run, so partial traces never happen.
 
@@ -119,6 +172,6 @@ If you need more throughput on Windows, raise `worker_batch_size` to 200 and
 
 ## Upgrade path
 
-v0.2+ will add a remote-server mode (`producer → HTTP → trace server`) that
+A future release will add a remote-server mode (`producer → HTTP → trace server`) that
 preserves your existing API. The data directory format will be compatible —
 old data accessible via `tracelens serve` against the existing dir.

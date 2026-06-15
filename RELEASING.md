@@ -163,9 +163,9 @@ the actual publish, so you want this part to be boring.
 ```bash
 # pyproject.toml — version is the source of truth
 grep -E '^version\s*=' pyproject.toml
-# version = "0.1.0"
+# version = "0.2.0"
 
-# CHANGELOG.md — should have a "## [0.1.0]" section with the release notes,
+# CHANGELOG.md — should have a "## [0.2.0]" section with the release notes,
 # AND a "## [Unreleased]" placeholder above it for the next iteration.
 ```
 
@@ -195,8 +195,8 @@ You should see:
 
 ```
 dist/
-├── tracelens-0.1.0.tar.gz             # sdist
-└── tracelens-0.1.0-py3-none-any.whl   # wheel
+├── tracelens-0.2.0.tar.gz             # sdist
+└── tracelens-0.2.0-py3-none-any.whl   # wheel
 ```
 
 ### 3.4 Lint with twine
@@ -216,19 +216,22 @@ If anything fails, fix the source and re-build.
 ### 3.5 Inspect the wheel contents
 
 ```bash
-# Python files + UI assets should be present, tests/examples/docs should NOT.
-unzip -l dist/tracelens-*.whl | head -40
-tar -tzf dist/tracelens-*.tar.gz | head -40
+unzip -l dist/tracelens-*.whl | head -40     # the WHEEL: lean, runtime only
+tar -tzf dist/tracelens-*.tar.gz | head -40   # the SDIST: also ships sources/docs
 ```
 
-Look for:
+The **wheel** (what `pip install` puts on a user's machine) should be lean:
 
-- ✓ `src/tracelens/*.py`
-- ✓ `src/tracelens/ui/*.html`, `*.js`, `*.css`
-- ✓ `LICENSE`
-- ✓ `README.md`
+- ✓ `tracelens/*.py` and `tracelens/py.typed`
+- ✓ `tracelens/ui/*.html`, `*.js`, `*.css`
 - ✗ no `tests/`, `examples/`, `docs/`, `tools/`, `.github/`
-- ✗ no `__pycache__`, `.pyc`, `.env`, `_run_*.py`
+- ✗ no `__pycache__`, `.pyc`, `.env`
+
+The **sdist** (source distribution) intentionally includes more so the repo is
+reproducible from PyPI: `src/`, `tests/`, `examples/`, `docs/`, `README.md`,
+`LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, `RELEASING.md`, `production_roadmap.md`.
+The include lists live under `[tool.hatch.build.targets.wheel]` /
+`[tool.hatch.build.targets.sdist]` in `pyproject.toml`.
 
 If unwanted files are bundled, edit
 `[tool.hatch.build.targets.wheel]` / `[tool.hatch.build.targets.sdist]`
@@ -242,7 +245,7 @@ python -m venv /tmp/tl-test
 source /tmp/tl-test/bin/activate    # PowerShell: .\Scripts\Activate.ps1
                                     # bash on Windows: source /tmp/tl-test/Scripts/activate
 
-pip install "dist/tracelens-0.1.0-py3-none-any.whl[langchain]"
+pip install "dist/tracelens-0.2.0-py3-none-any.whl[langchain]"
 
 # Smoke checks.
 python -c "from tracelens import TraceLens; print('OK')"
@@ -285,7 +288,7 @@ off about the build.
 
 ```bash
 git add pyproject.toml CHANGELOG.md
-git commit -m "Release v0.1.0"
+git commit -m "Release v0.2.0"
 git push origin main
 ```
 
@@ -295,8 +298,8 @@ CI runs again on this push. Wait until it's green before tagging.
 
 ```bash
 # Annotated tag (preferred over lightweight).
-git tag -a v0.1.0 -m "v0.1.0 — initial release"
-git push origin v0.1.0
+git tag -a v0.2.0 -m "v0.2.0 — initial release"
+git push origin v0.2.0
 ```
 
 This is the moment of truth. Pushing a tag matching `v*` triggers
@@ -312,14 +315,38 @@ This is the moment of truth. Pushing a tag matching `v*` triggers
 Watch the run at:
 https://github.com/kjgpta/tracelens/actions/workflows/release.yml
 
+### 4.2b Manual upload (alternative to Trusted Publishing)
+
+If you haven't set up Trusted Publishing (Phase 2.2), or you just want to push from your
+machine instead of CI, upload the built artifacts directly with **twine**:
+
+```bash
+# 1. Build fresh (rm ensures dist/ holds only the version you intend to release —
+#    PyPI is immutable; you can't overwrite a version).
+rm -rf dist/ build/ && python -m build
+
+# 2. Get a PyPI API token: https://pypi.org/manage/account/token/
+#    (after the first upload, re-scope it to just the `tracelens` project).
+export TWINE_USERNAME=__token__
+export TWINE_PASSWORD=pypi-AgEIcD...        # your token — NEVER commit it
+
+# 3. Push to PyPI. This uploads BOTH the sdist (.tar.gz) and the wheel (.whl).
+twine upload dist/*
+```
+
+`twine upload dist/*` is the actual "push to PyPI" command. Do a dry run on TestPyPI
+first (Phase 3.7) if you want to preview the rendered page. Trusted Publishing (4.2) is
+preferred for repeatable releases because it needs no long-lived token; use this manual
+path for one-offs or when CI isn't available.
+
 ### 4.3 Verify on PyPI
 
 ```bash
 # Wait ~30s after the workflow finishes — PyPI's CDN is async.
-pip install tracelens==0.1.0
+pip install tracelens==0.2.0
 
 # Or check the listing:
-# https://pypi.org/project/tracelens/0.1.0/
+# https://pypi.org/project/tracelens/0.2.0/
 ```
 
 Take a moment to read the rendered README on the PyPI page. If anything
@@ -333,8 +360,8 @@ They're separate but both come from the same tag.
 
 ```bash
 # Easiest: use the gh CLI.
-gh release create v0.1.0 \
-  --title "v0.1.0" \
+gh release create v0.2.0 \
+  --title "v0.2.0" \
   --notes-file - <<'EOF'
 First public release of tracelens.
 
@@ -357,9 +384,9 @@ EOF
 
 Or use the web UI: https://github.com/kjgpta/tracelens/releases/new
 
-- Choose the existing tag `v0.1.0`
-- Title: `v0.1.0`
-- Description: paste from your `CHANGELOG.md` `[0.1.0]` section
+- Choose the existing tag `v0.2.0`
+- Title: `v0.2.0`
+- Description: paste from your `CHANGELOG.md` `[0.2.0]` section
 - Click *Publish release*
 
 GitHub auto-attaches the source `.tar.gz` and `.zip` from the tag.
@@ -383,10 +410,10 @@ already set, give the CDN another minute and hard-refresh.
 ### 5.1 Bump for next development cycle
 
 ```bash
-# pyproject.toml: version = "0.1.1"  (patch) or "0.2.0" (minor)
+# pyproject.toml: version = "0.2.1"  (patch) or "0.2.0" (minor)
 # CHANGELOG.md: add a fresh "## [Unreleased]" section at the top.
 
-git commit -am "Bump to 0.1.1-dev"
+git commit -am "Bump to 0.2.1-dev"
 git push
 ```
 
@@ -398,11 +425,11 @@ are just:
 
 ```bash
 # Update version in pyproject.toml + CHANGELOG.md
-git commit -am "Release v0.1.1"
+git commit -am "Release v0.2.1"
 git push
-git tag -a v0.1.1 -m "v0.1.1"
-git push origin v0.1.1
-gh release create v0.1.1 ...
+git tag -a v0.2.1 -m "v0.2.1"
+git push origin v0.2.1
+gh release create v0.2.1 ...
 ```
 
 ### 5.3 Versioning policy
@@ -420,7 +447,7 @@ gh release create v0.1.1 ...
 ### "File already exists" on PyPI upload
 PyPI is immutable. You can't re-upload the same version. Either:
 
-- Bump the patch (`0.1.0` → `0.1.1`) and try again
+- Bump the patch (`0.2.0` → `0.2.1`) and try again
 - Yank the broken release: PyPI project page → *Manage* → *Releases* → *Yank*.
   Yanked releases stay listed but `pip install` won't pick them by default.
 
@@ -471,7 +498,7 @@ to install them.
 ### Yanking a bad release
 - PyPI project page → *Manage* → *Releases* → click the version → *Yank release*
 - Provide a reason (will be shown to anyone trying to install the version)
-- Yanked versions stay installable via explicit pin (`pip install tracelens==0.1.0`)
+- Yanked versions stay installable via explicit pin (`pip install tracelens==0.2.0`)
   but won't be picked by version solvers
 
 ### Removing a release entirely (rare)
@@ -512,7 +539,7 @@ git push -u origin main
 # 1. Bump version in pyproject.toml + CHANGELOG.md
 # 2. Commit and push to main; wait for CI to go green
 # 3. Tag and push:
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
-# 4. Create GitHub Release (gh release create v0.1.0 ...)
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+# 4. Create GitHub Release (gh release create v0.2.0 ...)
 ```

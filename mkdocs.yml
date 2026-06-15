@@ -80,9 +80,12 @@ plugins:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
+  - Developer guide: development.md
   - Concepts: concepts.md
   - Configuration: configuration.md
   - CLI: cli.md
+  - API reference: api.md
+  - MCP support: mcp.md
   - Production: production.md
   - Extending: extending.md
   - Comparison: comparison.md

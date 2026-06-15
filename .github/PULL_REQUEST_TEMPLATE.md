@@ -54,7 +54,7 @@ Thanks for sending a PR! Please fill in the sections below.
 
 ## Supported versions
 
-tracelens is currently in v0.1 alpha. Only the latest minor release receives
+tracelens is currently in v0.2 alpha. Only the latest minor release receives
 security fixes. Once v1.0 ships, the previous minor will receive fixes for
 6 months after the next release.
 

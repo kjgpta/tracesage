@@ -16,6 +16,8 @@ Drop in two lines, see live execution traces in your browser.
 ```python
 from tracelens import TraceLens
 
+# Illustrative only — `await` runs inside an async function. See Quick start
+# below for a complete, runnable `async def main()`.
 tracer = await TraceLens.create()                          # one-time setup
 
 result = await graph.ainvoke(
@@ -56,8 +58,10 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
 - **Production-grade safety.** The handler never raises. The tracer never crashes
   your pipeline.
-- **Interactive graph view.** Cytoscape.js + dagre layout. Hover, click, replay any run.
-- **Pluggable storage.** SQLite in v0.1; Postgres / remote-server / JSONL backends planned.
+- **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
+- **MCP-aware.** Tools loaded from MCP servers are attributed by source, so you can
+  see which tools came from which server vs. which are hardcoded. See [docs/mcp.md](docs/mcp.md).
+- **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned (see [`production_roadmap.md`](production_roadmap.md)).
 - **MIT licensed.** Free forever.
 
 ## Install
@@ -76,33 +80,73 @@ Optional extras for real LLM providers:
 pip install langchain-openai langchain-anthropic
 ```
 
+For MCP tool-source attribution (loads tools from MCP servers and tags them by
+source), install the `mcp` extra:
+
+```bash
+pip install 'tracelens[mcp]'
+```
+
 ## Quick start
+
+**See it in 5 seconds** — seed a sample trace and open the UI:
+
+```bash
+tracelens demo
+```
+
+**Sync scripts / notebooks** — wrap your code; every LangChain call is captured
+automatically (no `callbacks=` wiring) and a clickable trace link is printed:
+
+```python
+import tracelens
+
+with tracelens.trace() as tl:          # starts the UI + global capture
+    result = agent.invoke("your input")     # 🔍 tracelens: http://127.0.0.1:7842/ui/#run=...
+```
+
+**Async apps** — use the context manager (or `await TraceLens.create()` for full control):
 
 ```python
 import asyncio
 from tracelens import TraceLens
 
 async def main():
-    tracer = await TraceLens.create()
-    print("UI: http://localhost:7842/ui")
-
-    # ... build your LangChain or LangGraph workflow ...
-
-    result = await graph.ainvoke(
-        {"input": "your payload"},
-        config={"callbacks": [tracer.handler], "tags": ["my-system"]},
-    )
-
-    # Server stays up — Ctrl+C to stop
-    await asyncio.Event().wait()
+    async with TraceLens.session(install=True) as tl:   # install=True → global capture
+        await graph.ainvoke({"input": "your payload"}, config={"tags": ["my-system"]})
+        await tl.flush()                                 # ensure events are persisted
+        print(tl.run_url("<run_id>"))                    # deep link to a run
 
 asyncio.run(main())
 ```
 
+Prefer explicit wiring? Pass `config={"callbacks": [tl.handler]}` instead of `install=True`.
+
 That's it. Open **http://localhost:7842/ui** and explore.
 
-For a guided walkthrough with 10 before/after multi-agent systems, see
-**[`docs/integration_guide/`](docs/integration_guide/)**.
+### Developer workflow
+
+Once you have traces, debug them without leaving your terminal:
+
+```bash
+tracelens show <run_id>          # render a run as a tree in the terminal
+tracelens watch <run_id>         # live-tail events as they stream
+tracelens diff <run_a> <run_b>   # compare two runs (tokens, tools, errors)
+tracelens view trace.jsonl       # open an exported trace in the UI directly
+```
+
+**Test your agents** — the `tracelens_capture` pytest fixture is auto-registered:
+
+```python
+def test_agent_uses_search(tracelens_capture):
+    agent.invoke("find me a hotel")
+    tracelens_capture.assert_tool_called("search")
+    tracelens_capture.assert_no_errors()
+    assert tracelens_capture.total_tokens()[0] < 5000
+```
+
+See **[`docs/development.md`](docs/development.md)** for the full developer guide, and
+**[`docs/integration_guide/`](docs/integration_guide/)** for 10 before/after multi-agent systems.
 
 ## Concepts: the five topology kinds
 
@@ -138,7 +182,7 @@ topology piece by piece.
 ### Live interactive UI
 
 - **Run list** with status badges (running / completed / failed), search, status filter
-- **Cytoscape graph** showing agents, tools, and execution paths — pulses as events arrive
+- **SVG graph** showing agents, tools, and execution paths — pulses as events arrive
 - **Timeline** with click-to-expand step cards, lazy-loaded full payloads
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
 - **Dark / light themes**, persisted in `localStorage`
@@ -152,15 +196,20 @@ topology piece by piece.
 - Path-traversal blocked at runtime
 - Per-run event cap (circuit breaker) and root-level sampling for high volumes
 - Bounded internal state (no unbounded memory growth in long-running processes)
+- **Kill switch:** `TRACELENS_ENABLED=false` makes it a complete no-op (no server, no
+  DB/worker, no-op handler) — integrate once, disable per-environment. See
+  [docs/production.md](docs/production.md).
 
 ### CLI
 
 ```bash
 tracelens serve  --data-dir ~/.tracelens          # read-only viewer
 tracelens export --run-id RUN_ID -o trace.jsonl   # export to JSONL
+tracelens import -i trace.jsonl                   # import a JSONL export
 tracelens stats  --data-dir ~/.tracelens          # summary stats
 tracelens runs   --status failed --limit 20       # list runs
 tracelens gc     --max-runs 10000                 # retention cleanup
+tracelens doctor --data-dir ~/.tracelens          # data-dir diagnostics
 tracelens version
 ```
 
@@ -168,31 +217,38 @@ See [`docs/cli.md`](docs/cli.md) for full reference.
 
 ## Examples
 
-The `examples/` directory has runnable demos using `FakeListChatModel` so they
-need no API key:
+The [`examples/`](examples/) directory has three tiers:
 
-| File | What it shows |
-|---|---|
-| [`01_smart_search_agent.py`](examples/01_smart_search_agent.py) | One agent, four tools, picks one per query |
-| [`02_research_supervisor.py`](examples/02_research_supervisor.py) | Multi-agent supervisor with conditional routing |
-| [`03_rag_with_tools.py`](examples/03_rag_with_tools.py) | LCEL chain + retriever + tools |
+- **[`getting_started/`](examples/getting_started/)** — 3 standalone demos driven by
+  `FakeListChatModel` (**no API key**): smart-search agent, research supervisor, RAG.
+- **[`mcp/`](examples/mcp/)** — tools from 2 local MCP servers + 2 hardcoded tools,
+  attributed by source in the topology (needs `tracelens[mcp]`).
+- **[`showcase/`](examples/showcase/)** — **30 real before/after apps** across popular use
+  cases (customer support, RAG, multi-agent, MCP, reasoning loops, finance/legal/insurance).
+  Each ships a plain `before.py` and an `after.py` with tracelens added, so `diff` shows the
+  exact integration.
 
 ```bash
-python examples/01_smart_search_agent.py
-# Open http://localhost:7842/ui
+# instant, no key:
+python examples/getting_started/01_smart_search_agent.py       # then open http://localhost:7842/ui
+
+# the real-world gallery (needs an LLM key):
+pip install -r examples/showcase/requirements.txt
+export OPENAI_API_KEY=...
+python examples/showcase/01_support_faq_router/after.py
 ```
 
-For a more in-depth tour with **10 multi-agent systems** in a `before/`-`after/`
-format, see [`docs/integration_guide/`](docs/integration_guide/). It covers
-hybrid LangChain+LangGraph systems, parallel fan-out, the supervisor pattern,
-two-stage RAG, writer-critic loops, map-reduce, streaming, error recovery, and
-planner-executor.
+For an in-depth tour with **10 multi-agent systems** in `before/`-`after/` format, see
+[`docs/integration_guide/`](docs/integration_guide/) — hybrid LangChain+LangGraph systems,
+parallel fan-out, the supervisor pattern, two-stage RAG, writer-critic loops, map-reduce,
+streaming, error recovery, and planner-executor.
 
 ## Documentation
 
 | Doc | What's in it |
 |---|---|
 | [Quickstart](docs/quickstart.md) | First trace in five minutes |
+| [Developer guide](docs/development.md) | Trace links, sync/notebook setup, CLI debugging, pytest fixture |
 | [Configuration](docs/configuration.md) | Every `TRACELENS_*` env var explained |
 | [CLI reference](docs/cli.md) | All `tracelens` subcommands |
 | [Production guide](docs/production.md) | Sampling, auth, retention, deployment |
@@ -222,7 +278,7 @@ Bench results (5,000 events, 100 distinct run_ids, 20% blob-eligible):
 | Platform | Sustained | p99 write | Drops |
 |---|---|---|---|
 | Linux x86 + NVMe | 800–1200 ev/s | 80–150 ms | 0 |
-| Windows NTFS | 60–100 ev/s | 1–4 s | 0 |
+| Windows NTFS | 60–100 ev/s | 1–2 s | 0 |
 
 Windows NTFS is the bottleneck (gzip + fsync amplification). For very high
 throughput on Windows, raise `TRACELENS_WORKER_BATCH_SIZE` to 200 and
@@ -230,9 +286,9 @@ throughput on Windows, raise `TRACELENS_WORKER_BATCH_SIZE` to 200 and
 
 ## Status
 
-**v0.1 — alpha.** API may shift before v1.0. Production-monitoring-ready for
-single-Python-process deployments. Centralized multi-process server mode comes
-in v0.2.
+**v0.2 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
+single-Python-process deployments; centralized multi-process / remote-collector mode
+is on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
 
 See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 

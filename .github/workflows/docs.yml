@@ -46,11 +46,10 @@ jobs:
             "pymdown-extensions>=10.7"
 
       - name: Build site
-        # `--strict` is intentionally NOT set: the included CONTRIBUTING.md and
-        # CHANGELOG.md contain repo-root-relative links that mkdocs flags as
-        # warnings even though they resolve correctly on github.com. We rely
-        # on the workflow exit code from non-strict build instead.
-        run: mkdocs build
+        # `--strict` fails the build on any broken link or missing snippet. The
+        # few repo-root-relative links in included files (CONTRIBUTING.md, etc.)
+        # now use absolute URLs, so strict passes — keep it on as a docs gate.
+        run: mkdocs build --strict
 
       - uses: actions/upload-pages-artifact@v5
         with:

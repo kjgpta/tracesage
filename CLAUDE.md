@@ -44,7 +44,12 @@ Shared context for all Claude agents working on this codebase. Read this before 
 - All `blob_path` values stored in DB MUST be relative paths under `base_dir`. Validate
   this on read (path-traversal guard).
 - All SQL parameterized via `?` placeholders. NEVER f-string SQL.
-- Bearer token auth middleware: skip ONLY `/api/health`.
+- Bearer token auth middleware: gate every `/api/*` and `/ws/*` path. The ONLY
+  unauthenticated exemptions are `/api/health` (liveness probes) and the static UI
+  shell — `/`, `/ui`, `/ui/*` — so an unauthenticated user can load the page and
+  enter the token. The shell carries no trace data; all data flows through gated
+  `/api/*` + `/ws/*`. CORS preflight (`OPTIONS`) is also let through (answered by
+  CORSMiddleware, which is registered as the outermost layer).
 - Sampling: `if random() > sample_rate: return` at the top of every callback method
   (after `run_id` extraction so root-run tracking stays consistent).
 

@@ -1,12 +1,12 @@
 # Contributing to tracelens
 
-Thanks for considering a contribution. tracelens is intentionally small in v0.1 —
-we want every line to pull its weight.
+Thanks for considering a contribution. tracelens is intentionally lean — we want
+every line to pull its weight.
 
 ## Setup
 
 ```bash
-git clone https://github.com/tracelens/tracelens.git
+git clone https://github.com/kjgpta/tracelens.git
 cd tracelens
 python -m venv .venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
@@ -37,13 +37,13 @@ pytest tests/test_database.py -v
 ## Architecture
 
 - `src/tracelens/` — package source
-- `src/tracelens/adapters/` — framework adapters (LangChain in v0.1)
-- `src/tracelens/storage/` — pluggable storage backends
+- `src/tracelens/adapters/` — framework adapters (LangChain; MCP attribution helper)
+- `src/tracelens/storage/` — pluggable storage backends (SQLite + blob store)
 - `src/tracelens/server/` — FastAPI routes, WebSocket, auth
-- `src/tracelens/ui/` — vanilla JS + Cytoscape UI
-- `tests/` — unit + integration
-- `tests/stress/` — slow tests (excluded from CI by default)
-- `examples/` — runnable demos
+- `src/tracelens/ui/` — vanilla JS + a custom SVG graph renderer (no framework)
+- `src/tracelens/pytest_plugin.py` — the `tracelens_capture` fixture
+- `tests/` — unit + integration; `tests/stress/` — slow tests (excluded from CI)
+- `examples/` — `getting_started/` (no-key demos), `mcp/`, and the `showcase/` gallery
 - `tools/` — bench, crash-recovery, other ops scripts
 
 ## Pull requests
@@ -55,7 +55,8 @@ pytest tests/test_database.py -v
 
 ## Adding a framework adapter
 
-See [docs/extending.md](docs/extending.md). The adapter pattern is documented;
+See [the extending guide](https://github.com/kjgpta/tracelens/blob/main/docs/extending.md).
+The adapter pattern is documented;
 follow LangChain's adapter as a reference.
 
 ## Reporting bugs

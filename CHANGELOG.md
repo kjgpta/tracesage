@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+_Nothing yet._
+
+## [0.2.0] — 2026-06-15
+
+### Added
+
+#### MCP tool-source attribution
+- `tracelens.adapters.mcp.register_mcp_client(tracer, client)` loads a
+  `MultiServerMCPClient`'s tools and attributes each to its originating MCP server
+  (works around langchain-mcp-adapters not exposing provenance); plus
+  `register_mcp_tools()` for explicit lists and `TraceLens.register_tool_source()`
+- Tool events carry an `mcp_server` field, persisted on the event and in a new
+  `mcp_tools` table (schema v3) so a server's tools — including uncalled ones —
+  appear in the topology and `GET /api/tools` inventory even in `serve` mode
+- UI: MCP server nodes, agent→server and server→tool edges, per-server colour
+  rings/chips on tool nodes, a draggable, collapsible **"Tools by source"** panel,
+  and a dynamic legend
+- New optional extra `tracelens[mcp]` (langchain-mcp-adapters, mcp, langgraph),
+  imported lazily — `import tracelens` never requires it
+
+#### Developer experience
+- **Kill switch**: `TRACELENS_ENABLED=false` (or `enabled=False`) returns an inert
+  tracer — no embedded server, no DB/worker, a no-op handler, near-zero overhead —
+  so you can wire tracelens in once and disable it per-environment (e.g. in prod)
+  without changing your integration
+- **Trace links**: a `🔍 tracelens: <url>` deep link prints on each new root run
+  (`print_run_url` / `public_url` config; `TraceLens.run_url()`)
+- **Zero-friction setup**: `with tracelens.trace()` (sync), `tracelens.start()`
+  background runner, and `async with TraceLens.session(install=True)` — `install`
+  registers a global LangChain handler so no `callbacks=` wiring is needed
+- **Console + notebook renderers**: `tracelens show <run>` prints a terminal trace
+  tree; `TraceLens.run_view()` renders the live UI inline in Jupyter
+- **Richer errors**: exception type + full traceback captured on error events and
+  retrievable in the UI drawer / `/full`
+- **New CLI commands**: `demo`, `show`, `watch`, `diff`, `view`, and `serve --open`
+- **pytest plugin**: the `tracelens_capture` fixture (auto-registered) with
+  `assert_tool_called`, `assert_no_errors`, `total_tokens`, etc. — for both sync
+  and async tests
+- `TraceLens.flush()` to await full persistence (handy in tests/notebooks)
+- In-UI within-run **search/filter** of the timeline
+
+#### Examples
+- Restructured `examples/` into `getting_started/` (no-key demos), `mcp/`
+  (MCP attribution), and a new **`showcase/`** gallery — 30 real before/after
+  apps across customer support, RAG, multi-agent, MCP, reasoning loops, and
+  finance/legal/insurance verticals
+
+### Fixed
+- Auth middleware no longer 401s CORS preflight (`OPTIONS`) requests; CORS is the
+  outermost layer
+- WebSocket: per-socket send lock so catchup can't race a worker broadcast
+- Worker: removed a double `task_done()` on the cancellation path
+- Storage: timestamps normalized to fixed-width UTC so lexical ordering is
+  monotonic (keyset pagination correctness)
+- BlobStore: path-traversal guard now enforced on write as well as read
+- Adapter: token counts of `0` no longer dropped; per-run caches guarded by a lock
+- CLI `gc --max-blob-size-gb` no longer re-walks the whole blob tree per deletion;
+  `export`/`import` no longer leave dangling `blob_path` references, and import
+  synthesizes `runs` rows for nested sub-runs
+
+### Changed
+- Schema version 1 → 3 (additive, auto-migrated on `init()`; existing data preserved)
+
 ## [0.1.0] — 2026-05-02
 
 ### Added
@@ -63,4 +128,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cost tracking and PII redaction planned for v0.2
 - CrewAI / AutoGen / LlamaIndex adapters planned for v0.4+
 
-[0.1.0]: https://github.com/tracelens/tracelens/releases/tag/v0.1.0
+[0.2.0]: https://github.com/kjgpta/tracelens/releases/tag/v0.2.0
+[0.1.0]: https://github.com/kjgpta/tracelens/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 # Extending tracelens
 
-Three planned extension points. v0.1 only ships the LangChain adapter; the
+Three planned extension points. tracelens currently ships the LangChain adapter; the
 protocols for the others are stable.
 
 ## Adding a new framework adapter
@@ -73,7 +73,7 @@ Optional but improves the experience:
 ## Adding a storage backend
 
 `StorageBackend` (in `src/tracelens/storage/backend.py`) is a `Protocol` with
-~12 methods. v0.1 ships `SQLiteBackend`. v0.2+ will add:
+~12 methods. tracelens ships `SQLiteBackend`. Planned backends:
 
 - `PostgresBackend` — for centralized multi-process deployments
 - `JSONLBackend` — append-only files, no DB, easier portability
@@ -88,7 +88,7 @@ The UI is loaded as static files at `/ui/`. To swap:
 
 1. Build your replacement (any framework).
 2. Replace files in `src/tracelens/ui/`.
-3. The HTTP API contract is documented in `docs/api.md` (planned).
+3. The HTTP API contract is documented in [docs/api.md](api.md).
 
-The current UI uses Cytoscape.js + vanilla JS for the graph view, with no build
-step required. A React rewrite is on the v0.2 roadmap.
+The current UI is vanilla JS with a hand-written SVG graph renderer (no framework), with no build
+step required. A React rewrite is on the roadmap.

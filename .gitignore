@@ -58,6 +58,7 @@ coverage.xml
 *.db-wal
 .tracelens/
 tracelens_test/
+examples/**/mcp_demo_data/
 
 # Build artifacts
 *.tar.gz

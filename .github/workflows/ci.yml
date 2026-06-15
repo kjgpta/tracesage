@@ -60,3 +60,38 @@ jobs:
           python -m pip install -e ".[dev,langchain]"
       - name: Bench
         run: python tools/bench.py --n 5000 --runs 100
+
+  typecheck:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,langchain]"
+      - name: Mypy
+        continue-on-error: true
+        run: mypy src/tracelens
+
+  package:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build + check wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+      - name: Clean-install wheel and smoke-test public API
+        run: |
+          python -m pip install dist/*.whl
+          python -c "from tracelens import TraceLens, TraceLensConfig, __version__; print('import OK', __version__)"
+          tracelens version

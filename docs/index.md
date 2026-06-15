@@ -32,8 +32,8 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
 - **Production-grade safety.** The handler never raises. The tracer never crashes
   your pipeline.
-- **Interactive graph view.** Cytoscape.js + dagre layout. Hover, click, replay any run.
-- **Pluggable storage.** SQLite in v0.1; Postgres / remote-server / JSONL backends planned.
+- **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
+- **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned.
 - **MIT licensed.** Free forever.
 
 ## Where to go next
@@ -85,6 +85,6 @@ Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?`
 
 ## Status
 
-**v0.1 — alpha.** API may shift before v1.0. Production-monitoring-ready for
-single-Python-process deployments. Centralized multi-process server mode comes
-in v0.2. See the [changelog](changelog.md) for release notes.
+**v0.2 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
+single-Python-process deployments; centralized multi-process / remote-collector mode
+is on the roadmap. See the [changelog](changelog.md) for release notes.
