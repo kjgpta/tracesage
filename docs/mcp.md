@@ -14,6 +14,9 @@ MCP support is an optional extra (the core package never imports it):
 pip install 'tracelens[mcp]'
 ```
 
+The `[mcp]` extra installs `langchain-mcp-adapters>=0.1.0`, `mcp>=1.0.0`, and `langgraph`.
+If you already manage those yourself, any `langchain-mcp-adapters>=0.1.0` works.
+
 ## Register tool sources
 
 LangChain tools don't reliably carry their originating MCP server, so tracelens
@@ -38,7 +41,11 @@ mcp_tools = await register_mcp_client(tracer, client)
 all_tools = mcp_tools + [my_local_tool]
 ```
 
-If you load tools per server yourself, attribute them explicitly:
+`register_mcp_client` is **async** (loading tools from `MultiServerMCPClient` is async). In
+a synchronous app, load + register inside an `asyncio.run(...)` startup block, then use the
+returned tools with your sync agent.
+
+If you load tools per server yourself, attribute them explicitly (this call is sync):
 
 ```python
 from tracelens.adapters.mcp import register_mcp_tools

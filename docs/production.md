@@ -57,8 +57,33 @@ cfg = TraceLensConfig(
     print_run_url=False,    # no stderr trace-link spam
     sample_rate=0.1,        # capture a slice (see Sampling guidance below)
 )
-tracer = await TraceLens.create(cfg, start_server=False)
+tracer = await TraceLens.create(config=cfg)   # config drives start_server
 ```
+
+Every field above has a `TRACELENS_*` env var (`TRACELENS_START_SERVER=false`,
+`TRACELENS_PRINT_RUN_URL=false`, `TRACELENS_SAMPLE_RATE=0.1`, …), so you can ship the same
+code and tune it per environment without editing it. A `start_server=` kwarg to
+`create()`/`session()` overrides the config when you need to force it.
+
+**Long-running async service (e.g. FastAPI).** Create the tracer once at startup and reuse
+its handler across requests; stop it on shutdown so the queue drains:
+
+```python
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    app.state.tracer = await TraceLens.create(config=cfg)
+    try:
+        yield
+    finally:
+        await app.state.tracer.stop()   # drains the queue, closes the DB
+```
+
+Then pass `config={"callbacks": [app.state.tracer.handler]}` on each `ainvoke`, or call
+`app.state.tracer.install()` once after create to capture globally. (The `async with
+TraceLens.session(...)` context manager is for scripts/one-shot runs — it tears down at
+block exit.)
 
 Then view the data out-of-band with `tracelens serve --data-dir <dir>` (or point it at
 durable storage). Note the embedded SQLite + local blobs are best for single-process /

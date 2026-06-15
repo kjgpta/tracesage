@@ -72,12 +72,16 @@ pip install tracelens[langchain]
 
 Requires **Python 3.11+**. The `[langchain]` extra pulls `langchain-core`;
 that's the only mandatory third-party dep beyond the standard FastAPI /
-aiosqlite / pydantic stack.
+aiosqlite / pydantic stack. If your app uses **LangGraph**, also `pip install
+langgraph` (tracelens doesn't pull it).
 
-Optional extras for real LLM providers:
+tracelens is **provider-agnostic** — it traces LangChain's callback stream, so
+OpenAI / Anthropic / local models are all captured automatically; there's no
+provider setting in tracelens. Install whichever provider you use:
 
 ```bash
-pip install langchain-openai langchain-anthropic
+pip install langchain-openai      # OPENAI_API_KEY=...
+pip install langchain-anthropic   # ANTHROPIC_API_KEY=...
 ```
 
 For MCP tool-source attribution (loads tools from MCP servers and tags them by
@@ -103,7 +107,11 @@ import tracelens
 
 with tracelens.trace() as tl:          # starts the UI + global capture
     result = agent.invoke("your input")     # 🔍 tracelens: http://127.0.0.1:7842/ui/#run=...
+    input("Trace ready — open the printed link, then Enter to exit.")  # keep the UI up
 ```
+
+(The embedded UI stops when the `with` block / process exits; traces persist to
+`~/.tracelens`, so you can also reopen them later with `tracelens serve`.)
 
 **Async apps** — use the context manager (or `await TraceLens.create()` for full control):
 

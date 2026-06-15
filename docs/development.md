@@ -13,12 +13,17 @@ import tracelens
 
 with tracelens.trace() as tl:        # starts the embedded UI + installs globally
     agent.invoke("your input")       # captured automatically — no callbacks= needed
-    print(tl.run_url("<run_id>"))    # deep link into the UI
+    input("Trace ready — open the printed link, then press Enter to exit.")
 ```
 
 `tracelens.trace()` runs the tracer on a background thread, so it works in plain
-synchronous code. `tracelens.start(...)` returns the same handle without the
-context manager (call `.stop()` yourself).
+synchronous code. The embedded UI server stops when the `with` block / process exits, so
+a one-shot script needs to stay alive (the `input(...)`) while you view the live trace;
+traces also persist to `~/.tracelens` for later `tracelens serve`. `tracelens.start(...)`
+returns the same handle without the context manager (call `.stop()` yourself). A
+`🔍 tracelens: <url>` link prints to stderr on each new root run — that's the simplest way
+to open a specific run; `tl.run_url(run_id)` builds the same link if you already hold a
+LangChain run id.
 
 ### Async apps
 
@@ -95,8 +100,27 @@ def test_agent_behaviour(tracelens_capture):
     assert tracelens_capture.runs()                 # at least one run captured
 ```
 
-Works for both sync and `async def` tests. Read helpers auto-flush the pipeline, so
-events from a just-completed `invoke`/`ainvoke` are immediately visible.
+The fixture installs tracelens as the **global** LangChain handler for the test (its own
+temp `data_dir`, no server), so you do **not** add `callbacks=[...]` — a bare
+`invoke()`/`ainvoke()` is captured automatically. Read helpers auto-flush the pipeline, so
+events from a just-completed call are immediately visible.
+
+**Two gotchas worth knowing:**
+
+- **Async tests** need [`pytest-asyncio`](https://pytest-asyncio.readthedocs.io/) or they
+  silently skip (a false green). Install it and set `asyncio_mode = "auto"`:
+  ```toml
+  # pyproject.toml
+  [tool.pytest.ini_options]
+  asyncio_mode = "auto"
+  ```
+- **`total_tokens()` reflects only usage the model reports.** `FakeListChatModel` (used by
+  the no-key examples) reports none, so a token-budget assertion is vacuous against it —
+  gate token tests behind a real provider (e.g. `@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), ...)`).
+  See [`examples/showcase/26_llm_judge_eval/test_eval.py`](https://github.com/kjgpta/tracelens/blob/main/examples/showcase/26_llm_judge_eval/test_eval.py)
+  for a complete CI example.
+
+Works for both sync and `async def` tests.
 
 | Helper | Returns |
 |---|---|

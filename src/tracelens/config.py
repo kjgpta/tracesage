@@ -37,6 +37,11 @@ class TraceLensConfig(BaseSettings):
     # seen (dev convenience). Only prints when a UI URL is known (embedded server
     # running or public_url set). Disable in noisy/production setups.
     print_run_url: bool = True
+    # Start the embedded uvicorn UI server inside the traced process. Set False (or
+    # TRACELENS_START_SERVER=false) in production to keep capturing traces to the data
+    # dir without running a web server in your app process — view them later with
+    # `tracelens serve`. A `start_server=` kwarg to create()/session()/start() overrides this.
+    start_server: bool = True
     # Allowed CORS origins. Defaults to "*" (the bundled UI is same-origin and does
     # not need it); tighten to an explicit allowlist when exposing the server beyond
     # localhost so other sites cannot drive the API from a user's browser.

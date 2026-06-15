@@ -30,6 +30,13 @@ In the UI, each kind renders with its own color/shape and click-to-detail
 behavior. Edges between nodes show "this kind invoked that kind, N times
 across all runs".
 
+The topology is **de-duplicated**: a node that runs many times (or a loop, e.g. a
+write→critic cycle) is one box with a back-edge, not one box per visit — each individual
+invocation/iteration is a separate step in the **timeline / replay**. Parallel and
+concurrent (`asyncio.gather`) branches are attributed correctly to their own run/parent
+even though they share one tracer — LangChain's `run_id`/`parent_run_id` drives the
+grouping, and the handler is safe under concurrency.
+
 ---
 
 ## How tracelens decides which kind a node is
@@ -160,7 +167,9 @@ In production: `retriever:Chroma`, `retriever:FAISS`,
 
 **In the UI:** retrievers have their own callback events
 (`retriever_start` / `retriever_end`) that capture the query *and* the
-returned documents (with metadata + scores) in one structured payload.
+returned documents (with their metadata, and relevance scores when the retriever
+provides them) in one structured payload. The node label is `retriever:<class name>`
+of the `BaseRetriever` subclass whose callback fired (e.g. `retriever:Chroma`).
 
 **Why distinguish?** Retrieval quality is its own debugging dimension.
 "Did we retrieve the right docs?" is a different question from "Did the

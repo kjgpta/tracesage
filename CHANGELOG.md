@@ -32,6 +32,9 @@ _Nothing yet._
   tracer — no embedded server, no DB/worker, a no-op handler, near-zero overhead —
   so you can wire tracelens in once and disable it per-environment (e.g. in prod)
   without changing your integration
+- **Embedded-server toggle**: `start_server` is a config field
+  (`TRACELENS_START_SERVER=false`) — capture traces in prod without running the
+  in-process UI server; view them later with `tracelens serve`
 - **Trace links**: a `🔍 tracelens: <url>` deep link prints on each new root run
   (`print_run_url` / `public_url` config; `TraceLens.run_url()`)
 - **Zero-friction setup**: `with tracelens.trace()` (sync), `tracelens.start()`

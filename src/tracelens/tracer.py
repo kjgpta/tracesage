@@ -116,9 +116,11 @@ class TraceLens:
         cls,
         config: TraceLensConfig | None = None,
         *,
-        start_server: bool = True,
+        start_server: bool | None = None,
     ) -> TraceLens:
         cfg = config or TraceLensConfig()
+        # The kwarg, when given, overrides config.start_server (env TRACELENS_START_SERVER).
+        start_server = cfg.start_server if start_server is None else start_server
         if not cfg.enabled:
             # Kill switch (TRACELENS_ENABLED=false): return an inert tracer — no
             # server, no DB/worker, a no-op handler. Integration code is unchanged.
@@ -176,7 +178,7 @@ class TraceLens:
         cls,
         config: TraceLensConfig | None = None,
         *,
-        start_server: bool = True,
+        start_server: bool | None = None,
         install: bool = False,
     ) -> Any:
         """Async context manager: create a tracer, optionally install it globally, and
@@ -690,7 +692,7 @@ class BackgroundTracer:
         self,
         config: TraceLensConfig | None = None,
         *,
-        start_server: bool = True,
+        start_server: bool | None = None,
         install: bool = False,
         ready_timeout: float = 10.0,
     ) -> None:

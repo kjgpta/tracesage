@@ -45,6 +45,10 @@ The flagship gallery: each app ships a **`before.py`** (plain LangChain/LangGrap
 real LLMs) and an **`after.py`** (the same app + tracelens), so `diff before.py
 after.py` shows exactly how little it takes to add observability.
 
+> The `LLM_PROVIDER` / `LLM_MODEL` env vars are read by the **example apps** (via
+> LangChain's `init_chat_model`) to pick a provider — they are **not** tracelens
+> settings. tracelens itself is provider-agnostic and has no provider config.
+
 The 30 apps span five themes — see the full index in the
 [showcase README](https://github.com/kjgpta/tracelens/tree/main/examples/showcase):
 

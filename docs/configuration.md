@@ -15,6 +15,7 @@ All settings live on `TraceLensConfig` (Pydantic Settings). Override via:
 | `auth_token` | `TRACELENS_AUTH_TOKEN` | `None` | Bearer token for HTTP + WebSocket auth. |
 | `public_url` | `TRACELENS_PUBLIC_URL` | `None` | Base URL used for run deep-links (e.g. behind a reverse proxy). Falls back to the bound host/port. |
 | `print_run_url` | `TRACELENS_PRINT_RUN_URL` | `True` | Print a `🔍 tracelens: <url>` link to stderr on each new root run. Set `False` in noisy/prod environments. |
+| `start_server` | `TRACELENS_START_SERVER` | `True` | Start the embedded UI server in-process. Set `False` in prod to keep capturing without a web server (view later with `tracelens serve`). A `start_server=` kwarg to `create()`/`session()` overrides this. |
 | `cors_origins` | `TRACELENS_CORS_ORIGINS` | `["*"]` | Allowed CORS origins. Tighten to an explicit allowlist when exposing beyond localhost. |
 | `startup_health_timeout_s` | `TRACELENS_STARTUP_HEALTH_TIMEOUT_S` | `3.0` | How long `create()` waits for the embedded server to report started. |
 | `data_dir` | `TRACELENS_DATA_DIR` | `~/.tracelens` | Root data directory (DB + blobs). |
