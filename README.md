@@ -146,7 +146,7 @@ def test_agent_uses_search(tracelens_capture):
 ```
 
 See **[`docs/development.md`](docs/development.md)** for the full developer guide, and
-**[`docs/integration_guide/`](docs/integration_guide/)** for 10 before/after multi-agent systems.
+**[`examples/showcase/`](examples/showcase/)** for 30 before/after apps across popular use cases.
 
 ## Concepts: the five topology kinds
 
@@ -238,10 +238,9 @@ export OPENAI_API_KEY=...
 python examples/showcase/01_support_faq_router/after.py
 ```
 
-For an in-depth tour with **10 multi-agent systems** in `before/`-`after/` format, see
-[`docs/integration_guide/`](docs/integration_guide/) — hybrid LangChain+LangGraph systems,
-parallel fan-out, the supervisor pattern, two-stage RAG, writer-critic loops, map-reduce,
-streaming, error recovery, and planner-executor.
+The **[showcase gallery](examples/showcase/)** has 30 before/after apps spanning
+LangChain + LangGraph: routing, parallel fan-out, the supervisor pattern, RAG variants,
+writer-critic loops, map-reduce, MCP, self-correction, and finance/legal/insurance verticals.
 
 ## Documentation
 
@@ -254,7 +253,7 @@ streaming, error recovery, and planner-executor.
 | [Production guide](docs/production.md) | Sampling, auth, retention, deployment |
 | [Comparison](docs/comparison.md) | tracelens vs LangSmith / LangFuse / Phoenix |
 | [Extending tracelens](docs/extending.md) | Adding framework adapters and storage backends |
-| **[Integration guide](docs/integration_guide/)** | **10 before/after multi-agent systems with tracelens added** |
+| **[Examples](examples/showcase/)** | **30 before/after apps with tracelens added** |
 
 ## Comparison
 

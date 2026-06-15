@@ -53,7 +53,7 @@ Out of scope:
 ## Hardening recommendations
 
 If you operate tracelens in production, please review
-[`docs/integration_guide/PRODUCTION.md`](../docs/integration_guide/PRODUCTION.md)
+[`docs/production.md`](../docs/production.md)
 which covers:
 
 - The hard fail-stop on non-loopback binding without `auth_token`

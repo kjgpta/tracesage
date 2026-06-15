@@ -370,7 +370,7 @@ First public release of tracelens.
 - LangChain + LangGraph adapter — callback-driven, never raises
 - Embedded FastAPI UI at `http://localhost:7842`
 - SQLite + gzipped blob storage, no external infra
-- 10-system before/after [integration guide](https://kjgpta.github.io/tracelens/integration_guide/)
+- 30-app before/after [examples gallery](https://kjgpta.github.io/tracelens/examples/)
 
 ## Install
 

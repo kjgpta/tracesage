@@ -72,17 +72,14 @@ An `agent` node represents a function **you registered** as a LangGraph
 node, that **calls something else** (an LLM, a tool, a sub-agent).
 Conceptually: the place "your business logic" runs.
 
-In the integration guide:
+Example agent nodes (you'll build your own — see the [examples gallery](examples.md)):
 
-- System 1 (`docs/integration_guide/before/01_customer_support/`):
-  `agent:billing_agent`, `agent:tech_agent`, `agent:escalation_agent`,
-  `agent:triage`
-- System 2 (`docs/integration_guide/before/02_research_pipeline/`):
-  `agent:ingest`, `agent:retrieve`, `agent:fact_extractor`,
+- A support-triage app: `agent:triage`, `agent:billing_agent`,
+  `agent:tech_agent`, `agent:escalation_agent`
+- A research pipeline: `agent:ingest`, `agent:retrieve`, `agent:fact_extractor`,
   `agent:sentiment`, `agent:entities`, `agent:synthesize`
-- System 4 (`docs/integration_guide/before/04_data_analyst/`):
-  `agent:supervisor`, `agent:sql_agent`, `agent:chart_agent`,
-  `agent:narrative_agent`
+- A data-analyst supervisor: `agent:supervisor`, `agent:sql_agent`,
+  `agent:chart_agent`, `agent:narrative_agent`
 
 **In the UI:** typically the most prominent nodes — they sit in the middle
 of the topology and connect outward to the tools / LLMs / retrievers they
@@ -134,8 +131,7 @@ In the integration guide:
 **In the UI:** the LLM step's full payload contains the prompts, the
 generated text, and (if the model reports it) `token_usage`. For streaming
 models, the `_stream` field shows TTFT, streamed token count, and
-tokens/sec. See system 8 (`docs/integration_guide/before/08_streaming_agent/`)
-for an example.
+tokens/sec (reported when you stream tokens from the model).
 
 **Why distinguish from `chain`?** An LLM call is the thing you want to
 **count, cost, and cache**. The `chain:RunnableSequence` that wraps it is
@@ -146,14 +142,11 @@ plumbing — it doesn't generate tokens.
 A `retriever` node represents a `BaseRetriever` subclass invocation. This
 is the "R" in RAG: vector stores, BM25, hybrid search, custom retrievers.
 
-In the integration guide:
+Examples (see the RAG apps in the [examples gallery](examples.md)):
 
-- System 2 (`docs/integration_guide/before/02_research_pipeline/`):
-  `retriever:_FixedCorpusRetriever`
-- System 5 (`docs/integration_guide/before/05_rag_reranker/`):
-  `retriever:FastFakeRetriever` — the *first* stage of a two-stage
-  retrieval pipeline. The reranker is an `llm:` invocation in this design,
-  not a second retriever.
+- A research pipeline: `retriever:_FixedCorpusRetriever`
+- A two-stage RAG app: a fast `retriever:` followed by an `llm:` reranker — the
+  reranker is an LLM invocation in this design, not a second retriever.
 
 In production: `retriever:Chroma`, `retriever:FAISS`,
 `retriever:MultiQueryRetriever`, `retriever:ParentDocumentRetriever`, etc.
@@ -165,7 +158,7 @@ returned documents (with metadata + scores) in one structured payload.
 **Why distinguish?** Retrieval quality is its own debugging dimension.
 "Did we retrieve the right docs?" is a different question from "Did the
 LLM use them well?". When you have multiple retrievers (e.g. fast index
-+ reranker, see system 5), you want to see them as separate boxes in the
++ reranker), you want to see them as separate boxes in the
 topology so you can compare their behavior.
 
 ### `chain` — plumbing
@@ -185,16 +178,14 @@ covers four things:
    `add_conditional_edges`, e.g. `chain:route_after_critic`,
    `chain:route_after_supervisor`.
 
-In the integration guide:
+Examples:
 
-- All systems: `chain:LangGraph` (the orchestrator)
-- System 3 (`docs/integration_guide/before/03_code_review/`): both LCEL
-  chains decompose — you'll see `chain:RunnableSequence`,
+- Every LangGraph app: `chain:LangGraph` (the orchestrator)
+- LCEL pipelines decompose — you'll see `chain:RunnableSequence`,
   `chain:ChatPromptTemplate`, `chain:StrOutputParser` each at multiple
   invocations
-- System 6 (`docs/integration_guide/before/06_writer_critic/`):
-  `chain:route_after_critic` — a routing function with no LLM/tool
-  inside, demoted from `agent` to `chain`
+- A writer-critic loop: `chain:route_after_critic` — a routing function with no
+  LLM/tool inside, demoted from `agent` to `chain`
 
 **In the UI:** usually upstream of agents — they're the "wrapping"
 machinery.
@@ -224,10 +215,10 @@ has just the five event-based kinds.
 
 ---
 
-## Putting it together: System 2 walked through
+## Putting it together: a research pipeline walked through
 
-If you ran `docs/integration_guide/before/02_research_pipeline/` and
-opened the UI, here's what each topology node was:
+A representative research-pipeline topology — run any app in `examples/showcase/`
+to see your own — decomposes like this:
 
 ```
 [topology]
@@ -257,7 +248,7 @@ So when you saw 12 topology nodes after running 3 topics, they were:
 - 1 × `retriever:_FixedCorpusRetriever`
 - 3 × `tool:` (web_search, fetch_document, cite_sources)
 
-Same logic applies to every other system in the integration guide.
+The same logic applies to every app in the [examples gallery](examples.md).
 
 ---
 
@@ -286,10 +277,10 @@ currently emitted; run completion is inferred from the root chain ending.)
 ## Where to go next
 
 - **Run an example to see the kinds in your own UI:**
-  `cd docs/integration_guide/after/02_research_pipeline && python main.py`
+  `python examples/showcase/11_supervisor_research_team/after.py`
   then open `http://localhost:7842/ui`
-- **Browse all 10 systems** to see different combinations of kinds:
-  [`docs/integration_guide/`](integration_guide/README.md)
+- **Browse the gallery** to see different combinations of kinds:
+  [the examples gallery](examples.md)
 - **Check the topology source-of-truth** in `src/tracelens/models.py`
   (the `TopologyNode` and `EventType` definitions) and
   `src/tracelens/storage/sqlite_backend.py::get_topology()` (the

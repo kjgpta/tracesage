@@ -17,7 +17,7 @@ result = await graph.ainvoke(
 ```
 
 [Get started in 5 minutes →](quickstart.md){ .md-button .md-button--primary }
-[See the integration guide →](integration_guide/README.md){ .md-button }
+[Browse the examples →](examples.md){ .md-button }
 
 ---
 
@@ -57,10 +57,10 @@ and renders it in an interactive graph + timeline UI in real time.
 
     Auth, sampling, retention, monitoring, multi-tenant deployments.
 
--   :material-book-open-variant: **[Integration guide](integration_guide/README.md)**
+-   :material-book-open-variant: **[Examples](examples.md)**
 
-    10 multi-agent systems in `before/`-`after/` form. Pick the closest match
-    to your architecture and copy the pattern.
+    30 before/after apps across popular use cases. Pick the closest match to
+    your architecture and copy the integration.
 
 -   :material-console: **[CLI reference](cli.md)**
 
