@@ -25,6 +25,7 @@ sweet spot. Here's when to pick which.
 | LangChain native | ✓ | ✓ (auto-instrument) | ✓ (SDK) | ✓ (OpenInference) |
 | Live UI (WebSocket) | ✓ | ✓ | ✓ | ✓ |
 | Interactive graph view | ✓ | ✓ | ✓ | ✓ |
+| MCP tool attribution | ✓ | ✗ | ✗ | ✗ |
 | Multi-user / RBAC | v0.4+ | ✓ | ✓ | ✓ |
 | Eval framework | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Dataset management | ✗ (non-goal) | ✓ | ✓ | ✓ |

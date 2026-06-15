@@ -35,7 +35,7 @@ result = await graph.ainvoke(
 - [Why tracelens](#why-tracelens)
 - [Install](#install)
 - [Quick start](#quick-start)
-- [Concepts: the five topology kinds](#concepts-the-five-topology-kinds)
+- [Concepts: topology node kinds](#concepts-topology-node-kinds)
 - [Features](#features)
 - [Examples](#examples)
 - [Documentation](#documentation)
@@ -148,10 +148,11 @@ def test_agent_uses_search(tracelens_capture):
 See **[`docs/development.md`](docs/development.md)** for the full developer guide, and
 **[`examples/showcase/`](examples/showcase/)** for 30 before/after apps across popular use cases.
 
-## Concepts: the five topology kinds
+## Concepts: topology node kinds
 
-When you open the UI, every node in the topology graph is one of five
-kinds. Knowing what each one means is the prerequisite to reading a trace:
+When you open the UI, every node in the topology graph is one of five event-based
+kinds — plus a synthesized **`mcp`** node when you attribute tools to an MCP server.
+Knowing what each means is the prerequisite to reading a trace:
 
 | Kind | What it is | Examples you'll see |
 |---|---|---|
@@ -160,6 +161,7 @@ kinds. Knowing what each one means is the prerequisite to reading a trace:
 | **`llm`** | A language-model call (chat or completion) | `llm:FakeListChatModel`, `llm:ChatOpenAI`, `llm:ChatAnthropic` |
 | **`retriever`** | A `BaseRetriever` subclass — the "R" in RAG | `retriever:Chroma`, `retriever:FAISS`, `retriever:_FixedCorpusRetriever` |
 | **`chain`** | Plumbing — LCEL primitives, the LangGraph orchestrator, routing functions | `chain:LangGraph`, `chain:RunnableSequence`, `chain:ChatPromptTemplate`, `chain:route_after_quality` |
+| **`mcp`** | An MCP server (synthesized) — groups the tools loaded from it | `mcp:weather`, `mcp:math`, `mcp:github` |
 
 Quick mental model:
 
@@ -171,10 +173,12 @@ Quick mental model:
 - **`chain`** is the wrapping machinery (the `prompt | llm | parser`
   pipe operator, the LangGraph state machine, routing functions). It's
   infrastructure, not business logic.
+- **`mcp`** groups tools by the MCP server they came from — provenance, so you can
+  tell server-provided tools from your hardcoded ones (see [docs/mcp.md](docs/mcp.md)).
 
 Read the full reference at **[`docs/concepts.md`](docs/concepts.md)** —
 it covers how tracelens classifies events into kinds, why agents with no
-descendants get demoted to `chain`, and walks through example 02's
+descendants get demoted to `chain`, and walks through a research-pipeline
 topology piece by piece.
 
 ## Features
@@ -183,6 +187,8 @@ topology piece by piece.
 
 - **Run list** with status badges (running / completed / failed), search, status filter
 - **SVG graph** showing agents, tools, and execution paths — pulses as events arrive
+- **MCP attribution** — `mcp:` server nodes with per-server colors, agent→server and
+  server→tool edges, and a draggable "Tools by source" panel grouping tools by origin
 - **Timeline** with click-to-expand step cards, lazy-loaded full payloads
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
 - **Dark / light themes**, persisted in `localStorage`

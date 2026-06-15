@@ -1,9 +1,10 @@
-# Concepts: the five topology kinds
+# Concepts: topology node kinds
 
 When a run completes, tracelens groups every callback event into one of
-**five "kinds"** of topology nodes:
+**five "kinds"** of topology nodes — plus a synthesized **`mcp`** node when you
+attribute tools to an MCP server:
 
-`agent` &nbsp;·&nbsp; `tool` &nbsp;·&nbsp; `llm` &nbsp;·&nbsp; `retriever` &nbsp;·&nbsp; `chain`
+`agent` &nbsp;·&nbsp; `tool` &nbsp;·&nbsp; `llm` &nbsp;·&nbsp; `retriever` &nbsp;·&nbsp; `chain` &nbsp;·&nbsp; `mcp`
 
 This page is the reference for what each kind means, how tracelens
 classifies events into it, and why the distinction matters when you're
@@ -23,6 +24,7 @@ If you opened the UI after running an example and wondered "what does
 | `llm` | A **language model** call (chat or completion) | `llm:FakeListChatModel`, `llm:ChatOpenAI`, `llm:ChatAnthropic` |
 | `retriever` | A **`BaseRetriever` subclass** invocation — the "R" in RAG | `retriever:FastFakeRetriever`, `retriever:Chroma`, `retriever:FAISS` |
 | `chain` | **Plumbing** — LCEL primitives, the LangGraph state machine, routing functions | `chain:LangGraph`, `chain:RunnableSequence`, `chain:ChatPromptTemplate`, `chain:route_after_quality` |
+| `mcp` | An **MCP server** (synthesized, not an event) — groups the tools loaded from that server | `mcp:weather`, `mcp:math`, `mcp:github` |
 
 In the UI, each kind renders with its own color/shape and click-to-detail
 behavior. Edges between nodes show "this kind invoked that kind, N times
@@ -56,6 +58,11 @@ priority list (defined in `storage/sqlite_backend.py::get_topology`):
    `route_after_quality`) — they get a `chain_start`/`chain_end` pair with
    an `agent_name`, but never call anything, so they're plumbing, not
    cognition.
+
+6. **MCP overlay (synthesized).** If you've registered MCP attribution, tracelens
+   also adds one `mcp:<server>` node per server and wires `mcp → tool` and
+   `agent → mcp` edges. These don't come from callback events — they're a
+   provenance overlay (see [MCP server nodes](#mcp-server-nodes-a-synthesized-node)).
 
 You don't need to remember this rule — it's deterministic and you'll see
 the result in the UI directly. The point is: **what's an agent vs. a chain
@@ -266,6 +273,7 @@ types:
 | `llm` | `llm_start`, `llm_end`, `llm_error`, `chat_model_start` |
 | `retriever` | `retriever_start`, `retriever_end`, `retriever_error` |
 | `chain` | Same as `agent`, but with primitive `agent_name` *or* no descendants |
+| `mcp` | None — **synthesized** from MCP tool attribution, not a callback event |
 
 The synthetic `run_start` event is tracelens-internal and doesn't produce
 a topology node — it exists so the dashboard's run list gets a lifecycle

@@ -33,6 +33,8 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Production-grade safety.** The handler never raises. The tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
+- **MCP-aware.** Tools loaded from MCP servers are attributed by source — see which tools
+  came from which server vs. which are hardcoded. See [MCP support](mcp.md).
 - **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned.
 - **MIT licensed.** Free forever.
 
@@ -46,7 +48,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 -   :material-graph: **[Concepts](concepts.md)**
 
-    What `agent`, `tool`, `llm`, `retriever`, and `chain` mean — read
+    What `agent`, `tool`, `llm`, `retriever`, `chain`, and `mcp` mean — read
     this first if you want to interpret a topology.
 
 -   :material-cog: **[Configuration](configuration.md)**
