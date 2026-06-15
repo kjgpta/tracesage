@@ -47,6 +47,7 @@ def _make_event(
     timestamp: datetime | None = None,
     agent_name: str | None = None,
     tool_name: str | None = None,
+    mcp_server: str | None = None,
     duration_ms: int | None = None,
     error_message: str | None = None,
 ) -> StoredEvent:
@@ -59,6 +60,7 @@ def _make_event(
         timestamp=timestamp or _now(),
         agent_name=agent_name,
         tool_name=tool_name,
+        mcp_server=mcp_server,
         summary=f"summary-{event_id}",
         duration_ms=duration_ms,
         error_message=error_message,
@@ -162,6 +164,36 @@ async def test_get_journey_uses_root_run_id(backend: SQLiteBackend) -> None:
 
 
 @pytest.mark.asyncio
+async def test_iter_journey_matches_get_journey(backend: SQLiteBackend) -> None:
+    """iter_journey streams the same events, in the same order, as get_journey."""
+    parent = _make_run("parent")
+    child = _make_run("child", root_run_id="parent")
+    await backend.upsert_run(parent)
+    await backend.upsert_run(child)
+
+    base = _now()
+    events = [
+        _make_event(
+            f"e{i}",
+            "child" if i % 2 else "parent",
+            root_run_id="parent",
+            parent_run_id="parent" if i % 2 else None,
+            timestamp=base + timedelta(milliseconds=i),
+        )
+        for i in range(7)
+    ]
+    for e in events:
+        await backend.upsert_event(e)
+
+    expected = await backend.get_journey("parent")
+    # Use a small batch_size to exercise the fetchmany loop across batches.
+    streamed = [e async for e in backend.iter_journey("parent", batch_size=2)]
+
+    assert [e.event_id for e in streamed] == [e.event_id for e in expected]
+    assert [e.event_id for e in streamed] == [f"e{i}" for i in range(7)]
+
+
+@pytest.mark.asyncio
 async def test_list_runs_pagination(backend: SQLiteBackend) -> None:
     base = _now()
     for i in range(100):
@@ -197,6 +229,35 @@ async def test_list_runs_status_filter(backend: SQLiteBackend) -> None:
 
     runs, total = await backend.list_runs(status="all")
     assert total == 4
+
+
+@pytest.mark.asyncio
+async def test_update_run_status_is_monotonic(backend: SQLiteBackend) -> None:
+    """A terminal status must never be overwritten by a later terminal event.
+
+    First-terminal-wins: once a run is COMPLETED, an out-of-order FAILED event
+    (e.g. a recovered nested chain error) must not flip the root run.
+    """
+    await backend.upsert_run(_make_run("r1", status=RunStatus.RUNNING))
+
+    completed_at = _now()
+    await backend.update_run_status(
+        "r1", RunStatus.COMPLETED, completed_at=completed_at
+    )
+
+    got = await backend.get_run("r1")
+    assert got is not None
+    assert got.status == RunStatus.COMPLETED
+
+    # A later, out-of-order terminal event must NOT change the status.
+    await backend.update_run_status(
+        "r1", RunStatus.FAILED, completed_at=_now(), error="boom"
+    )
+
+    got = await backend.get_run("r1")
+    assert got is not None
+    assert got.status == RunStatus.COMPLETED
+    assert got.error_message is None
 
 
 @pytest.mark.asyncio
@@ -368,6 +429,48 @@ async def test_get_topology_aggregates(backend: SQLiteBackend) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_topology_populates_p99(backend: SQLiteBackend) -> None:
+    """Nodes with duration samples must report a non-None, non-negative p99."""
+    await backend.upsert_run(_make_run("r1"))
+    base = _now()
+
+    # Ten tool invocations with increasing durations (10..100ms). Each is a
+    # paired TOOL_START / TOOL_END; only the END carries duration_ms.
+    events: list[StoredEvent] = []
+    for i in range(10):
+        events.append(
+            _make_event(
+                f"s{i}",
+                "r1",
+                parent_run_id="r1",
+                tool_name="search",
+                timestamp=base + timedelta(milliseconds=2 * i),
+                event_type=EventType.TOOL_START,
+            )
+        )
+        events.append(
+            _make_event(
+                f"e{i}",
+                "r1",
+                parent_run_id="r1",
+                tool_name="search",
+                timestamp=base + timedelta(milliseconds=2 * i + 1),
+                event_type=EventType.TOOL_END,
+                duration_ms=(i + 1) * 10,
+            )
+        )
+    for e in events:
+        await backend.upsert_event(e)
+
+    topo = await backend.get_topology()
+    search = next(n for n in topo.nodes if n.id == "tool:search")
+    assert search.p99_duration_ms is not None
+    assert search.p99_duration_ms >= 0
+    # p99 must lie within the observed range [10, 100].
+    assert 10 <= search.p99_duration_ms <= 100
+
+
+@pytest.mark.asyncio
 async def test_database_recovers_from_locked_db(
     tmp_data_dir: Path,
 ) -> None:
@@ -418,3 +521,286 @@ async def test_database_recovers_from_locked_db(
         assert total >= 3
     finally:
         await backend.close()
+
+
+async def test_iter_journey_releases_pool_between_batches(tmp_data_dir: Path) -> None:
+    """iter_journey must NOT hold a pool slot across yields.
+
+    With pool_size=1, if iter_journey held the single connection open for the
+    whole stream (the old behaviour), a concurrent query issued mid-iteration
+    would deadlock on the semaphore. The keyset-paginated impl releases the slot
+    between batches, so the concurrent get_run completes.
+    """
+    be = SQLiteBackend(tmp_data_dir / "pool1.db", pool_size=1)
+    await be.init()
+    try:
+        await be.upsert_run(_make_run("r1"))
+        base = _now()
+        for i in range(3):
+            await be.upsert_event(
+                _make_event(f"e{i}", "r1", timestamp=base + timedelta(milliseconds=i))
+            )
+        seen: list[str] = []
+        async for ev in be.iter_journey("r1", batch_size=1):
+            seen.append(ev.event_id)
+            # Mid-iteration concurrent query; would hang forever with pool_size=1
+            # if iter_journey still held the only connection across the yield.
+            got = await asyncio.wait_for(be.get_run("r1"), timeout=5.0)
+            assert got is not None
+        assert seen == ["e0", "e1", "e2"]
+    finally:
+        await be.close()
+
+
+async def test_delete_run_removes_whole_tree(backend: SQLiteBackend) -> None:
+    """delete_run must remove the root run, its auto-created sub-run rows, and ALL
+    descendant events (matched by root_run_id), not just the single root row."""
+    await backend.upsert_run(_make_run("r1"))
+    await backend.upsert_run(_make_run("s1", root_run_id="r1"))  # auto-created sub-run
+    await backend.upsert_event(_make_event("e_root", "r1", root_run_id="r1"))
+    await backend.upsert_event(
+        _make_event("e_sub", "s1", root_run_id="r1", parent_run_id="r1")
+    )
+    # Sanity: journey (root_run_id-scoped) sees both events before delete.
+    assert {e.event_id for e in await backend.get_journey("r1")} == {"e_root", "e_sub"}
+
+    await backend.delete_run("r1")
+
+    assert await backend.get_run("r1") is None
+    assert await backend.get_run("s1") is None  # sub-run row gone (was orphaned before)
+    assert await backend.get_journey("r1") == []  # no descendant events linger
+
+
+# ---------- MCP tool-source attribution ----------
+
+
+async def test_schema_v1_to_v3_migration(tmp_data_dir: Path) -> None:
+    """A pre-v2 DB (events table without mcp_server, user_version=1) must be upgraded
+    in place by init() straight to the current schema: the mcp_server column is added,
+    the v3 mcp_tools table is created and usable, and existing rows survive."""
+    db_path = tmp_data_dir / "v1.db"
+    # Hand-build a v1 database: old events schema (no mcp_server), user_version=1.
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, root_run_id TEXT NOT NULL, "
+            "tags TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'running', "
+            "started_at TEXT NOT NULL, completed_at TEXT, total_steps INTEGER NOT NULL "
+            "DEFAULT 0, total_tokens_input INTEGER NOT NULL DEFAULT 0, "
+            "total_tokens_output INTEGER NOT NULL DEFAULT 0, graph_definition TEXT, "
+            "error_message TEXT)"
+        )
+        await conn.execute(
+            "CREATE TABLE events (event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, "
+            "parent_run_id TEXT, root_run_id TEXT NOT NULL, event_type TEXT NOT NULL, "
+            "timestamp TEXT NOT NULL, agent_name TEXT, tool_name TEXT, summary TEXT "
+            "NOT NULL, blob_path TEXT, duration_ms INTEGER, token_input INTEGER, "
+            "token_output INTEGER, error_message TEXT)"
+        )
+        await conn.execute(
+            "INSERT INTO runs (run_id, root_run_id, started_at) VALUES (?, ?, ?)",
+            ("old", "old", _now().isoformat()),
+        )
+        await conn.execute(
+            "INSERT INTO events (event_id, run_id, root_run_id, event_type, timestamp, "
+            "tool_name, summary) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("e0", "old", "old", "tool_start", _now().isoformat(), "legacy_tool", "s"),
+        )
+        await conn.execute("PRAGMA user_version = 1")
+        await conn.commit()
+
+    be = SQLiteBackend(db_path)
+    await be.init()  # should ALTER TABLE events ADD COLUMN mcp_server
+    try:
+        # Old row preserved, new column readable as None.
+        journey = await be.get_journey("old")
+        assert len(journey) == 1
+        assert journey[0].tool_name == "legacy_tool"
+        assert journey[0].mcp_server is None
+        # New events with mcp_server now insert fine (column exists).
+        await be.upsert_event(
+            _make_event("e1", "old", event_type=EventType.TOOL_START,
+                        tool_name="new_tool", mcp_server="weather")
+        )
+        async with be._conn() as conn:
+            cur = await conn.execute("PRAGMA user_version")
+            ver = (await cur.fetchone())[0]
+            await cur.close()
+        assert ver == 3  # v1 DB upgrades straight to the current schema version
+        # The v3 mcp_tools table must exist AND be usable post-migration — a
+        # regression that bumped the version without creating it would fail here.
+        await be.upsert_mcp_tools("weather", ["get_weather", "air_quality"])
+        assert await be.get_mcp_tools() == {"weather": ["air_quality", "get_weather"]}
+    finally:
+        await be.close()
+
+
+async def test_schema_v2_to_v3_migration_adds_mcp_tools(tmp_data_dir: Path) -> None:
+    """A v2 DB (events HAS mcp_server, user_version=2, but NO mcp_tools table) must
+    upgrade to v3 by creating mcp_tools — without re-running the v1->v2 ALTER (which
+    would fail because the column already exists)."""
+    db_path = tmp_data_dir / "v2.db"
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, root_run_id TEXT NOT NULL, "
+            "tags TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'running', "
+            "started_at TEXT NOT NULL, completed_at TEXT, total_steps INTEGER NOT NULL "
+            "DEFAULT 0, total_tokens_input INTEGER NOT NULL DEFAULT 0, "
+            "total_tokens_output INTEGER NOT NULL DEFAULT 0, graph_definition TEXT, "
+            "error_message TEXT)"
+        )
+        # v2 events schema: mcp_server column present, but no mcp_tools table.
+        await conn.execute(
+            "CREATE TABLE events (event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, "
+            "parent_run_id TEXT, root_run_id TEXT NOT NULL, event_type TEXT NOT NULL, "
+            "timestamp TEXT NOT NULL, agent_name TEXT, tool_name TEXT, summary TEXT "
+            "NOT NULL, blob_path TEXT, duration_ms INTEGER, token_input INTEGER, "
+            "token_output INTEGER, error_message TEXT, mcp_server TEXT)"
+        )
+        await conn.execute(
+            "INSERT INTO runs (run_id, root_run_id, started_at) VALUES (?, ?, ?)",
+            ("r2", "r2", _now().isoformat()),
+        )
+        await conn.execute(
+            "INSERT INTO events (event_id, run_id, root_run_id, event_type, timestamp, "
+            "tool_name, summary, mcp_server) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("e0", "r2", "r2", "tool_start", _now().isoformat(), "get_weather", "s", "weather"),
+        )
+        await conn.execute("PRAGMA user_version = 2")
+        await conn.commit()
+
+    be = SQLiteBackend(db_path)
+    await be.init()  # should CREATE TABLE mcp_tools and bump to v3, NOT re-ALTER events
+    try:
+        # Existing row + its mcp_server survive.
+        journey = await be.get_journey("r2")
+        assert len(journey) == 1
+        assert journey[0].tool_name == "get_weather"
+        assert journey[0].mcp_server == "weather"
+        # The newly-created mcp_tools table is queryable.
+        await be.upsert_mcp_tools("math", ["add", "multiply"])
+        assert await be.get_mcp_tools() == {"math": ["add", "multiply"]}
+        async with be._conn() as conn:
+            cur = await conn.execute("PRAGMA user_version")
+            ver = (await cur.fetchone())[0]
+            await cur.close()
+        assert ver == 3
+    finally:
+        await be.close()
+
+
+async def test_get_topology_sets_tool_source(backend: SQLiteBackend) -> None:
+    await backend.upsert_run(_make_run("r1"))
+    await backend.upsert_event(
+        _make_event("e1", "r1", event_type=EventType.TOOL_START,
+                    tool_name="get_weather", mcp_server="weather")
+    )
+    topo = await backend.get_topology()
+    tool_nodes = {n.id: n for n in topo.nodes if n.type == "tool"}
+    assert "tool:get_weather" in tool_nodes
+    assert tool_nodes["tool:get_weather"].source == "weather"
+
+
+async def test_get_topology_adds_mcp_nodes_and_edges(backend: SQLiteBackend) -> None:
+    """Each MCP server becomes an mcp:<server> node, with an edge to each of its tools."""
+    await backend.upsert_run(_make_run("r1"))
+    await backend.upsert_event(
+        _make_event("e1", "r1", event_type=EventType.TOOL_START,
+                    tool_name="get_weather", mcp_server="weather")
+    )
+    await backend.upsert_event(
+        _make_event("e2", "r1", event_type=EventType.TOOL_START,
+                    tool_name="add", mcp_server="math")
+    )
+    await backend.upsert_event(
+        _make_event("e3", "r1", event_type=EventType.TOOL_START, tool_name="local_calc")
+    )
+    topo = await backend.get_topology()
+    nodes = {n.id: n for n in topo.nodes}
+    # MCP servers are first-class mcp nodes...
+    assert nodes["mcp:weather"].type == "mcp"
+    assert nodes["mcp:weather"].source == "weather"
+    assert "mcp:math" in nodes
+    # ...with a provides-edge to each of their tools, and none for the local tool.
+    edge_pairs = {(e.source, e.target) for e in topo.edges}
+    assert ("mcp:weather", "tool:get_weather") in edge_pairs
+    assert ("mcp:math", "tool:add") in edge_pairs
+    assert not any(src.startswith("mcp:") and tgt == "tool:local_calc"
+                   for src, tgt in edge_pairs)
+
+
+async def test_topology_shows_registered_tools_and_agent_mcp_link(backend: SQLiteBackend) -> None:
+    """Registered MCP tools appear (even uncalled), and an agent that calls an
+    MCP tool is linked to that MCP server (agent -> mcp edge)."""
+    await backend.upsert_run(_make_run("ag"))
+    # Registry knows 3 weather tools; only get_weather is actually invoked.
+    await backend.upsert_mcp_tools("weather", ["get_weather", "get_forecast", "rare_tool"])
+    await backend.upsert_run(_make_run("t1", root_run_id="ag"))  # sub-run row for the tool (FK)
+    await backend.upsert_event(
+        _make_event("e_ag", "ag", event_type=EventType.CHAIN_START, agent_name="researcher")
+    )
+    await backend.upsert_event(
+        _make_event("e_tool", "t1", root_run_id="ag", parent_run_id="ag",
+                    event_type=EventType.TOOL_START, tool_name="get_weather", mcp_server="weather")
+    )
+
+    topo = await backend.get_topology()
+    nodes = {n.id: n for n in topo.nodes}
+    edge_pairs = {(e.source, e.target) for e in topo.edges}
+
+    # Uncalled registered tools still show, connected to their server.
+    assert nodes["tool:rare_tool"].invocation_count == 0
+    assert nodes["tool:rare_tool"].source == "weather"
+    assert ("mcp:weather", "tool:rare_tool") in edge_pairs
+    assert ("mcp:weather", "tool:get_forecast") in edge_pairs
+    assert ("mcp:weather", "tool:get_weather") in edge_pairs
+    # The agent is linked to the MCP server it used.
+    assert nodes["agent:researcher"].type == "agent"
+    assert ("agent:researcher", "mcp:weather") in edge_pairs
+
+
+async def test_mcp_tools_registry_roundtrip(backend: SQLiteBackend) -> None:
+    await backend.upsert_mcp_tools("weather", ["get_weather", "get_forecast"])
+    await backend.upsert_mcp_tools("weather", ["get_weather"])  # idempotent
+    await backend.upsert_mcp_tools("math", ["add"])
+    reg = await backend.get_mcp_tools()
+    assert reg == {"weather": ["get_forecast", "get_weather"], "math": ["add"]}
+
+
+async def test_tool_inventory_includes_uncalled_registered(backend: SQLiteBackend) -> None:
+    """get_tool_inventory must list registered-but-never-called tools (invocations 0)."""
+    await backend.upsert_run(_make_run("r1"))
+    await backend.upsert_mcp_tools("weather", ["get_weather", "air_quality"])
+    await backend.upsert_event(
+        _make_event("e1", "r1", event_type=EventType.TOOL_START,
+                    tool_name="get_weather", mcp_server="weather")
+    )
+    inv = await backend.get_tool_inventory()
+    weather = next(s for s in inv["sources"] if s["source"] == "weather")
+    by_name = {t["name"]: t for t in weather["tools"]}
+    assert weather["tool_count"] == 2
+    assert by_name["get_weather"]["invocations"] == 1
+    assert by_name["air_quality"]["invocations"] == 0  # registered, never invoked
+
+
+async def test_get_tool_inventory_groups_by_source(backend: SQLiteBackend) -> None:
+    await backend.upsert_run(_make_run("r1"))
+    events = [
+        _make_event("a1", "r1", event_type=EventType.TOOL_START, tool_name="get_weather", mcp_server="weather"),
+        _make_event("a2", "r1", event_type=EventType.TOOL_START, tool_name="get_forecast", mcp_server="weather"),
+        _make_event("b1", "r1", event_type=EventType.TOOL_START, tool_name="add", mcp_server="math"),
+        _make_event("c1", "r1", event_type=EventType.TOOL_START, tool_name="local_calc"),  # local
+        _make_event("c2", "r1", event_type=EventType.TOOL_ERROR, tool_name="local_calc"),
+    ]
+    for e in events:
+        await backend.upsert_event(e)
+
+    inv = await backend.get_tool_inventory()
+    by_source = {s["source"]: s for s in inv["sources"]}
+    assert by_source["weather"]["kind"] == "mcp"
+    assert by_source["weather"]["tool_count"] == 2
+    assert by_source["math"]["tool_count"] == 1
+    assert by_source["local"]["kind"] == "local"
+    assert by_source["local"]["tool_count"] == 1
+    assert by_source["local"]["error_count"] == 1
+    # local bucket sorts last.
+    assert inv["sources"][-1]["source"] == "local"
