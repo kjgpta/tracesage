@@ -80,6 +80,8 @@ and renders it in an interactive graph + timeline UI in real time.
 
 ## What you'll see
 
+![tracesage topology graph](assets/ui-topology.png)
+
 Once a run lands, the UI shows:
 
 - **Run list** — every run with status, tags, started-at, total steps, total tokens
@@ -88,6 +90,30 @@ Once a run lands, the UI shows:
 - **Replay** — animate any completed run at 1x / 2x / 5x
 
 Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?` help.
+
+### Watch a trace stream in
+
+<video controls muted playsinline width="100%" poster="assets/ui-topology.png">
+  <source src="assets/tracesage-demo.mp4" type="video/mp4">
+  Your browser can't play embedded video —
+  <a href="assets/tracesage-demo.mp4">download the demo clip</a> instead.
+</video>
+
+### Inspect any node
+
+Click a node to open its drawer — counts, durations, errors, the tools it provides
+or uses, and (for MCP) its server of origin.
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+    <td width="50%"><img src="assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>“Tools by source” — tools grouped by origin (MCP vs. local).</em></td>
+    <td align="center"><em>MCP server inspector — provided tools, invocations and callers.</em></td>
+  </tr>
+</table>
 
 ## Status
 

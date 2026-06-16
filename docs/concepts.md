@@ -17,6 +17,10 @@ If you opened the UI after running an example and wondered "what does
 
 ## At a glance
 
+![tracesage topology graph with the node-kind legend](assets/ui-topology.png)
+
+*Every node in the graph is one of the kinds below; the legend (bottom-left) colour-codes them, and MCP servers are listed separately.*
+
 | Kind | What it is | Common examples |
 |---|---|---|
 | `agent` | A **named function you defined** as a LangGraph node, that calls other components | `agent:billing_agent`, `agent:fact_extractor`, `agent:supervisor` |
