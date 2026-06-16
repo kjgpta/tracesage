@@ -74,6 +74,14 @@ auto-detection is a fallback.
 - **Storage** — provenance is persisted on each tool event (`events.mcp_server`),
   so it survives restarts and is visible in `tracesage serve` mode.
 
+![Tools by source panel](assets/ui-tools-by-source.png)
+
+*The "Tools by source" panel groups every tool as MCP `math`, MCP `weather`, or `Local`.*
+
+![MCP server inspector](assets/ui-mcp-drawer.png)
+
+*Clicking an MCP server node shows its invocations, errors, the tools it provides, and which agents use it.*
+
 ## Try it
 
 A runnable end-to-end scenario (two local stdio MCP servers + two hardcoded tools,
