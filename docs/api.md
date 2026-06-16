@@ -1,6 +1,6 @@
 # API reference
 
-tracelens exposes a REST API under `/api` and two WebSocket endpoints under
+tracesage exposes a REST API under `/api` and two WebSocket endpoints under
 `/ws`. This is the same surface the bundled UI consumes; you can use it
 directly for programmatic queries, exports, and live tailing.
 
@@ -10,7 +10,7 @@ Base URL defaults to `http://127.0.0.1:7842`.
 
 ## Authentication
 
-When `auth_token` (env: `TRACELENS_AUTH_TOKEN`) is configured, every endpoint
+When `auth_token` (env: `TRACESAGE_AUTH_TOKEN`) is configured, every endpoint
 requires a bearer token **except** `GET /api/health` and the static `/ui`
 shell:
 
@@ -65,7 +65,7 @@ List root runs, newest first.
 ```
 
 There is no server-side `tag` filter. Filter by tag client-side or with the
-`tracelens runs --tag` CLI command.
+`tracesage runs --tag` CLI command.
 
 ### `GET /api/runs/{run_id}`
 
@@ -181,6 +181,6 @@ runs start and complete.
 ## Object shapes
 
 The `Run`, `StoredEvent`, `Stats`, and `Topology` shapes are defined as
-Pydantic models in `src/tracelens/models.py`. Export output and the journey /
+Pydantic models in `src/tracesage/models.py`. Export output and the journey /
 full-step responses serialize those models directly, so the model definitions
 are the authoritative schema.

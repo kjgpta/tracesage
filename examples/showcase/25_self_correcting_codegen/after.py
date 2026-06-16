@@ -1,6 +1,6 @@
-"""25 — Self-Correcting Code Generator (with tracelens).
+"""25 — Self-Correcting Code Generator (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open the
+Identical to before.py except for the tracesage lines marked below. Run it, then open the
 printed link: the trace replays generate→test→fix iteration by iteration, surfaces the
 real subprocess test-runner with its captured failure output as a genuine error event, and
 shows the fix-on-failure edge looping back until the asserts pass — the whole recovery
@@ -28,7 +28,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 MAX_FIXES = 3
 SPEC = "Write `def is_palindrome(s: str) -> bool` ignoring case and non-alphanumerics."
@@ -127,11 +127,11 @@ def build_graph() -> Runnable:
 async def main() -> None:
     graph = build_graph()
     print(f"Spec: {SPEC}\n")
-    async with TraceLens.session(install=True) as tl:  # ← tracelens: starts UI + captures every call
+    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts UI + captures every call
         result = await graph.ainvoke(
             {"spec": SPEC, "code": "", "error": "", "passed": False, "fixes": 0}
         )
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print(f"Passed: {result['passed']} ({result['fixes']} fix attempts)\n")
         print(result["code"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

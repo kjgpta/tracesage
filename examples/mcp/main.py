@@ -2,7 +2,7 @@
 
 Loads tools from TWO local MCP servers (weather: 4 tools, math: 2 tools) via
 langchain-mcp-adapters, plus TWO hardcoded @tool functions, then runs a small
-LangGraph. tracelens attributes every tool call to its MCP server (or "local"),
+LangGraph. tracesage attributes every tool call to its MCP server (or "local"),
 so the UI's "Tools by source" panel shows (all of a server's tools are listed,
 even ones the graph never calls — weather's air_quality is uncalled on purpose):
 
@@ -14,7 +14,7 @@ No API key needed (a FakeListChatModel drives the planner node; the graph nodes
 invoke the tools directly so every tool fires real on_tool_start/end events).
 
 Run:
-    pip install 'tracelens[mcp]'
+    pip install 'tracesage[mcp]'
     python examples/mcp/main.py            # then open http://localhost:7842/ui
     python examples/mcp/main.py --check     # run once, print inventory, exit
 """
@@ -37,12 +37,12 @@ try:
 except ImportError:  # pragma: no cover
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracelens import TraceLens, TraceLensConfig  # noqa: E402
-from tracelens.adapters.mcp import register_mcp_client  # noqa: E402
+from tracesage import TraceSage, TraceSageConfig  # noqa: E402
+from tracesage.adapters.mcp import register_mcp_client  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 # Dedicated, fresh data dir so the demo inventory shows exactly this run's tools
-# (not data accumulated from other examples in the default ~/.tracelens).
+# (not data accumulated from other examples in the default ~/.tracesage).
 DATA_DIR = HERE / "mcp_demo_data"
 
 
@@ -71,8 +71,8 @@ class State(TypedDict):
 
 async def main(check: bool = False) -> None:
     shutil.rmtree(DATA_DIR, ignore_errors=True)  # fresh slate for a reproducible demo
-    tracer = await TraceLens.create(TraceLensConfig(data_dir=DATA_DIR))
-    print("tracelens UI: http://localhost:7842/ui")
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+    print("tracesage UI: http://localhost:7842/ui")
 
     # Two local MCP servers over stdio (started as subprocesses by the client).
     client = MultiServerMCPClient(
@@ -141,10 +141,10 @@ async def main(check: bool = False) -> None:
         config={"callbacks": [tracer.handler], "tags": ["mcp-demo"]},
     )
 
-    # Let the worker drain, then print what tracelens computed.
+    # Let the worker drain, then print what tracesage computed.
     await asyncio.sleep(0.5)
     inv = await tracer.db.get_tool_inventory()
-    print("\nTools by source (as tracelens attributed them):")
+    print("\nTools by source (as tracesage attributed them):")
     for s in inv["sources"]:
         kind = "MCP" if s["kind"] == "mcp" else "Local"
         names = [t["name"] for t in s["tools"]]

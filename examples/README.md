@@ -1,17 +1,17 @@
-# tracelens examples
+# tracesage examples
 
 Three tiers, from a 30-second first taste to a 30-app real-world gallery.
 
 | Tier | Folder | Needs | What it is |
 |---|---|---|---|
 | **Getting started** | [`getting_started/`](getting_started/) | no API key | 3 standalone demos driven by `FakeListChatModel` — run instantly, see your first trace |
-| **MCP tools** | [`mcp/`](mcp/) | `tracelens[mcp]` | tools from local MCP servers attributed by source, plus hardcoded tools |
+| **MCP tools** | [`mcp/`](mcp/) | `tracesage[mcp]` | tools from local MCP servers attributed by source, plus hardcoded tools |
 | **Showcase** | [`showcase/`](showcase/) | an LLM API key | **30 real before/after apps** across popular use cases — the integration gallery |
 
 ## Getting started (zero setup)
 
 ```bash
-pip install "tracelens[langchain]"
+pip install "tracesage[langchain]"
 python examples/getting_started/01_smart_search_agent.py   # then open http://localhost:7842/ui
 ```
 
@@ -27,7 +27,7 @@ the UI working.
 ## MCP tools
 
 ```bash
-pip install "tracelens[mcp]"
+pip install "tracesage[mcp]"
 python examples/mcp/main.py            # then open http://localhost:7842/ui
 ```
 
@@ -45,7 +45,7 @@ python examples/showcase/01_support_faq_router/after.py     # same app + live tr
 ```
 
 The flagship gallery: each app ships a **`before.py`** (plain LangChain/LangGraph, real
-LLMs) and an **`after.py`** (the same app + tracelens). `diff before.py after.py` shows
+LLMs) and an **`after.py`** (the same app + tracesage). `diff before.py after.py` shows
 exactly how little it takes to add observability. Covers customer support, RAG, multi-agent
 systems, MCP, reasoning loops, and finance/legal/insurance verticals. See
 [`showcase/README.md`](showcase/README.md) for the full index.

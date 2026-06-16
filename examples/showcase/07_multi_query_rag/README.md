@@ -26,8 +26,8 @@ files or external services needed. Both chat and embeddings default to OpenAI; t
 diff before.py after.py
 ```
 
-The only difference is `from tracelens import TraceLens`, wrapping the run in
-`async with TraceLens.session(install=True):`, and an `await tl.flush()` so events land
+The only difference is `from tracesage import TraceSage`, wrapping the run in
+`async with TraceSage.session(install=True):`, and an `await tl.flush()` so events land
 before the graph returns (plus a one-line keep-the-UI-up prompt for the demo). No
 `callbacks=` wiring on the graph or the retriever.
 

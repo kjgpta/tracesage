@@ -1,16 +1,16 @@
-# Extending tracelens
+# Extending tracesage
 
-Three planned extension points. tracelens currently ships the LangChain adapter; the
+Three planned extension points. tracesage currently ships the LangChain adapter; the
 protocols for the others are stable.
 
 ## Adding a new framework adapter
 
-tracelens's core is framework-neutral. The LangChain adapter is one
+tracesage's core is framework-neutral. The LangChain adapter is one
 concrete implementation of the same pattern.
 
 ### Pattern
 
-1. Create `src/tracelens/adapters/<framework>.py`.
+1. Create `src/tracesage/adapters/<framework>.py`.
 2. Subclass that framework's callback/hook base class.
 3. Wrap every method body in `try/except Exception` (the safety contract).
 4. Construct a `RawEvent` with the right `EventType` and call `tracer.emit(event)`.
@@ -19,13 +19,13 @@ concrete implementation of the same pattern.
 ### Skeleton
 
 ```python
-from tracelens.models import EventType, RawEvent
-from tracelens.tracer import TraceLens
+from tracesage.models import EventType, RawEvent
+from tracesage.tracer import TraceSage
 import uuid
 from datetime import UTC, datetime
 
 class MyFrameworkHandler:
-    def __init__(self, tracer: TraceLens):
+    def __init__(self, tracer: TraceSage):
         self._tracer = tracer
 
     def on_step_start(self, *, run_id, parent_run_id=None, name=None, **kwargs):
@@ -72,8 +72,8 @@ Optional but improves the experience:
 
 ## Adding a storage backend
 
-`StorageBackend` (in `src/tracelens/storage/backend.py`) is a `Protocol` with
-~12 methods. tracelens ships `SQLiteBackend`. Planned backends:
+`StorageBackend` (in `src/tracesage/storage/backend.py`) is a `Protocol` with
+~12 methods. tracesage ships `SQLiteBackend`. Planned backends:
 
 - `PostgresBackend` — for centralized multi-process deployments
 - `JSONLBackend` — append-only files, no DB, easier portability
@@ -87,7 +87,7 @@ Test against `tests/test_database.py` (rename and adjust the fixtures).
 The UI is loaded as static files at `/ui/`. To swap:
 
 1. Build your replacement (any framework).
-2. Replace files in `src/tracelens/ui/`.
+2. Replace files in `src/tracesage/ui/`.
 3. The HTTP API contract is documented in [docs/api.md](api.md).
 
 The current UI is vanilla JS with a hand-written SVG graph renderer (no framework), with no build

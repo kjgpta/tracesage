@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
-from tracelens.models import WSMessage
-from tracelens.server.ws import WebSocketManager
+from tracesage.models import WSMessage
+from tracesage.server.ws import WebSocketManager
 
 # ---------- Fake sockets ----------
 

@@ -28,7 +28,7 @@ SCHEMA = """\
 customers(id INTEGER, name TEXT, country TEXT)
 orders(id INTEGER, customer_id INTEGER, amount REAL, status TEXT)"""
 
-_DB_PATH = str(Path(tempfile.gettempdir()) / "tracelens_showcase_sales.db")
+_DB_PATH = str(Path(tempfile.gettempdir()) / "tracesage_showcase_sales.db")
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:

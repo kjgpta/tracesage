@@ -1,6 +1,6 @@
-# Releasing tracelens
+# Releasing tracesage
 
-End-to-end runbook for publishing tracelens — from a fresh clone to a live
+End-to-end runbook for publishing tracesage — from a fresh clone to a live
 package on PyPI, with the GitHub repo, GitHub Pages docs, and a tagged
 release all set up correctly.
 
@@ -13,11 +13,11 @@ Subsequent releases are 3 commands once everything's wired up.
 
 ### 0.1 Verify the package name is available on PyPI
 
-Open https://pypi.org/project/tracelens/ in a browser.
+Open https://pypi.org/project/tracesage/ in a browser.
 
 - **404 / "Project not found"** → the name is free. Continue.
 - **Package listing exists** → the name is taken. Either pick a different
-  name in `pyproject.toml` (`tracelens-py`, `agent-tracelens`, etc.) and
+  name in `pyproject.toml` (`tracesage-py`, `agent-tracesage`, etc.) and
   update references throughout the codebase, or contact the existing
   owner if the project looks abandoned.
 
@@ -43,7 +43,7 @@ PyPI upload runs in GitHub Actions.
 Go to https://github.com/new:
 
 - **Owner:** `kjgpta`
-- **Repository name:** `tracelens`
+- **Repository name:** `tracesage`
 - **Visibility:** Public (required for free GitHub Pages + free Trusted Publishing)
 - **Initialize:** **leave all checkboxes unchecked.** Your local repo
   already has README, LICENSE, and .gitignore.
@@ -54,7 +54,7 @@ Click *Create repository*. Don't follow GitHub's auto-suggested commands
 ### 1.2 First push from your local repo
 
 ```bash
-cd C:/Users/KSGUPTA/tracelens
+cd C:/Users/KSGUPTA/tracesage
 
 # Inspect what's about to be committed.
 git status
@@ -66,7 +66,7 @@ git add .
 git commit -m "Add integration guide, GitHub hygiene, MkDocs site, concepts doc"
 
 # Wire up the remote and push.
-git remote add origin git@github.com:kjgpta/tracelens.git
+git remote add origin git@github.com:kjgpta/tracesage.git
 git branch -M main
 git push -u origin main
 ```
@@ -99,7 +99,7 @@ In the GitHub web UI under **Settings**:
 #### Pages
 - **Source: GitHub Actions**
 - That's the only setting. Your `docs.yml` workflow will deploy on the
-  next push to `main`. Check https://kjgpta.github.io/tracelens/ in
+  next push to `main`. Check https://kjgpta.github.io/tracesage/ in
   ~60 seconds after the workflow goes green.
 
 #### Environments
@@ -137,9 +137,9 @@ tokens minted by GitHub. No API keys to leak.
 1. Go to https://pypi.org/manage/account/publishing/
 2. Click **Add a new pending publisher**
 3. Fill in:
-   - **PyPI Project Name:** `tracelens`
+   - **PyPI Project Name:** `tracesage`
    - **Owner:** `kjgpta`
-   - **Repository name:** `tracelens`
+   - **Repository name:** `tracesage`
    - **Workflow name:** `release.yml`
    - **Environment name:** `pypi`
 4. Save.
@@ -195,8 +195,8 @@ You should see:
 
 ```
 dist/
-├── tracelens-0.2.0.tar.gz             # sdist
-└── tracelens-0.2.0-py3-none-any.whl   # wheel
+├── tracesage-0.2.0.tar.gz             # sdist
+└── tracesage-0.2.0-py3-none-any.whl   # wheel
 ```
 
 ### 3.4 Lint with twine
@@ -216,14 +216,14 @@ If anything fails, fix the source and re-build.
 ### 3.5 Inspect the wheel contents
 
 ```bash
-unzip -l dist/tracelens-*.whl | head -40     # the WHEEL: lean, runtime only
-tar -tzf dist/tracelens-*.tar.gz | head -40   # the SDIST: also ships sources/docs
+unzip -l dist/tracesage-*.whl | head -40     # the WHEEL: lean, runtime only
+tar -tzf dist/tracesage-*.tar.gz | head -40   # the SDIST: also ships sources/docs
 ```
 
 The **wheel** (what `pip install` puts on a user's machine) should be lean:
 
-- ✓ `tracelens/*.py` and `tracelens/py.typed`
-- ✓ `tracelens/ui/*.html`, `*.js`, `*.css`
+- ✓ `tracesage/*.py` and `tracesage/py.typed`
+- ✓ `tracesage/ui/*.html`, `*.js`, `*.css`
 - ✗ no `tests/`, `examples/`, `docs/`, `tools/`, `.github/`
 - ✗ no `__pycache__`, `.pyc`, `.env`
 
@@ -245,12 +245,12 @@ python -m venv /tmp/tl-test
 source /tmp/tl-test/bin/activate    # PowerShell: .\Scripts\Activate.ps1
                                     # bash on Windows: source /tmp/tl-test/Scripts/activate
 
-pip install "dist/tracelens-0.2.0-py3-none-any.whl[langchain]"
+pip install "dist/tracesage-0.2.0-py3-none-any.whl[langchain]"
 
 # Smoke checks.
-python -c "from tracelens import TraceLens; print('OK')"
-tracelens version
-tracelens --help
+python -c "from tracesage import TraceSage; print('OK')"
+tracesage version
+tracesage --help
 
 deactivate
 rm -rf /tmp/tl-test
@@ -269,12 +269,12 @@ export TWINE_PASSWORD=pypi-AgEIcDExNT...
 twine upload --repository testpypi dist/*
 
 # Verify the listing renders correctly:
-# https://test.pypi.org/project/tracelens/
+# https://test.pypi.org/project/tracesage/
 
 # Optional: install from TestPyPI to test the install-side experience.
 pip install --index-url https://test.pypi.org/simple/ \
             --extra-index-url https://pypi.org/simple/ \
-            tracelens
+            tracesage
 ```
 
 You don't need to repeat this every release — only when something feels
@@ -313,7 +313,7 @@ This is the moment of truth. Pushing a tag matching `v*` triggers
    request a short-lived PyPI credential and uploads.
 
 Watch the run at:
-https://github.com/kjgpta/tracelens/actions/workflows/release.yml
+https://github.com/kjgpta/tracesage/actions/workflows/release.yml
 
 ### 4.2b Manual upload (alternative to Trusted Publishing)
 
@@ -326,7 +326,7 @@ machine instead of CI, upload the built artifacts directly with **twine**:
 rm -rf dist/ build/ && python -m build
 
 # 2. Get a PyPI API token: https://pypi.org/manage/account/token/
-#    (after the first upload, re-scope it to just the `tracelens` project).
+#    (after the first upload, re-scope it to just the `tracesage` project).
 export TWINE_USERNAME=__token__
 export TWINE_PASSWORD=pypi-AgEIcD...        # your token — NEVER commit it
 
@@ -343,10 +343,10 @@ path for one-offs or when CI isn't available.
 
 ```bash
 # Wait ~30s after the workflow finishes — PyPI's CDN is async.
-pip install tracelens==0.2.0
+pip install tracesage==0.2.0
 
 # Or check the listing:
-# https://pypi.org/project/tracelens/0.2.0/
+# https://pypi.org/project/tracesage/0.2.0/
 ```
 
 Take a moment to read the rendered README on the PyPI page. If anything
@@ -363,26 +363,26 @@ They're separate but both come from the same tag.
 gh release create v0.2.0 \
   --title "v0.2.0" \
   --notes-file - <<'EOF'
-First public release of tracelens.
+First public release of tracesage.
 
 ## Highlights
 
 - LangChain + LangGraph adapter — callback-driven, never raises
 - Embedded FastAPI UI at `http://localhost:7842`
 - SQLite + gzipped blob storage, no external infra
-- 30-app before/after [examples gallery](https://kjgpta.github.io/tracelens/examples/)
+- 30-app before/after [examples gallery](https://kjgpta.github.io/tracesage/examples/)
 
 ## Install
 
 ```bash
-pip install tracelens[langchain]
+pip install tracesage[langchain]
 ```
 
-See the [docs](https://kjgpta.github.io/tracelens/) for the full quickstart.
+See the [docs](https://kjgpta.github.io/tracesage/) for the full quickstart.
 EOF
 ```
 
-Or use the web UI: https://github.com/kjgpta/tracelens/releases/new
+Or use the web UI: https://github.com/kjgpta/tracesage/releases/new
 
 - Choose the existing tag `v0.2.0`
 - Title: `v0.2.0`
@@ -396,9 +396,9 @@ GitHub auto-attaches the source `.tar.gz` and `.zip` from the tag.
 After the first push to `main` with `mkdocs.yml`, the `docs.yml` workflow
 deploys to GitHub Pages. Verify:
 
-- https://github.com/kjgpta/tracelens/actions/workflows/docs.yml — last
+- https://github.com/kjgpta/tracesage/actions/workflows/docs.yml — last
   run should be green
-- https://kjgpta.github.io/tracelens/ — should load
+- https://kjgpta.github.io/tracesage/ — should load
 
 If 404: **Settings → Pages → Source: GitHub Actions** must be set. If
 already set, give the CDN another minute and hard-refresh.
@@ -456,7 +456,7 @@ Trusted Publishing config mismatch. Check that **all four fields** on the
 PyPI publisher match what GitHub sends:
 
 - Owner exactly: `kjgpta` (case-sensitive)
-- Repo exactly: `tracelens`
+- Repo exactly: `tracesage`
 - Workflow exactly: `release.yml`
 - Environment exactly: `pypi`
 
@@ -492,13 +492,13 @@ version = "0.2.0.dev1" # dev / nightly
 ```
 
 Tag the same way: `git tag v0.2.0rc1`. PyPI won't show pre-releases on
-the project page by default; users need `pip install tracelens --pre`
+the project page by default; users need `pip install tracesage --pre`
 to install them.
 
 ### Yanking a bad release
 - PyPI project page → *Manage* → *Releases* → click the version → *Yank release*
 - Provide a reason (will be shown to anyone trying to install the version)
-- Yanked versions stay installable via explicit pin (`pip install tracelens==0.2.0`)
+- Yanked versions stay installable via explicit pin (`pip install tracesage==0.2.0`)
   but won't be picked by version solvers
 
 ### Removing a release entirely (rare)
@@ -524,14 +524,14 @@ the release contained secrets or was published in error. Yank instead.
 
 ```bash
 # First-time setup (do once):
-# 1. Create repo at https://github.com/new (kjgpta/tracelens, public)
+# 1. Create repo at https://github.com/new (kjgpta/tracesage, public)
 # 2. PyPI account + Trusted Publisher config at
 #    https://pypi.org/manage/account/publishing/
 # 3. GitHub: Settings → Environments → create "pypi"
 # 4. GitHub: Settings → Pages → Source = GitHub Actions
 
 # First push:
-git remote add origin git@github.com:kjgpta/tracelens.git
+git remote add origin git@github.com:kjgpta/tracesage.git
 git branch -M main
 git push -u origin main
 

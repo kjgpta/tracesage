@@ -1,6 +1,6 @@
-"""TraceLens: top-level orchestrator.
+"""TraceSage: top-level orchestrator.
 
-One entry point users call: `tracer = await TraceLens.create(config)`. Holds the
+One entry point users call: `tracer = await TraceSage.create(config)`. Holds the
 queue, worker task, callback handler, and (optionally) an embedded uvicorn server.
 """
 from __future__ import annotations
@@ -16,15 +16,15 @@ import threading
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
-from tracelens.config import TraceLensConfig
-from tracelens.models import RawEvent, Stats
-from tracelens.worker import StorageWorker
+from tracesage.config import TraceSageConfig
+from tracesage.models import RawEvent, Stats
+from tracesage.worker import StorageWorker
 
 if TYPE_CHECKING:
-    from tracelens.adapters.langchain import TraceLensCallbackHandler
-    from tracelens.storage.backend import StorageBackend
+    from tracesage.adapters.langchain import TraceSageCallbackHandler
+    from tracesage.storage.backend import StorageBackend
 
-log = logging.getLogger("tracelens.tracer")
+log = logging.getLogger("tracesage.tracer")
 
 
 class _NullWebSocketManager:
@@ -39,12 +39,12 @@ class _NullWebSocketManager:
         return None
 
 
-class TraceLens:
-    """Top-level tracer. Use `await TraceLens.create()` to construct."""
+class TraceSage:
+    """Top-level tracer. Use `await TraceSage.create()` to construct."""
 
     def __init__(
         self,
-        config: TraceLensConfig,
+        config: TraceSageConfig,
         db: StorageBackend,
         blob_store: Any,
         ws_manager: Any,
@@ -63,7 +63,7 @@ class TraceLens:
             try:
                 self._redactors.append(re.compile(_p))
             except re.error as _e:
-                log.warning("tracelens: skipping invalid redact pattern %r: %s", _p, _e)
+                log.warning("tracesage: skipping invalid redact pattern %r: %s", _p, _e)
         # Depth cap for recursive payload redaction: guards against deeply nested
         # or self-referential payloads (which would otherwise raise RecursionError).
         self._redact_max_depth = 60
@@ -93,7 +93,7 @@ class TraceLens:
 
         # tool_name -> MCP server name. Registered at setup (before invoking), read by
         # the callback handler during ingestion to attribute tool calls to their MCP
-        # server. See tracelens.adapters.mcp for the registration helpers.
+        # server. See tracesage.adapters.mcp for the registration helpers.
         self._tool_sources: dict[str, str] = {}
 
         # Guards the cross-thread run-state maps (_run_event_counts, _throttled_runs,
@@ -101,7 +101,7 @@ class TraceLens:
         # threads. Non-reentrant: helpers called under the lock MUST NOT re-acquire it.
         self._state_lock = threading.Lock()
 
-        self._handler: TraceLensCallbackHandler | None = None
+        self._handler: TraceSageCallbackHandler | None = None
         self._server: Any = None
         self._server_task: asyncio.Task | None = None
         self._stopped = False
@@ -114,22 +114,22 @@ class TraceLens:
     @classmethod
     async def create(
         cls,
-        config: TraceLensConfig | None = None,
+        config: TraceSageConfig | None = None,
         *,
         start_server: bool | None = None,
-    ) -> TraceLens:
-        cfg = config or TraceLensConfig()
-        # The kwarg, when given, overrides config.start_server (env TRACELENS_START_SERVER).
+    ) -> TraceSage:
+        cfg = config or TraceSageConfig()
+        # The kwarg, when given, overrides config.start_server (env TRACESAGE_START_SERVER).
         start_server = cfg.start_server if start_server is None else start_server
         if not cfg.enabled:
-            # Kill switch (TRACELENS_ENABLED=false): return an inert tracer — no
+            # Kill switch (TRACESAGE_ENABLED=false): return an inert tracer — no
             # server, no DB/worker, a no-op handler. Integration code is unchanged.
-            return cast("TraceLens", _DisabledTraceLens(cfg))
+            return cast("TraceSage", _DisabledTraceSage(cfg))
         cfg.ensure_data_dirs()
 
         # Storage. Imports inside the function so import failures don't poison module load.
-        from tracelens.storage.blob_store import BlobStore
-        from tracelens.storage.sqlite_backend import SQLiteBackend
+        from tracesage.storage.blob_store import BlobStore
+        from tracesage.storage.sqlite_backend import SQLiteBackend
 
         db: StorageBackend = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
         await db.init()
@@ -140,7 +140,7 @@ class TraceLens:
 
         ws_manager: Any
         try:
-            from tracelens.server.ws import WebSocketManager  # type: ignore[import-not-found]
+            from tracesage.server.ws import WebSocketManager  # type: ignore[import-not-found]
 
             ws_manager = WebSocketManager()
         except Exception:
@@ -148,7 +148,7 @@ class TraceLens:
 
         worker = StorageWorker(queue, db, blob_store, ws_manager, cfg, stats)
         loop = asyncio.get_running_loop()
-        worker_task = asyncio.create_task(worker.run(), name="tracelens.worker")
+        worker_task = asyncio.create_task(worker.run(), name="tracesage.worker")
 
         instance = cls(
             config=cfg,
@@ -162,10 +162,10 @@ class TraceLens:
             loop=loop,
         )
 
-        # Lazy import of handler so importing tracelens doesn't require langchain-core.
-        from tracelens.adapters.langchain import TraceLensCallbackHandler
+        # Lazy import of handler so importing tracesage doesn't require langchain-core.
+        from tracesage.adapters.langchain import TraceSageCallbackHandler
 
-        instance._handler = TraceLensCallbackHandler(instance)
+        instance._handler = TraceSageCallbackHandler(instance)
 
         if start_server:
             await instance._start_server()
@@ -176,7 +176,7 @@ class TraceLens:
     @contextlib.asynccontextmanager
     async def session(
         cls,
-        config: TraceLensConfig | None = None,
+        config: TraceSageConfig | None = None,
         *,
         start_server: bool | None = None,
         install: bool = False,
@@ -184,7 +184,7 @@ class TraceLens:
         """Async context manager: create a tracer, optionally install it globally, and
         stop it cleanly on exit.
 
-            async with TraceLens.session(install=True) as tl:
+            async with TraceSage.session(install=True) as tl:
                 await agent.ainvoke(...)        # captured automatically
         """
         tl = await cls.create(config, start_server=start_server)
@@ -201,9 +201,9 @@ class TraceLens:
     # -------------------------------------------------------- public properties
 
     @property
-    def handler(self) -> TraceLensCallbackHandler:
+    def handler(self) -> TraceSageCallbackHandler:
         if self._handler is None:  # pragma: no cover - guarded by create()
-            raise RuntimeError("Handler not initialized; use TraceLens.create()")
+            raise RuntimeError("Handler not initialized; use TraceSage.create()")
         return self._handler
 
     @property
@@ -241,13 +241,13 @@ class TraceLens:
     def run_view(self, run_id: str) -> Any:
         """A notebook-displayable view of a run (embeds the live UI). Use in a Jupyter
         cell: ``tl.run_view(run_id)``."""
-        from tracelens.render import TraceView
+        from tracesage.render import TraceView
 
         return TraceView(run_id, self.run_url(run_id))
 
     async def render_tree(self, run_id: str, *, use_color: bool | None = None) -> str:
-        """Render a run's events as an indented terminal tree (see `tracelens show`)."""
-        from tracelens.render import render_run_tree
+        """Render a run's events as an indented terminal tree (see `tracesage show`)."""
+        from tracesage.render import render_run_tree
 
         run = await self._db.get_run(run_id)
         events = await self._db.get_journey(run_id)
@@ -263,18 +263,18 @@ class TraceLens:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._queue.join(), timeout=timeout)
 
-    def install(self) -> TraceLens:
+    def install(self) -> TraceSage:
         """Register this tracer's handler as a GLOBAL LangChain callback, so every
         chain/agent/LLM/tool call is captured without passing ``callbacks=`` to each
         invocation. Returns self for chaining. Call :meth:`uninstall` to remove it."""
-        from tracelens.adapters.langchain import install_global_handler
+        from tracesage.adapters.langchain import install_global_handler
 
         install_global_handler(self.handler)
         return self
 
     def uninstall(self) -> None:
         """Remove the global LangChain callback registered by :meth:`install`."""
-        from tracelens.adapters.langchain import uninstall_global_handler
+        from tracesage.adapters.langchain import uninstall_global_handler
 
         uninstall_global_handler()
 
@@ -284,7 +284,7 @@ class TraceLens:
         """Attribute a tool (by name) to an MCP server, so its events/topology node
         are tagged with that provenance. Call at setup, before invoking the graph.
 
-        See ``tracelens.adapters.mcp.register_mcp_client`` for the convenient path
+        See ``tracesage.adapters.mcp.register_mcp_client`` for the convenient path
         that does this for every tool of a langchain-mcp-adapters client.
         """
         if not tool_name or not server:
@@ -352,7 +352,7 @@ class TraceLens:
             event.raw_payload = self._redact_obj(event.raw_payload)
         except Exception as e:
             log.warning(
-                "tracelens: redaction failed for event %s; dropping raw_payload: %s",
+                "tracesage: redaction failed for event %s; dropping raw_payload: %s",
                 getattr(event, "event_id", "?"),
                 e,
             )
@@ -417,7 +417,7 @@ class TraceLens:
             self._stats.events_dropped += 1
             if self._stats.events_dropped % self._dropped_warning_threshold == 0:
                 log.warning(
-                    "tracelens: %d events dropped due to queue backpressure",
+                    "tracesage: %d events dropped due to queue backpressure",
                     self._stats.events_dropped,
                 )
 
@@ -471,7 +471,7 @@ class TraceLens:
         url = self.run_url(root)
         if url:
             with contextlib.suppress(Exception):
-                print(f"\N{LEFT-POINTING MAGNIFYING GLASS} tracelens: {url}", file=sys.stderr, flush=True)
+                print(f"\N{LEFT-POINTING MAGNIFYING GLASS} tracesage: {url}", file=sys.stderr, flush=True)
 
     def _evict_root_map_if_needed(self) -> None:
         while len(self._root_map) > self._root_map_cap:
@@ -481,7 +481,7 @@ class TraceLens:
 
     async def _start_server(self) -> None:
         try:
-            from tracelens.server.app import create_app  # type: ignore[import-not-found]
+            from tracesage.server.app import create_app  # type: ignore[import-not-found]
         except Exception as e:
             log.warning("Server module unavailable, skipping server start: %s", e)
             return
@@ -505,7 +505,7 @@ class TraceLens:
             )
             self._server = uvicorn.Server(uv_config)
             self._server_task = asyncio.create_task(
-                self._server.serve(), name="tracelens.server"
+                self._server.serve(), name="tracesage.server"
             )
 
             # Poll for startup completion within budget.
@@ -606,16 +606,16 @@ def _make_noop_handler() -> Any:
     return _NoopHandler()
 
 
-class _DisabledTraceLens:
+class _DisabledTraceSage:
     """Inert tracer returned when ``config.enabled`` is False.
 
-    Mirrors the public surface of :class:`TraceLens` but does nothing: no embedded
-    server, no DB/worker/queue, a no-op callback handler. Lets you keep tracelens
-    wired into your code and switch it off per-environment (e.g. ``TRACELENS_ENABLED=
+    Mirrors the public surface of :class:`TraceSage` but does nothing: no embedded
+    server, no DB/worker/queue, a no-op callback handler. Lets you keep tracesage
+    wired into your code and switch it off per-environment (e.g. ``TRACESAGE_ENABLED=
     false`` in prod) with near-zero overhead and no integration changes.
     """
 
-    def __init__(self, config: TraceLensConfig) -> None:
+    def __init__(self, config: TraceSageConfig) -> None:
         self._config = config
         self._handler: Any = None
         self.bound_port: int | None = None
@@ -629,26 +629,26 @@ class _DisabledTraceLens:
 
     @property
     def db(self) -> Any:
-        raise RuntimeError("tracelens is disabled (set TRACELENS_ENABLED=true to enable)")
+        raise RuntimeError("tracesage is disabled (set TRACESAGE_ENABLED=true to enable)")
 
     @property
     def blob_store(self) -> Any:
-        raise RuntimeError("tracelens is disabled (set TRACELENS_ENABLED=true to enable)")
+        raise RuntimeError("tracesage is disabled (set TRACESAGE_ENABLED=true to enable)")
 
     @property
     def stats(self) -> Stats:
         return Stats()
 
-    # --- no-op surface (matches TraceLens) ---
+    # --- no-op surface (matches TraceSage) ---
     def run_url(self, run_id: str) -> str | None:
         return None
 
     def run_view(self, run_id: str) -> Any:
-        from tracelens.render import TraceView
+        from tracesage.render import TraceView
 
         return TraceView(run_id, None)
 
-    def install(self) -> _DisabledTraceLens:
+    def install(self) -> _DisabledTraceSage:
         return self
 
     def uninstall(self) -> None:
@@ -669,18 +669,18 @@ class _DisabledTraceLens:
     def get_or_set_root(self, run_id: str, parent_run_id: str | None) -> str:
         return run_id
 
-    async def flush(self, timeout: float = 5.0) -> None:  # noqa: ASYNC109 - mirrors TraceLens API
+    async def flush(self, timeout: float = 5.0) -> None:  # noqa: ASYNC109 - mirrors TraceSage API
         return None
 
     async def render_tree(self, run_id: str, *, use_color: bool | None = None) -> str:
-        return "(tracelens disabled)"
+        return "(tracesage disabled)"
 
     async def stop(self) -> None:
         return None
 
 
 class BackgroundTracer:
-    """A :class:`TraceLens` running on its own daemon thread + event loop, usable from
+    """A :class:`TraceSage` running on its own daemon thread + event loop, usable from
     synchronous code (plain scripts, notebooks).
 
     The callback handler is thread-safe (``emit`` hops to the background loop), so use
@@ -690,7 +690,7 @@ class BackgroundTracer:
 
     def __init__(
         self,
-        config: TraceLensConfig | None = None,
+        config: TraceSageConfig | None = None,
         *,
         start_server: bool | None = None,
         install: bool = False,
@@ -702,24 +702,24 @@ class BackgroundTracer:
         self._ready_timeout = ready_timeout
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._tl: TraceLens | None = None
+        self._tl: TraceSage | None = None
         self._ready = threading.Event()
         self._err: BaseException | None = None
 
     def start(self) -> BackgroundTracer:
         if self._thread is not None or self._tl is not None:
             return self
-        cfg = self._config or TraceLensConfig()
+        cfg = self._config or TraceSageConfig()
         if not cfg.enabled:
             # Kill switch: no thread, no loop, no server — just an inert tracer.
-            self._tl = cast("TraceLens", _DisabledTraceLens(cfg))
+            self._tl = cast("TraceSage", _DisabledTraceSage(cfg))
             return self
         self._thread = threading.Thread(
-            target=self._run, name="tracelens.background", daemon=True
+            target=self._run, name="tracesage.background", daemon=True
         )
         self._thread.start()
         if not self._ready.wait(timeout=self._ready_timeout):
-            raise TimeoutError("tracelens background tracer failed to start in time")
+            raise TimeoutError("tracesage background tracer failed to start in time")
         if self._err is not None:
             raise self._err
         # Install on the CALLING thread, not the background thread: the global hook
@@ -734,7 +734,7 @@ class BackgroundTracer:
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
             self._tl = self._loop.run_until_complete(
-                TraceLens.create(self._config, start_server=self._start_server)
+                TraceSage.create(self._config, start_server=self._start_server)
             )
         except Exception as e:  # surface startup failure to start()
             self._err = e
@@ -744,7 +744,7 @@ class BackgroundTracer:
         self._loop.run_forever()
 
     @property
-    def tracer(self) -> TraceLens:
+    def tracer(self) -> TraceSage:
         if self._tl is None:  # pragma: no cover - guarded by start()
             raise RuntimeError("BackgroundTracer not started")
         return self._tl
@@ -796,7 +796,7 @@ class BackgroundTracer:
 
 
 def start(
-    config: TraceLensConfig | None = None,
+    config: TraceSageConfig | None = None,
     *,
     start_server: bool = True,
     install: bool = False,
@@ -805,7 +805,7 @@ def start(
 
     For synchronous scripts/notebooks::
 
-        tl = tracelens.start(install=True)   # global capture, no callbacks= needed
+        tl = tracesage.start(install=True)   # global capture, no callbacks= needed
         agent.invoke(...)
         tl.stop()
     """
@@ -816,7 +816,7 @@ def start(
 
 @contextlib.contextmanager
 def trace(
-    config: TraceLensConfig | None = None,
+    config: TraceSageConfig | None = None,
     *,
     start_server: bool = True,
     install: bool = True,
@@ -824,7 +824,7 @@ def trace(
     """Synchronous context manager that starts a background tracer (installed globally
     by default) and stops it on exit::
 
-        with tracelens.trace() as tl:
+        with tracesage.trace() as tl:
             agent.invoke(...)            # captured; print(tl.run_url(...)) for the link
     """
     bg = start(config, start_server=start_server, install=install)

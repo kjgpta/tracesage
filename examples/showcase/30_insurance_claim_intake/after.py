@@ -1,6 +1,6 @@
-"""30 — Insurance Claim Intake & Routing (with tracelens).
+"""30 — Insurance Claim Intake & Routing (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the structured-extraction LLM call, the validation
 node's issue list, and which of the three routes (auto_approve / manual_review /
 fraud_review) the conditional edge fired — a clean audit trail for a regulated domain.
@@ -22,7 +22,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -114,9 +114,9 @@ async def main() -> None:
         "Hi, this is Dana Reyes. My car was rear-ended on 2026-05-30 and I'm "
         "requesting $50000 for repairs and a rental."
     )
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"text": text})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("Claim:", result["claim"])
         print("Issues:", result["issues"])
         print("Decision:", result["decision"])

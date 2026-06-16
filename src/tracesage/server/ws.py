@@ -14,15 +14,15 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from tracelens.models import WSMessage
-from tracelens.server.auth import check_ws_auth
+from tracesage.models import WSMessage
+from tracesage.server.auth import check_ws_auth
 
 if TYPE_CHECKING:
-    from tracelens.config import TraceLensConfig
-    from tracelens.storage.backend import StorageBackend
+    from tracesage.config import TraceSageConfig
+    from tracesage.storage.backend import StorageBackend
 
 
-_LOG = logging.getLogger("tracelens.server.ws")
+_LOG = logging.getLogger("tracesage.server.ws")
 
 GLOBAL_FEED_KEY = "__all__"
 
@@ -133,7 +133,7 @@ class WebSocketManager:
 
 async def ws_trace(websocket: WebSocket, run_id: str) -> None:
     """Per-run WS endpoint: catchup snapshot then live tail."""
-    config: TraceLensConfig = websocket.app.state.config
+    config: TraceSageConfig = websocket.app.state.config
     if not await check_ws_auth(websocket, config):
         return
 
@@ -175,7 +175,7 @@ async def ws_trace(websocket: WebSocket, run_id: str) -> None:
 
 async def ws_runs(websocket: WebSocket) -> None:
     """Global feed WS endpoint."""
-    config: TraceLensConfig = websocket.app.state.config
+    config: TraceSageConfig = websocket.app.state.config
     if not await check_ws_auth(websocket, config):
         return
 

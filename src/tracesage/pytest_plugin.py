@@ -1,13 +1,13 @@
-"""pytest plugin: capture tracelens traces in tests and assert on agent behavior.
+"""pytest plugin: capture tracesage traces in tests and assert on agent behavior.
 
-Enabled automatically once tracelens is installed (registered as a pytest11 entry
-point). Provides the ``tracelens_capture`` fixture::
+Enabled automatically once tracesage is installed (registered as a pytest11 entry
+point). Provides the ``tracesage_capture`` fixture::
 
-    def test_agent_uses_search(tracelens_capture):
+    def test_agent_uses_search(tracesage_capture):
         agent.invoke("find me a hotel")            # captured globally, no callbacks=
-        tracelens_capture.assert_tool_called("search")
-        tracelens_capture.assert_no_errors()
-        assert tracelens_capture.total_tokens()[0] < 5000
+        tracesage_capture.assert_tool_called("search")
+        tracesage_capture.assert_no_errors()
+        assert tracesage_capture.total_tokens()[0] < 5000
 
 The fixture runs a tracer on a background thread (no server), installs it as the
 global LangChain handler for the duration of the test, and tears it down after.
@@ -22,7 +22,7 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from tracelens.models import Run, StoredEvent
+    from tracesage.models import Run, StoredEvent
 
 
 class TraceCapture:
@@ -111,13 +111,13 @@ class TraceCapture:
 
 
 @pytest.fixture
-def tracelens_capture(tmp_path: Any) -> Iterator[TraceCapture]:
+def tracesage_capture(tmp_path: Any) -> Iterator[TraceCapture]:
     """Capture all LangChain activity during the test into an isolated tracer."""
-    import tracelens
-    from tracelens.config import TraceLensConfig
+    import tracesage
+    from tracesage.config import TraceSageConfig
 
-    cfg = TraceLensConfig(data_dir=tmp_path, print_run_url=False)
-    bg = tracelens.start(cfg, start_server=False, install=True)
+    cfg = TraceSageConfig(data_dir=tmp_path, print_run_url=False)
+    bg = tracesage.start(cfg, start_server=False, install=True)
     try:
         yield TraceCapture(bg)
     finally:

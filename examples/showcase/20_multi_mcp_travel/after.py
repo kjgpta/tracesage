@@ -1,12 +1,12 @@
-"""20 — Multi-MCP Travel Planner (with tracelens).
+"""20 — Multi-MCP Travel Planner (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. `register_mcp_client`
+Identical to before.py except for the tracesage lines marked below. `register_mcp_client`
 records which MCP server each tool came from, so the trace shows ONE agent fanning out to
 TWO MCP servers — flight tool calls attributed to `flights`, weather tool calls to
 `weather`. Open the printed link for the multi-MCP visualization.
 
 Needs the MCP extras (guarded below):
-    pip install 'tracelens[mcp]' mcp langchain-mcp-adapters
+    pip install 'tracesage[mcp]' mcp langchain-mcp-adapters
 
 Run:
     pip install -r ../requirements.txt
@@ -29,8 +29,8 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit("This example needs MCP support. Install: pip install mcp langchain-mcp-adapters")
 
-from tracelens import TraceLens  # ← tracelens
-from tracelens.adapters.mcp import register_mcp_client  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
+from tracesage.adapters.mcp import register_mcp_client  # ← tracesage
 
 HERE = Path(__file__).resolve().parent
 
@@ -73,15 +73,15 @@ async def main() -> None:
     )
     print(f"Q: {request}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
-        mcp_tools = await register_mcp_client(tl, client)  # ← tracelens: attribute tools to their server
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
+        mcp_tools = await register_mcp_client(tl, client)  # ← tracesage: attribute tools to their server
         agent = build_agent(mcp_tools)
         result = await agent.ainvoke(
             {"messages": [("user", request)]},
             config={"recursion_limit": 12},
         )
         print("A:", result["messages"][-1].content)
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():
             await asyncio.to_thread(input, "\n[trace] Open the printed link, then press Enter to exit.")
 

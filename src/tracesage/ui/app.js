@@ -1,4 +1,4 @@
-/* app.js — main controller for tracelens UI. ES module.
+/* app.js — main controller for tracesage UI. ES module.
  *
  * Owns: run list, timeline, drawer, header stats, theme, keyboard shortcuts,
  * WebSocket lifecycle (global runs feed + per-run trace) with exponential
@@ -20,10 +20,10 @@ import {
  * Constants & state
  * ============================================================ */
 
-const STORAGE_THEME = 'tracelens.theme';
-const STORAGE_TOKEN = 'tracelens.auth_token';
-const STORAGE_PANES = 'tracelens.panes';
-const STORAGE_TOOLS_POS = 'tracelens.tools_panel_pos';
+const STORAGE_THEME = 'tracesage.theme';
+const STORAGE_TOKEN = 'tracesage.auth_token';
+const STORAGE_PANES = 'tracesage.panes';
+const STORAGE_TOOLS_POS = 'tracesage.tools_panel_pos';
 const TIMELINE_MAX = 500;
 const STATS_POLL_MS = 5000;
 const RUNS_POLL_MS = 30000;

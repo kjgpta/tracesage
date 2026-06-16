@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tracelens.storage import BlobStore
+from tracesage.storage import BlobStore
 
 
 @pytest.mark.asyncio
@@ -158,7 +158,7 @@ async def test_no_tmp_left_and_size_excludes_tmp(tmp_data_dir: Path) -> None:
 def test_write_blob_sync_cleans_tmp_on_failure(tmp_data_dir: Path, monkeypatch) -> None:
     """If os.replace fails after the temp file is written, the orphan .tmp must be
     removed (and the error must propagate, not be swallowed)."""
-    from tracelens.storage import blob_store as bs
+    from tracesage.storage import blob_store as bs
 
     def _boom(*_a: object, **_k: object) -> None:
         raise OSError("simulated replace failure")

@@ -6,7 +6,7 @@ MCP groups and NO "Local" group; every tool node is ringed and chipped with its
 server colour (weather's uncalled air_quality still appears under the weather group).
 
 Run:
-    pip install 'tracelens[mcp]'
+    pip install 'tracesage[mcp]'
     python examples/mcp/mcp_only.py            # then open http://localhost:7842/ui
     python examples/mcp/mcp_only.py --check     # run once, print inventory, exit
 """
@@ -28,8 +28,8 @@ try:
 except ImportError:  # pragma: no cover
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracelens import TraceLens, TraceLensConfig  # noqa: E402
-from tracelens.adapters.mcp import register_mcp_client  # noqa: E402
+from tracesage import TraceSage, TraceSageConfig  # noqa: E402
+from tracesage.adapters.mcp import register_mcp_client  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "mcp_demo_data"
@@ -41,8 +41,8 @@ class State(TypedDict):
 
 async def main(check: bool = False) -> None:
     shutil.rmtree(DATA_DIR, ignore_errors=True)
-    tracer = await TraceLens.create(TraceLensConfig(data_dir=DATA_DIR))
-    print("tracelens UI: http://localhost:7842/ui")
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+    print("tracesage UI: http://localhost:7842/ui")
 
     client = MultiServerMCPClient(
         {

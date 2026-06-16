@@ -1,6 +1,6 @@
-"""19 — GitHub Issue Triage (with tracelens).
+"""19 — GitHub Issue Triage (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then
+Identical to before.py except for the tracesage lines marked below. Run it, then
 open the printed link: the trace shows the agent's reasoning and the sequence of
 triage tool calls (suggest_labels → set_priority → suggest_assignee) on one issue,
 with each tool's arguments and return value.
@@ -21,7 +21,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 ISSUE: dict[str, object] = {
     "number": 482,
@@ -88,7 +88,7 @@ def main() -> None:
     issue_text = f"Issue #{ISSUE['number']}: {ISSUE['title']}\n\n{ISSUE['body']}"
     print(issue_text, "\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         result = agent.invoke({"input": issue_text})
         print("Summary:", result["output"])
         print("Final issue state:", ISSUE)

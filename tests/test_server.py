@@ -14,9 +14,9 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from tracelens import __version__
-from tracelens.config import TraceLensConfig
-from tracelens.models import (
+from tracesage import __version__
+from tracesage.config import TraceSageConfig
+from tracesage.models import (
     EventType,
     Run,
     RunStatus,
@@ -24,9 +24,9 @@ from tracelens.models import (
     StoredEvent,
     WSMessage,
 )
-from tracelens.server import WebSocketManager, create_app
-from tracelens.storage.blob_store import BlobStore
-from tracelens.storage.sqlite_backend import SQLiteBackend
+from tracesage.server import WebSocketManager, create_app
+from tracesage.storage.blob_store import BlobStore
+from tracesage.storage.sqlite_backend import SQLiteBackend
 
 # ---------- Fixtures ----------
 
@@ -53,12 +53,12 @@ def ws_manager():
 
 @pytest.fixture
 def config(tmp_data_dir):
-    return TraceLensConfig(data_dir=tmp_data_dir, auth_token=None)
+    return TraceSageConfig(data_dir=tmp_data_dir, auth_token=None)
 
 
 @pytest.fixture
 def config_with_token(tmp_data_dir):
-    return TraceLensConfig(data_dir=tmp_data_dir, auth_token="secret-test-token")
+    return TraceSageConfig(data_dir=tmp_data_dir, auth_token="secret-test-token")
 
 
 @pytest.fixture

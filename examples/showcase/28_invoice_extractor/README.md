@@ -23,7 +23,7 @@ python after.py                      # same app + live trace UI
 diff before.py after.py
 ```
 
-The only difference is `import tracelens` and wrapping the run in `with tracelens.trace():`
+The only difference is `import tracesage` and wrapping the run in `with tracesage.trace():`
 (plus a one-line keep-the-UI-up prompt for the demo). No `callbacks=` wiring.
 
 ## What the trace shows

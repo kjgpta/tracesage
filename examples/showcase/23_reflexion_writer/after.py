@@ -1,6 +1,6 @@
-"""23 — Reflexion Writer (with tracelens).
+"""23 — Reflexion Writer (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open the
+Identical to before.py except for the tracesage lines marked below. Run it, then open the
 printed link: the trace replays the write→critique→revise cycle iteration by iteration,
 shows the score driving the conditional edge, and ends when the draft passes or the loop
 caps out — the whole reflection as a single graph.
@@ -24,7 +24,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 MAX_ITERS = 3
 TARGET_SCORE = 8
@@ -100,11 +100,11 @@ async def main() -> None:
     task = "Explain why code review matters, for a junior engineer."
     print(f"Task: {task}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens: starts UI + captures every call
+    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts UI + captures every call
         result = await graph.ainvoke(
             {"task": task, "draft": "", "feedback": "", "score": 0, "iters": 0}
         )
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print(f"Final draft (score {result['score']}, {result['iters']} iters):\n")
         print(result["draft"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

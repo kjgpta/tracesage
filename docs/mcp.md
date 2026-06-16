@@ -2,7 +2,7 @@
 
 When your agent's tools come from [Model Context Protocol](https://modelcontextprotocol.io)
 servers (loaded via [`langchain-mcp-adapters`](https://github.com/langchain-ai/langchain-mcp-adapters)),
-tracelens can attribute each tool call to the MCP server it came from — so you can
+tracesage can attribute each tool call to the MCP server it came from — so you can
 see, at a glance, *"these 10 tools came from 2 MCP servers; these 2 are hardcoded
 in my workflow."*
 
@@ -11,7 +11,7 @@ in my workflow."*
 MCP support is an optional extra (the core package never imports it):
 
 ```bash
-pip install 'tracelens[mcp]'
+pip install 'tracesage[mcp]'
 ```
 
 The `[mcp]` extra installs `langchain-mcp-adapters>=0.1.0`, `mcp>=1.0.0`, and `langgraph`.
@@ -19,15 +19,15 @@ If you already manage those yourself, any `langchain-mcp-adapters>=0.1.0` works.
 
 ## Register tool sources
 
-LangChain tools don't reliably carry their originating MCP server, so tracelens
+LangChain tools don't reliably carry their originating MCP server, so tracesage
 records the mapping explicitly. Do this once at setup, before invoking your graph:
 
 ```python
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from tracelens import TraceLens
-from tracelens.adapters.mcp import register_mcp_client
+from tracesage import TraceSage
+from tracesage.adapters.mcp import register_mcp_client
 
-tracer = await TraceLens.create()
+tracer = await TraceSage.create()
 
 client = MultiServerMCPClient({
     "weather": {"command": "python", "args": ["weather_server.py"], "transport": "stdio"},
@@ -48,7 +48,7 @@ returned tools with your sync agent.
 If you load tools per server yourself, attribute them explicitly (this call is sync):
 
 ```python
-from tracelens.adapters.mcp import register_mcp_tools
+from tracesage.adapters.mcp import register_mcp_tools
 register_mcp_tools(tracer, weather_tools, server="weather")
 ```
 
@@ -60,7 +60,7 @@ tracer.register_tool_source("get_weather", "weather")
 
 ### Auto-detection (best-effort)
 
-Even without registration, tracelens tags a tool whose call carries
+Even without registration, tracesage tags a tool whose call carries
 `metadata={"mcp_server_name": "..."}`. Explicit registration is the reliable path;
 auto-detection is a fallback.
 
@@ -72,14 +72,14 @@ auto-detection is a fallback.
 - **REST** — `GET /api/tools` returns the grouped inventory; topology tool nodes
   carry a `source` field. See the [API reference](api.md).
 - **Storage** — provenance is persisted on each tool event (`events.mcp_server`),
-  so it survives restarts and is visible in `tracelens serve` mode.
+  so it survives restarts and is visible in `tracesage serve` mode.
 
 ## Try it
 
 A runnable end-to-end scenario (two local stdio MCP servers + two hardcoded tools,
-no API key) lives in [`examples/mcp/`](https://github.com/kjgpta/tracelens/tree/main/examples/mcp):
+no API key) lives in [`examples/mcp/`](https://github.com/kjgpta/tracesage/tree/main/examples/mcp):
 
 ```bash
-pip install 'tracelens[mcp]'
+pip install 'tracesage[mcp]'
 python examples/mcp/main.py    # then open http://localhost:7842/ui
 ```

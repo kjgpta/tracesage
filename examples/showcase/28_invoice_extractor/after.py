@@ -1,6 +1,6 @@
-"""28 — Invoice / Expense Extractor (with tracelens).
+"""28 — Invoice / Expense Extractor (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows each structured-output extraction call and the parsed
 Invoice it produced, so you can see exactly what the model returned before the PASS/FAIL
 validation runs on top of it.
@@ -20,7 +20,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 
 class LineItem(BaseModel):
@@ -90,7 +90,7 @@ GRAND TOTAL ................... 900.00
 
 def main() -> None:
     extractor = build_extractor()
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         report("Clean invoice (should PASS)", extractor, GOOD_INVOICE)
         report("Messy invoice (should FAIL)", extractor, BAD_INVOICE)
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

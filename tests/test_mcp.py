@@ -5,17 +5,17 @@ import threading
 import uuid
 from collections import OrderedDict
 
-from tracelens.adapters.langchain import TraceLensCallbackHandler
-from tracelens.adapters.mcp import register_mcp_client, register_mcp_tools
-from tracelens.config import TraceLensConfig
-from tracelens.models import EventType, RawEvent
+from tracesage.adapters.langchain import TraceSageCallbackHandler
+from tracesage.adapters.mcp import register_mcp_client, register_mcp_tools
+from tracesage.config import TraceSageConfig
+from tracesage.models import EventType, RawEvent
 
 
 class _StubTracer:
     """Duck-typed tracer with the MCP registry surface, recording emit() calls."""
 
     def __init__(self) -> None:
-        self._config = TraceLensConfig()
+        self._config = TraceSageConfig()
         self.events: list[RawEvent] = []
         self._root_map: OrderedDict[str, str] = OrderedDict()
         self._lock = threading.Lock()
@@ -76,7 +76,7 @@ def test_register_mcp_tools_attributes_list() -> None:
 def test_handler_stamps_mcp_server_from_registry() -> None:
     t = _StubTracer()
     t.register_tool_source("get_weather", "weather")
-    h = TraceLensCallbackHandler(t)
+    h = TraceSageCallbackHandler(t)
     rid = uuid.uuid4()
     h.on_tool_start({"name": "get_weather"}, "London", run_id=rid)
     h.on_tool_end("sunny", run_id=rid)
@@ -90,7 +90,7 @@ def test_handler_stamps_mcp_server_from_registry() -> None:
 
 def test_handler_auto_detects_server_from_metadata() -> None:
     t = _StubTracer()
-    h = TraceLensCallbackHandler(t)
+    h = TraceSageCallbackHandler(t)
     rid = uuid.uuid4()
     h.on_tool_start({"name": "x"}, "in", run_id=rid, metadata={"mcp_server_name": "github"})
     starts = _starts(t)
@@ -100,7 +100,7 @@ def test_handler_auto_detects_server_from_metadata() -> None:
 
 def test_local_tool_has_no_source() -> None:
     t = _StubTracer()
-    h = TraceLensCallbackHandler(t)
+    h = TraceSageCallbackHandler(t)
     rid = uuid.uuid4()
     h.on_tool_start({"name": "local_calc"}, "in", run_id=rid)
     starts = _starts(t)
@@ -170,7 +170,7 @@ async def test_load_server_tools_session_fallback(monkeypatch) -> None:
     pytest.importorskip("langchain_mcp_adapters")
     import langchain_mcp_adapters.tools as lmt
 
-    from tracelens.adapters.mcp import _load_server_tools
+    from tracesage.adapters.mcp import _load_server_tools
 
     captured = {"session_opened": False}
 

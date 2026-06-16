@@ -22,8 +22,8 @@ python after.py                      # same app + live trace UI
 diff before.py after.py
 ```
 
-The only difference is `from tracelens import TraceLens`, wrapping the run in
-`async with TraceLens.session(install=True)`, and one `await tl.flush()` (plus a
+The only difference is `from tracesage import TraceSage`, wrapping the run in
+`async with TraceSage.session(install=True)`, and one `await tl.flush()` (plus a
 one-line keep-the-UI-up prompt for the demo). No `callbacks=` wiring — the global
 handler captures every layer of every subgraph automatically.
 

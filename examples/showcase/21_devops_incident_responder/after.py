@@ -1,6 +1,6 @@
-"""21 — DevOps Incident Responder (with tracelens).
+"""21 — DevOps Incident Responder (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the dense tool-call sequence the agent runs while
 investigating the alert, the latency of each `query_logs` / `query_metrics` /
 `get_recent_deploys` call, and the final investigate-to-diagnose hop to the runbook step.
@@ -21,7 +21,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -80,13 +80,13 @@ async def main() -> None:
     alert = "PagerDuty: checkout-api error rate spiking, p99 latency over 8s"
     print(f"ALERT: {alert}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await agent.ainvoke(
             {"messages": [("user", alert)]},
             config={"recursion_limit": 12},
         )
         print(result["messages"][-1].content)
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             await asyncio.to_thread(
                 input, "\n🔍 Open the printed trace link, then press Enter to exit."

@@ -2,8 +2,8 @@
 
 A graph whose tools are plain @tool functions defined in this file. The "Tools by
 source" panel shows a single "Local" group, the graph tool nodes have no server
-ring/chip, and the legend shows no MCP section — i.e. tracelens degrades cleanly
-when there is no MCP in play. Needs only `tracelens[langchain]` + langgraph.
+ring/chip, and the legend shows no MCP section — i.e. tracesage degrades cleanly
+when there is no MCP in play. Needs only `tracesage[langchain]` + langgraph.
 
 Run:
     python examples/mcp/local_only.py            # then open http://localhost:7842/ui
@@ -27,7 +27,7 @@ try:
 except ImportError:  # pragma: no cover
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracelens import TraceLens, TraceLensConfig  # noqa: E402
+from tracesage import TraceSage, TraceSageConfig  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "mcp_demo_data"
@@ -61,8 +61,8 @@ class State(TypedDict):
 
 async def main(check: bool = False) -> None:
     shutil.rmtree(DATA_DIR, ignore_errors=True)
-    tracer = await TraceLens.create(TraceLensConfig(data_dir=DATA_DIR))
-    print("tracelens UI: http://localhost:7842/ui")
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+    print("tracesage UI: http://localhost:7842/ui")
 
     llm = FakeListChatModel(responses=["Working...", "Done."])
 

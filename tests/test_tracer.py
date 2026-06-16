@@ -1,7 +1,7 @@
-"""Tests for the TraceLens top-level orchestrator.
+"""Tests for the TraceSage top-level orchestrator.
 
 These tests require Agent A's storage modules (SQLiteBackend, BlobStore) — they
-are imported lazily inside TraceLens.create. Server startup is disabled.
+are imported lazily inside TraceSage.create. Server startup is disabled.
 """
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tracelens.config import TraceLensConfig
-from tracelens.models import EventType, RawEvent
-from tracelens.tracer import TraceLens
+from tracesage.config import TraceSageConfig
+from tracesage.models import EventType, RawEvent
+from tracesage.tracer import TraceSage
 
 
 def _utcnow() -> datetime:
@@ -37,8 +37,8 @@ def _raw(event_type: EventType, run_id: str, parent_run_id: str | None = None) -
 
 # ---------------------------------------------------------------------- 1
 async def test_sampling_drops_events(tmp_data_dir) -> None:
-    cfg = TraceLensConfig(data_dir=tmp_data_dir, sample_rate=0.0, queue_maxsize=100)
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, sample_rate=0.0, queue_maxsize=100)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         run_id = str(uuid.uuid4())
         for _ in range(10):
@@ -52,13 +52,13 @@ async def test_sampling_drops_events(tmp_data_dir) -> None:
 
 # ---------------------------------------------------------------------- 2
 async def test_per_run_cap_circuit_breaker(tmp_data_dir) -> None:
-    cfg = TraceLensConfig(
+    cfg = TraceSageConfig(
         data_dir=tmp_data_dir,
         per_run_event_cap=10,
         queue_maxsize=1000,
         sample_rate=1.0,
     )
-    tracer = await TraceLens.create(cfg, start_server=False)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         run_id = str(uuid.uuid4())
         for _ in range(20):
@@ -85,8 +85,8 @@ async def test_shutdown_releases_resources(tmp_data_dir) -> None:
     """
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
-        cfg = TraceLensConfig(data_dir=tmp_data_dir, sample_rate=1.0, queue_maxsize=100)
-        tracer = await TraceLens.create(cfg, start_server=False)
+        cfg = TraceSageConfig(data_dir=tmp_data_dir, sample_rate=1.0, queue_maxsize=100)
+        tracer = await TraceSage.create(cfg, start_server=False)
         run_id = str(uuid.uuid4())
         # Synthetic RUN_START so SQLite FK checks pass.
         tracer.emit(
@@ -127,8 +127,8 @@ async def test_shutdown_releases_resources(tmp_data_dir) -> None:
 
 # ---------------------------------------------------------------------- 4 (bonus)
 async def test_get_or_set_root_propagation(tmp_data_dir) -> None:
-    cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=100)
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, queue_maxsize=100)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         root = "root-123"
         child = "child-456"
@@ -147,8 +147,8 @@ async def test_lru_eviction_caps_unbounded_state(tmp_data_dir) -> None:
     Regression for the audit finding that _throttled_runs/_run_event_counts grew
     unbounded. (Sampling is now deterministic and keeps no per-run state.)
     """
-    cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=10_000, sample_rate=1.0)
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, queue_maxsize=10_000, sample_rate=1.0)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         # Shrink the cap so the test runs in milliseconds.
         tracer._run_state_cap = 100
@@ -181,8 +181,8 @@ async def test_deterministic_sampling_is_stable(tmp_data_dir) -> None:
     """_is_sampled_in must be deterministic per root (no mid-run flip after eviction),
     and a 50% rate must sample some-but-not-all distinct roots.
     """
-    cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=100, sample_rate=0.5)
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, queue_maxsize=100, sample_rate=0.5)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         # Determinism: repeated calls for the same root return the same verdict.
         root = "stable-root-abc"
@@ -210,12 +210,12 @@ async def test_redaction_scrubs_summary_and_payload(tmp_data_dir) -> None:
     """Opt-in redaction must scrub configured patterns from the summary, the
     error_message, and (recursively) the raw_payload that becomes the blob.
     """
-    cfg = TraceLensConfig(
+    cfg = TraceSageConfig(
         data_dir=tmp_data_dir,
         queue_maxsize=100,
         redact_patterns=[r"sk-[A-Za-z0-9]+"],
     )
-    tracer = await TraceLens.create(cfg, start_server=False)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         run_id = str(uuid.uuid4())
         event = RawEvent(
@@ -248,8 +248,8 @@ async def test_redaction_scrubs_summary_and_payload(tmp_data_dir) -> None:
 
 async def test_redaction_default_is_noop(tmp_data_dir) -> None:
     """Default config (no patterns) must leave the event untouched."""
-    cfg = TraceLensConfig(data_dir=tmp_data_dir, queue_maxsize=100)
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, queue_maxsize=100)
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         assert tracer._redactors == []
         run_id = str(uuid.uuid4())
@@ -277,8 +277,8 @@ async def test_redaction_default_is_noop(tmp_data_dir) -> None:
 async def test_redaction_handles_deep_and_cyclic_payload(tmp_data_dir) -> None:
     """Deeply nested or self-referential raw_payload must not raise/hang, and must
     fail CLOSED (top-level secrets still redacted, over-deep subtrees replaced)."""
-    cfg = TraceLensConfig(data_dir=tmp_data_dir, redact_patterns=[r"sk-[A-Za-z0-9]+"])
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, redact_patterns=[r"sk-[A-Za-z0-9]+"])
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         # Nested far beyond the depth cap.
         deep: dict = {}

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from tracelens.models import (
+from tracesage.models import (
     EventType,
     Run,
     RunStatus,
@@ -372,7 +372,7 @@ class SQLiteBackend:
                 except Exception as exc:
                     # Per CLAUDE.md: one bad event must not abort the batch.
                     print(
-                        f"tracelens: skipping bad event "
+                        f"tracesage: skipping bad event "
                         f"{event.event_id!r}: {exc}",
                         file=sys.stderr,
                     )

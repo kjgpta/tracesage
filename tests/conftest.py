@@ -12,7 +12,7 @@ import pytest_asyncio
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
     """Per-test data directory. Isolated and cleaned by pytest's tmp_path."""
-    data_dir = tmp_path / "tracelens_test"
+    data_dir = tmp_path / "tracesage_test"
     data_dir.mkdir(exist_ok=True)
     (data_dir / "blobs").mkdir(exist_ok=True)
     return data_dir

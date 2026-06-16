@@ -1,6 +1,6 @@
-"""13 — Support Triage + Specialists (with tracelens).
+"""13 — Support Triage + Specialists (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the triage classifier, which specialist node fired,
 and whether that specialist resolved the ticket or took the escalate branch — so you
 can see exactly which path the ticket took through the graph.
@@ -22,7 +22,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -103,9 +103,9 @@ async def main() -> None:
     graph = build_graph()
     ticket = "After the latest update the desktop app crashes on launch with a 0xC0000005 error."
     print(f"Ticket: {ticket}\n")
-    async with TraceLens.session(install=True) as tl:  # ← tracelens: starts the UI + captures every call
+    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts the UI + captures every call
         result = await graph.ainvoke({"ticket": ticket})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("Routed to:", result["specialist"], "| resolved:", result["resolved"])
         print("\nReply:\n", result["reply"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

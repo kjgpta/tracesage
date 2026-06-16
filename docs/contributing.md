@@ -1,13 +1,13 @@
-# Contributing to tracelens
+# Contributing to tracesage
 
-Thanks for considering a contribution. tracelens is intentionally lean — we want
+Thanks for considering a contribution. tracesage is intentionally lean — we want
 every line to pull its weight.
 
 ## Setup
 
 ```bash
-git clone https://github.com/kjgpta/tracelens.git
-cd tracelens
+git clone https://github.com/kjgpta/tracesage.git
+cd tracesage
 python -m venv .venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -e ".[dev,langchain]"
@@ -36,12 +36,12 @@ pytest tests/test_database.py -v
 
 ## Architecture
 
-- `src/tracelens/` — package source
-- `src/tracelens/adapters/` — framework adapters (LangChain; MCP attribution helper)
-- `src/tracelens/storage/` — pluggable storage backends (SQLite + blob store)
-- `src/tracelens/server/` — FastAPI routes, WebSocket, auth
-- `src/tracelens/ui/` — vanilla JS + a custom SVG graph renderer (no framework)
-- `src/tracelens/pytest_plugin.py` — the `tracelens_capture` fixture
+- `src/tracesage/` — package source
+- `src/tracesage/adapters/` — framework adapters (LangChain; MCP attribution helper)
+- `src/tracesage/storage/` — pluggable storage backends (SQLite + blob store)
+- `src/tracesage/server/` — FastAPI routes, WebSocket, auth
+- `src/tracesage/ui/` — vanilla JS + a custom SVG graph renderer (no framework)
+- `src/tracesage/pytest_plugin.py` — the `tracesage_capture` fixture
 - `tests/` — unit + integration; `tests/stress/` — slow tests (excluded from CI)
 - `examples/` — `getting_started/` (no-key demos), `mcp/`, and the `showcase/` gallery
 - `tools/` — bench, crash-recovery, other ops scripts
@@ -55,7 +55,7 @@ pytest tests/test_database.py -v
 
 ## Adding a framework adapter
 
-See [the extending guide](https://github.com/kjgpta/tracelens/blob/main/docs/extending.md).
+See [the extending guide](https://github.com/kjgpta/tracesage/blob/main/docs/extending.md).
 The adapter pattern is documented;
 follow LangChain's adapter as a reference.
 

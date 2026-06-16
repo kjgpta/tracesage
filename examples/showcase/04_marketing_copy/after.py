@@ -1,6 +1,6 @@
-"""04 — Marketing Copy Generator (with tracelens).
+"""04 — Marketing Copy Generator (with tracesage).
 
-Identical to before.py except for the tracelens lines. The trace lays out the three
+Identical to before.py except for the tracesage lines. The trace lays out the three
 chain stages in order with per-stage latency and tokens, and the full prompt/response
 of each stage in the drawer — ideal for tuning a multi-step prompt pipeline.
 
@@ -19,7 +19,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnablePassthrough
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.7) -> Runnable:
@@ -55,7 +55,7 @@ def main() -> None:
     chain = build_chain()
     brief = "A noise-cancelling water bottle that plays lo-fi music while you hydrate."
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every chain stage
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every chain stage
         out = chain.invoke({"brief": brief})
         print("DRAFT:\n", out["draft"], "\n")
         print("VARIANTS:\n", out["variants"], "\n")

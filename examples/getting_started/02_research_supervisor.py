@@ -29,7 +29,7 @@ try:
 except ImportError:
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracelens import TraceLens  # noqa: E402
+from tracesage import TraceSage  # noqa: E402
 
 
 # ---- Worker tools -------------------------------------------------------- #
@@ -69,8 +69,8 @@ class ResearchState(TypedDict):
 
 
 async def main() -> None:
-    tracer = await TraceLens.create()
-    print("tracelens at http://localhost:7842/ui")
+    tracer = await TraceSage.create()
+    print("tracesage at http://localhost:7842/ui")
 
     # Supervisor decides which worker(s) to dispatch.
     supervisor_llm = FakeListChatModel(

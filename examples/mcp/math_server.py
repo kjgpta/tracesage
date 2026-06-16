@@ -1,7 +1,7 @@
 """A tiny math MCP server (stdio transport) exposing 2 tools.
 
 Run indirectly by examples/mcp/main.py via MultiServerMCPClient — you do
-not run this file yourself. Requires `pip install 'tracelens[mcp]'`.
+not run this file yourself. Requires `pip install 'tracesage[mcp]'`.
 """
 from __future__ import annotations
 

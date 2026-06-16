@@ -13,7 +13,7 @@ from collections import OrderedDict, deque
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from tracelens.models import (
+from tracesage.models import (
     BLOB_ELIGIBLE_EVENTS,
     EventType,
     RawEvent,
@@ -25,11 +25,11 @@ from tracelens.models import (
 )
 
 if TYPE_CHECKING:
-    from tracelens.config import TraceLensConfig
-    from tracelens.storage.backend import StorageBackend
-    from tracelens.storage.blob_store import BlobStore
+    from tracesage.config import TraceSageConfig
+    from tracesage.storage.backend import StorageBackend
+    from tracesage.storage.blob_store import BlobStore
 
-log = logging.getLogger("tracelens.worker")
+log = logging.getLogger("tracesage.worker")
 
 
 # Map *_END events to a key prefix used to look up the matching *_START timestamp.
@@ -85,7 +85,7 @@ class StorageWorker:
         db: StorageBackend,
         blob_store: BlobStore,
         ws_manager: Any,
-        config: TraceLensConfig,
+        config: TraceSageConfig,
         stats: Stats,
     ) -> None:
         self._queue = queue

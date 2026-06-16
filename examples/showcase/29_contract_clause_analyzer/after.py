@@ -1,6 +1,6 @@
-"""29 — Contract Clause Risk Analyzer (with tracelens).
+"""29 — Contract Clause Risk Analyzer (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the fan-out node firing one classifier LLM call per
 clause concurrently, each returning a risk level + reason, then the summarize node
 folding them into a memo — so you can see the map/reduce shape and which clauses scored
@@ -25,7 +25,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 CLAUSES: list[str] = [
     "The Provider may terminate this agreement at any time without notice or cause.",
@@ -98,9 +98,9 @@ def build_graph() -> Runnable:
 
 async def main() -> None:
     graph = build_graph()
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"clauses": CLAUSES, "findings": [], "memo": ""})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             await asyncio.to_thread(input, "\n🔍 Open the printed trace link, then press Enter to exit.")
     for f in sorted(result["findings"], key=lambda f: f["index"]):

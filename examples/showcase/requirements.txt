@@ -1,6 +1,6 @@
-# tracelens showcase — dependencies for the example gallery.
+# tracesage showcase — dependencies for the example gallery.
 #
-# Every app needs tracelens + an LLM provider. RAG / search / MCP apps need a few
+# Every app needs tracesage + an LLM provider. RAG / search / MCP apps need a few
 # extras (each app's README lists exactly which). Install the union with:
 #   pip install -r requirements.txt
 #
@@ -9,7 +9,7 @@
 #   export LLM_PROVIDER=anthropic LLM_MODEL=claude-haiku-4-5 ANTHROPIC_API_KEY=...
 
 # --- core (all apps) ---
-tracelens[langchain]
+tracesage[langchain]
 langchain>=0.3
 langgraph>=0.3
 langchain-openai>=0.2          # swap for langchain-anthropic if LLM_PROVIDER=anthropic
@@ -23,6 +23,6 @@ duckduckgo-search>=6.0
 langchain-community>=0.3
 
 # --- MCP apps (18, 20) ---
-tracelens[mcp]
+tracesage[mcp]
 langchain-mcp-adapters>=0.1
 mcp>=1.0

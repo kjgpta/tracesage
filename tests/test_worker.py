@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from tracelens.config import TraceLensConfig
-from tracelens.models import EventType, RawEvent, RunStatus, Stats, StoredEvent
-from tracelens.worker import StorageWorker
+from tracesage.config import TraceSageConfig
+from tracesage.models import EventType, RawEvent, RunStatus, Stats, StoredEvent
+from tracesage.worker import StorageWorker
 
 
 def _utcnow() -> datetime:
@@ -111,7 +111,7 @@ def _make_worker(
     blob = _FakeBlobStore()
     ws = _FakeWS()
     stats = Stats()
-    cfg = TraceLensConfig(
+    cfg = TraceSageConfig(
         worker_batch_size=batch_size,
         worker_batch_timeout=batch_timeout,
     )

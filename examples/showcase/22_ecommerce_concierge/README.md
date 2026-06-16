@@ -22,7 +22,7 @@ python after.py                      # same app + live trace UI
 diff before.py after.py
 ```
 
-The only difference is `import tracelens` and wrapping the run in `with tracelens.trace():`
+The only difference is `import tracesage` and wrapping the run in `with tracesage.trace():`
 (plus a one-line keep-the-UI-up prompt for the demo). No `callbacks=` wiring — the global
 handler captures the agent and every tool call automatically.
 
@@ -37,5 +37,5 @@ handler captures the agent and every tool call automatically.
   the agent searched before mutating and verified the cart before finishing.
 - Per-step **latency and token usage**, with full tool inputs/outputs in the drawer.
 
-This is a good look at how tracelens makes opaque agent tool use — including state changes
+This is a good look at how tracesage makes opaque agent tool use — including state changes
 to external systems — auditable step by step.

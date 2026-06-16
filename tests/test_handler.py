@@ -1,7 +1,7 @@
-"""Tests for TraceLensCallbackHandler.
+"""Tests for TraceSageCallbackHandler.
 
 Strategy: use a stub tracer that records emit() calls. Avoids any dependency on
-the real TraceLens, queue, worker, storage, or server.
+the real TraceSage, queue, worker, storage, or server.
 """
 from __future__ import annotations
 
@@ -14,16 +14,16 @@ from typing import Any
 
 import pytest
 
-from tracelens.adapters.langchain import TraceLensCallbackHandler
-from tracelens.config import TraceLensConfig
-from tracelens.models import EventType, RawEvent
+from tracesage.adapters.langchain import TraceSageCallbackHandler
+from tracesage.config import TraceSageConfig
+from tracesage.models import EventType, RawEvent
 
 
 class _StubTracer:
     """Minimal duck-typed tracer for handler unit tests."""
 
     def __init__(self, *, summary_max_chars: int = 500) -> None:
-        self._config = TraceLensConfig(summary_max_chars=summary_max_chars)
+        self._config = TraceSageConfig(summary_max_chars=summary_max_chars)
         self.events: list[RawEvent] = []
         self._root_map: OrderedDict[str, str] = OrderedDict()
         self._lock = threading.Lock()
@@ -43,9 +43,9 @@ class _StubTracer:
             return parent_root
 
 
-def _make_handler(**kwargs: Any) -> tuple[TraceLensCallbackHandler, _StubTracer]:
+def _make_handler(**kwargs: Any) -> tuple[TraceSageCallbackHandler, _StubTracer]:
     tracer = _StubTracer(**kwargs)
-    handler = TraceLensCallbackHandler(tracer)
+    handler = TraceSageCallbackHandler(tracer)
     return handler, tracer
 
 
@@ -269,7 +269,7 @@ def test_token_usage_from_usage_metadata() -> None:
     Vertex, Ollama) and modern langchain report tokens via usage_metadata,
     NOT llm_output. The handler must surface those on the LLM_END event.
     """
-    from tracelens.adapters.langchain import _extract_token_usage
+    from tracesage.adapters.langchain import _extract_token_usage
 
     msg = type("Msg", (), {"usage_metadata": {"input_tokens": 10, "output_tokens": 5}})()
     gen = type("Gen", (), {"message": msg})()

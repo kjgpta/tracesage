@@ -1,6 +1,6 @@
-"""08 — Agentic RAG (with tracelens).
+"""08 — Agentic RAG (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open the
+Identical to before.py except for the tracesage lines marked below. Run it, then open the
 printed link: the trace shows the variable-depth retrieve→grade→rewrite loop, the grade
 verdict that decided each turn, and the conditional edges in the topology view.
 
@@ -25,12 +25,12 @@ from langchain_core.runnables import Runnable
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 DOCS = [
-    "TraceLens binds to 127.0.0.1:7842 by default; pass host/port to change it.",
-    "TraceLens stores spans in SQLite and large payloads as blobs under base_dir.",
-    "The TraceLens callback handler never raises; it logs to stderr and returns None.",
+    "TraceSage binds to 127.0.0.1:7842 by default; pass host/port to change it.",
+    "TraceSage stores spans in SQLite and large payloads as blobs under base_dir.",
+    "The TraceSage callback handler never raises; it logs to stderr and returns None.",
     "Refunds are issued to the original payment method within 5-7 business days.",
 ]
 
@@ -125,11 +125,11 @@ def build_graph() -> Runnable:
 
 async def main() -> None:
     graph = build_graph()
-    question = "What port does TraceLens bind to by default?"
+    question = "What port does TraceSage bind to by default?"
     print(f"Q: {question}\n")
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"question": question, "query": question, "tries": 0})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("A:", result["answer"])
         if sys.stdin.isatty():
             await asyncio.to_thread(input, "\n🔍 Open the printed trace link, then press Enter to exit.")

@@ -1,8 +1,8 @@
 """Example 1: Smart Search Agent — one agent, four tools, picks one per query.
 
-Demonstrates the most important tracelens use case:
+Demonstrates the most important tracesage use case:
 
-    The same agent can route to different tools depending on input. tracelens
+    The same agent can route to different tools depending on input. tracesage
     captures every tool that the agent COULD use, then shows you which one was
     actually used in each run — others are dimmed in the graph.
 
@@ -39,7 +39,7 @@ try:
 except ImportError:
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracelens import TraceLens  # noqa: E402
+from tracesage import TraceSage  # noqa: E402
 
 
 # ---- The four tools the agent can choose from ----------------------------- #
@@ -88,8 +88,8 @@ ROUTING_RESPONSES = ["database", "web", "docs", "cache"]
 
 
 async def main() -> None:
-    tracer = await TraceLens.create()
-    print("tracelens at http://localhost:7842/ui")
+    tracer = await TraceSage.create()
+    print("tracesage at http://localhost:7842/ui")
 
     router_llm = FakeListChatModel(responses=ROUTING_RESPONSES)
     answer_llm = FakeListChatModel(
@@ -146,7 +146,7 @@ async def main() -> None:
         await asyncio.Event().wait()
     except KeyboardInterrupt:
         await tracer.stop()
-        print("tracelens stopped.")
+        print("tracesage stopped.")
 
 
 if __name__ == "__main__":

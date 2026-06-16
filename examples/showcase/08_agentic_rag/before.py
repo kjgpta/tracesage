@@ -26,9 +26,9 @@ from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 
 DOCS = [
-    "TraceLens binds to 127.0.0.1:7842 by default; pass host/port to change it.",
-    "TraceLens stores spans in SQLite and large payloads as blobs under base_dir.",
-    "The TraceLens callback handler never raises; it logs to stderr and returns None.",
+    "TraceSage binds to 127.0.0.1:7842 by default; pass host/port to change it.",
+    "TraceSage stores spans in SQLite and large payloads as blobs under base_dir.",
+    "The TraceSage callback handler never raises; it logs to stderr and returns None.",
     "Refunds are issued to the original payment method within 5-7 business days.",
 ]
 
@@ -123,7 +123,7 @@ def build_graph() -> Runnable:
 
 async def main() -> None:
     graph = build_graph()
-    question = "What port does TraceLens bind to by default?"
+    question = "What port does TraceSage bind to by default?"
     print(f"Q: {question}\n")
     result = await graph.ainvoke({"question": question, "query": question, "tries": 0})
     print("A:", result["answer"])

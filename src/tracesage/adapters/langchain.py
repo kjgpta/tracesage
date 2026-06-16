@@ -15,7 +15,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from tracelens.models import (
+from tracesage.models import (
     BLOB_ELIGIBLE_EVENTS,
     EventType,
     RawEvent,
@@ -25,14 +25,14 @@ try:
     from langchain_core.callbacks import BaseCallbackHandler
 except ImportError as _ie:  # pragma: no cover
     raise ImportError(
-        "tracelens requires langchain-core for the LangChain adapter. "
-        "Install with: pip install tracelens[langchain]"
+        "tracesage requires langchain-core for the LangChain adapter. "
+        "Install with: pip install tracesage[langchain]"
     ) from _ie
 
 if TYPE_CHECKING:
-    from tracelens.tracer import TraceLens
+    from tracesage.tracer import TraceSage
 
-log = logging.getLogger("tracelens.handler")
+log = logging.getLogger("tracesage.handler")
 
 
 def _utcnow() -> datetime:
@@ -226,13 +226,13 @@ def _llm_response_text(response: Any) -> str:
     return ""
 
 
-class TraceLensCallbackHandler(BaseCallbackHandler):
+class TraceSageCallbackHandler(BaseCallbackHandler):
     """LangChain callback handler. Every method is wrapped in try/except and never raises."""
 
     # LangChain checks these flags to enable token streaming etc; defaults are fine.
     raise_error: bool = False
 
-    def __init__(self, tracer: TraceLens) -> None:
+    def __init__(self, tracer: TraceSage) -> None:
         super().__init__()
         self._tracer = tracer
         # Callbacks fire on arbitrary executor threads, so the per-run caches
@@ -1044,7 +1044,7 @@ class TraceLensCallbackHandler(BaseCallbackHandler):
 # --------------------------------------------------------------------------- #
 
 _GLOBAL_HANDLER_VAR: ContextVar[BaseCallbackHandler | None] = ContextVar(
-    "tracelens_global_handler", default=None
+    "tracesage_global_handler", default=None
 )
 _global_hook_registered = False
 _global_hook_lock = threading.Lock()
@@ -1068,6 +1068,6 @@ def install_global_handler(handler: BaseCallbackHandler) -> None:
 
 
 def uninstall_global_handler() -> None:
-    """Clear the globally-registered tracelens handler (the hook itself stays
+    """Clear the globally-registered tracesage handler (the hook itself stays
     registered but becomes a no-op once the ContextVar holds None)."""
     _GLOBAL_HANDLER_VAR.set(None)

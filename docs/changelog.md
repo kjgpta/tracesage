@@ -14,41 +14,41 @@ _Nothing yet._
 ### Added
 
 #### MCP tool-source attribution
-- `tracelens.adapters.mcp.register_mcp_client(tracer, client)` loads a
+- `tracesage.adapters.mcp.register_mcp_client(tracer, client)` loads a
   `MultiServerMCPClient`'s tools and attributes each to its originating MCP server
   (works around langchain-mcp-adapters not exposing provenance); plus
-  `register_mcp_tools()` for explicit lists and `TraceLens.register_tool_source()`
+  `register_mcp_tools()` for explicit lists and `TraceSage.register_tool_source()`
 - Tool events carry an `mcp_server` field, persisted on the event and in a new
   `mcp_tools` table (schema v3) so a server's tools — including uncalled ones —
   appear in the topology and `GET /api/tools` inventory even in `serve` mode
 - UI: MCP server nodes, agent→server and server→tool edges, per-server colour
   rings/chips on tool nodes, a draggable, collapsible **"Tools by source"** panel,
   and a dynamic legend
-- New optional extra `tracelens[mcp]` (langchain-mcp-adapters, mcp, langgraph),
-  imported lazily — `import tracelens` never requires it
+- New optional extra `tracesage[mcp]` (langchain-mcp-adapters, mcp, langgraph),
+  imported lazily — `import tracesage` never requires it
 
 #### Developer experience
-- **Kill switch**: `TRACELENS_ENABLED=false` (or `enabled=False`) returns an inert
+- **Kill switch**: `TRACESAGE_ENABLED=false` (or `enabled=False`) returns an inert
   tracer — no embedded server, no DB/worker, a no-op handler, near-zero overhead —
-  so you can wire tracelens in once and disable it per-environment (e.g. in prod)
+  so you can wire tracesage in once and disable it per-environment (e.g. in prod)
   without changing your integration
 - **Embedded-server toggle**: `start_server` is a config field
-  (`TRACELENS_START_SERVER=false`) — capture traces in prod without running the
-  in-process UI server; view them later with `tracelens serve`
-- **Trace links**: a `🔍 tracelens: <url>` deep link prints on each new root run
-  (`print_run_url` / `public_url` config; `TraceLens.run_url()`)
-- **Zero-friction setup**: `with tracelens.trace()` (sync), `tracelens.start()`
-  background runner, and `async with TraceLens.session(install=True)` — `install`
+  (`TRACESAGE_START_SERVER=false`) — capture traces in prod without running the
+  in-process UI server; view them later with `tracesage serve`
+- **Trace links**: a `🔍 tracesage: <url>` deep link prints on each new root run
+  (`print_run_url` / `public_url` config; `TraceSage.run_url()`)
+- **Zero-friction setup**: `with tracesage.trace()` (sync), `tracesage.start()`
+  background runner, and `async with TraceSage.session(install=True)` — `install`
   registers a global LangChain handler so no `callbacks=` wiring is needed
-- **Console + notebook renderers**: `tracelens show <run>` prints a terminal trace
-  tree; `TraceLens.run_view()` renders the live UI inline in Jupyter
+- **Console + notebook renderers**: `tracesage show <run>` prints a terminal trace
+  tree; `TraceSage.run_view()` renders the live UI inline in Jupyter
 - **Richer errors**: exception type + full traceback captured on error events and
   retrievable in the UI drawer / `/full`
 - **New CLI commands**: `demo`, `show`, `watch`, `diff`, `view`, and `serve --open`
-- **pytest plugin**: the `tracelens_capture` fixture (auto-registered) with
+- **pytest plugin**: the `tracesage_capture` fixture (auto-registered) with
   `assert_tool_called`, `assert_no_errors`, `total_tokens`, etc. — for both sync
   and async tests
-- `TraceLens.flush()` to await full persistence (handy in tests/notebooks)
+- `TraceSage.flush()` to await full persistence (handy in tests/notebooks)
 - In-UI within-run **search/filter** of the timeline
 
 #### Examples
@@ -80,7 +80,7 @@ _Nothing yet._
 #### Core pipeline
 - LangChain `BaseCallbackHandler` integration for chain, agent, tool, LLM,
   chat-model, retriever events (`on_chain_start`, `on_chat_model_start`, etc.)
-- `TraceLens.create()` factory wires storage + worker + server on a single event loop
+- `TraceSage.create()` factory wires storage + worker + server on a single event loop
 - Async event queue with batched SQLite writes (50 events / 100 ms default)
 - Gzipped blob storage for full event payloads (`*_END` events)
 - Pluggable `StorageBackend` protocol (SQLite implementation in v0.1)
@@ -96,11 +96,11 @@ _Nothing yet._
 - Replay mode for runs at 1x/2x/5x speed
 
 #### CLI
-- `tracelens serve` (read-only viewer)
-- `tracelens export` (JSONL dump)
-- `tracelens stats`
-- `tracelens gc` (retention)
-- `tracelens version`
+- `tracesage serve` (read-only viewer)
+- `tracesage export` (JSONL dump)
+- `tracesage stats`
+- `tracesage gc` (retention)
+- `tracesage version`
 
 #### Production safety
 - Hard fail-stop when binding non-loopback addresses without `auth_token`
@@ -131,5 +131,5 @@ _Nothing yet._
 - Cost tracking and PII redaction planned for v0.2
 - CrewAI / AutoGen / LlamaIndex adapters planned for v0.4+
 
-[0.2.0]: https://github.com/kjgpta/tracelens/releases/tag/v0.2.0
-[0.1.0]: https://github.com/kjgpta/tracelens/releases/tag/v0.1.0
+[0.2.0]: https://github.com/kjgpta/tracesage/releases/tag/v0.2.0
+[0.1.0]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.0

@@ -12,7 +12,7 @@ at once — `flights` (`search_flights`, `baggage_policy`) and `weather` (`get_w
 
 ```bash
 pip install -r ../requirements.txt
-pip install 'tracelens[mcp]' mcp langchain-mcp-adapters   # MCP extras
+pip install 'tracesage[mcp]' mcp langchain-mcp-adapters   # MCP extras
 export OPENAI_API_KEY=...            # or LLM_PROVIDER=anthropic + ANTHROPIC_API_KEY
 python before.py                     # plain app
 python after.py                      # same app + live trace UI
@@ -27,9 +27,9 @@ you do not run them yourself.
 diff before.py after.py
 ```
 
-The only difference is the `from tracelens import TraceLens` /
-`from tracelens.adapters.mcp import register_mcp_client` imports and wrapping the run in
-`async with TraceLens.session(install=True)`. `register_mcp_client(tl, client)` loads the
+The only difference is the `from tracesage import TraceSage` /
+`from tracesage.adapters.mcp import register_mcp_client` imports and wrapping the run in
+`async with TraceSage.session(install=True)`. `register_mcp_client(tl, client)` loads the
 tools AND records which server each came from; `install=True` registers the global
 LangChain handler, so there is still no `callbacks=` wiring on the agent.
 

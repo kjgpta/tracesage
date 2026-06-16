@@ -23,12 +23,12 @@ from pathlib import Path
 # allow running without install: src on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from tracelens import EventType, RawEvent, TraceLens, TraceLensConfig
+from tracesage import EventType, RawEvent, TraceSage, TraceSageConfig
 
 
 async def run_bench(n: int, num_runs: int, blob_rate: float, data_dir: Path) -> dict:
     """Fire n events spread across num_runs run_ids; blob_rate fraction are blob-eligible."""
-    cfg = TraceLensConfig(
+    cfg = TraceSageConfig(
         data_dir=data_dir,
         port=0,
         queue_maxsize=100_000,
@@ -36,7 +36,7 @@ async def run_bench(n: int, num_runs: int, blob_rate: float, data_dir: Path) -> 
         worker_batch_timeout=0.05,
         log_level="ERROR",
     )
-    tracer = await TraceLens.create(config=cfg, start_server=False)
+    tracer = await TraceSage.create(config=cfg, start_server=False)
 
     started = time.perf_counter()
     for i in range(n):

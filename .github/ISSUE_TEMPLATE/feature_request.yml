@@ -9,8 +9,8 @@ body:
         Thanks for proposing a feature.
 
         Before submitting, please:
-        - Search [existing issues](https://github.com/kjgpta/tracelens/issues) and the [roadmap](https://github.com/kjgpta/tracelens/discussions/categories/ideas).
-        - Read [CONTRIBUTING.md](https://github.com/kjgpta/tracelens/blob/main/docs/contributing.md) — non-goals and design constraints are documented there.
+        - Search [existing issues](https://github.com/kjgpta/tracesage/issues) and the [roadmap](https://github.com/kjgpta/tracesage/discussions/categories/ideas).
+        - Read [CONTRIBUTING.md](https://github.com/kjgpta/tracesage/blob/main/docs/contributing.md) — non-goals and design constraints are documented there.
 
   - type: textarea
     id: problem
@@ -19,7 +19,7 @@ body:
       description: |
         Describe the user-facing problem first. What can't you do today, or what's painful about how you do it?
       placeholder: |
-        I'm running tracelens against X and I can't ...
+        I'm running tracesage against X and I can't ...
     validations:
       required: true
 
@@ -41,7 +41,7 @@ body:
     id: scope
     attributes:
       label: Scope
-      description: Which area of tracelens would this touch?
+      description: Which area of tracesage would this touch?
       options:
         - Storage backend (SQLite, future Postgres / remote)
         - Framework adapter (LangChain, LangGraph, future others)

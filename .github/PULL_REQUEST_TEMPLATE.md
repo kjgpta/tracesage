@@ -34,7 +34,7 @@ Thanks for sending a PR! Please fill in the sections below.
 
 ## Public-API changes
 
-<!-- If you added/modified/removed anything exported from `tracelens`, list it here. -->
+<!-- If you added/modified/removed anything exported from `tracesage`, list it here. -->
 
 - New: …
 - Changed: …
@@ -54,7 +54,7 @@ Thanks for sending a PR! Please fill in the sections below.
 
 ## Supported versions
 
-tracelens is currently in v0.2 alpha. Only the latest minor release receives
+tracesage is currently in v0.2 alpha. Only the latest minor release receives
 security fixes. Once v1.0 ships, the previous minor will receive fixes for
 6 months after the next release.
 
@@ -67,9 +67,9 @@ security fixes. Once v1.0 ships, the previous minor will receive fixes for
 
 **Please do not open a public issue for security reports.**
 
-Use GitHub's [Private Vulnerability Reporting](https://github.com/kjgpta/tracelens/security/advisories/new)
+Use GitHub's [Private Vulnerability Reporting](https://github.com/kjgpta/tracesage/security/advisories/new)
 to send a confidential report. If that is unavailable, email
-**kjgpta+tracelens-security@users.noreply.github.com** with:
+**kjgpta+tracesage-security@users.noreply.github.com** with:
 
 - A description of the issue and its impact
 - Steps to reproduce (a minimal proof-of-concept is ideal)
@@ -89,22 +89,22 @@ to send a confidential report. If that is unavailable, email
 
 In-scope:
 
-- The tracelens Python package itself (`src/tracelens/`)
+- The tracesage Python package itself (`src/tracesage/`)
 - The embedded server (FastAPI app, REST + WebSocket endpoints)
 - The on-disk storage format (SQLite + gzipped blobs)
-- The CLI (`tracelens` command)
+- The CLI (`tracesage` command)
 - Authentication and authorization paths
 
 Out of scope:
 
 - Third-party dependencies — please report to the upstream project. We will
   upgrade once a fix is available.
-- LangChain / LangGraph behaviour itself — only the tracelens adapter is in scope.
+- LangChain / LangGraph behaviour itself — only the tracesage adapter is in scope.
 - Local-only attacks where the attacker already has shell access to the host.
 
 ## Hardening recommendations
 
-If you operate tracelens in production, please review
+If you operate tracesage in production, please review
 [`docs/production.md`](../docs/production.md)
 which covers:
 

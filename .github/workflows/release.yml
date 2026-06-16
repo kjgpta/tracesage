@@ -27,7 +27,7 @@ jobs:
           python -m pip install twine
           twine check dist/*
           python -m pip install dist/*.whl
-          python -c "from tracelens import TraceLens, TraceLensConfig, __version__; print('import OK', __version__)"
+          python -c "from tracesage import TraceSage, TraceSageConfig, __version__; print('import OK', __version__)"
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:

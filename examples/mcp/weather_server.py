@@ -2,7 +2,7 @@
 is deliberately left uncalled by the example graphs).
 
 Run indirectly by examples/mcp/main.py via MultiServerMCPClient — you do
-not run this file yourself. Requires `pip install 'tracelens[mcp]'`.
+not run this file yourself. Requires `pip install 'tracesage[mcp]'`.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def air_quality(city: str) -> str:
     """Return the air-quality index for a city.
 
     The example graphs deliberately do NOT call this one — it demonstrates that
-    tracelens still shows a server's tools in the topology even when uninvoked.
+    tracesage still shows a server's tools in the topology even when uninvoked.
     """
     return f"{city}: AQI 42 (good)"
 

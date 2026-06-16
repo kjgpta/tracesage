@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>tracelens</title>
+  <title>tracesage</title>
   <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.1.1/css/pico.min.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="modulepreload" href="graph.js">
@@ -13,7 +13,7 @@
 <body>
   <header class="app-header" role="banner">
     <div class="header-left">
-      <a href="#" class="brand" aria-label="tracelens home">
+      <a href="#" class="brand" aria-label="tracesage home">
         <svg class="brand-logo" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
           <defs>
             <linearGradient id="brandGrad" x1="0" x2="1" y1="0" y2="1">
@@ -26,7 +26,7 @@
           <circle cx="7" cy="25" r="4" fill="#3fb950"/>
           <path d="M10 9 L22 14 M10 23 L22 18" stroke="url(#brandGrad)" stroke-width="2" fill="none" stroke-linecap="round"/>
         </svg>
-        <span class="brand-name">tracelens</span>
+        <span class="brand-name">tracesage</span>
       </a>
       <div class="stats-ribbon" id="stats-ribbon" aria-live="polite">
         <span class="stat-chip" id="stat-rate" title="events per second (1-minute rolling)">
@@ -207,9 +207,9 @@
         <div class="empty-card">
           <h3>No runs yet</h3>
           <p>Start tracing your LangChain or LangGraph agent and live events will appear here.</p>
-          <pre class="snippet"><code id="empty-snippet">from tracelens import TraceLens
+          <pre class="snippet"><code id="empty-snippet">from tracesage import TraceSage
 
-tracer = await TraceLens.create()
+tracer = await TraceSage.create()
 
 result = await graph.ainvoke(
     {"input": ...},

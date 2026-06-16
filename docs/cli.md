@@ -1,23 +1,23 @@
 # CLI reference
 
-The `tracelens` command-line tool ships with the package. It is a **viewer +
+The `tracesage` command-line tool ships with the package. It is a **viewer +
 utilities** — it does NOT ingest events. Ingestion only happens when your
-Python code calls `TraceLens.create()`.
+Python code calls `TraceSage.create()`.
 
-## `tracelens serve`
+## `tracesage serve`
 
 Start a read-only viewer over an existing data directory.
 
 ```bash
-tracelens serve [OPTIONS]
+tracesage serve [OPTIONS]
 ```
 
 Options:
 
-- `--data-dir, -d PATH` — path to existing data dir (default: `~/.tracelens`)
+- `--data-dir, -d PATH` — path to existing data dir (default: `~/.tracesage`)
 - `--host, -h HOST` — bind address (default `127.0.0.1`)
 - `--port, -p PORT` — bind port (default `7842`)
-- `--auth-token TOKEN` — bearer token (env: `TRACELENS_AUTH_TOKEN`)
+- `--auth-token TOKEN` — bearer token (env: `TRACESAGE_AUTH_TOKEN`)
 - `--open, -o` — open the viewer in your browser once it's up
 
 Use cases:
@@ -26,55 +26,55 @@ Use cases:
 - Run the viewer on a different machine than the producer (sync `data_dir` first).
 - Restart only the UI without restarting the application.
 
-## `tracelens demo`
+## `tracesage demo`
 
-Seed a sample trace and open the UI — the fastest way to see tracelens working.
+Seed a sample trace and open the UI — the fastest way to see tracesage working.
 
 ```bash
-tracelens demo               # seed + serve + open browser
-tracelens demo --check       # seed only, then exit (for smoke tests / CI)
+tracesage demo               # seed + serve + open browser
+tracesage demo --check       # seed only, then exit (for smoke tests / CI)
 ```
 
-## `tracelens show`
+## `tracesage show`
 
 Render a run's trace as an indented tree in the terminal (no server needed).
 
 ```bash
-tracelens show <run_id> [--no-color]
+tracesage show <run_id> [--no-color]
 ```
 
-## `tracelens watch`
+## `tracesage watch`
 
 Live-tail a run's events in the terminal as they're written (Ctrl-C to stop).
 
 ```bash
-tracelens watch <run_id> [--interval 1.0] [--once]
+tracesage watch <run_id> [--interval 1.0] [--once]
 ```
 
 `--once` prints the current events and exits (no follow loop).
 
-## `tracelens diff`
+## `tracesage diff`
 
 Compare two runs side by side (status, steps, tokens, tools, errors).
 
 ```bash
-tracelens diff <run_a> <run_b>
+tracesage diff <run_a> <run_b>
 ```
 
-## `tracelens view`
+## `tracesage view`
 
 Open an exported JSONL trace directly in the UI (imports into a temp dir, serves it).
 
 ```bash
-tracelens view trace.jsonl [--open]
+tracesage view trace.jsonl [--open]
 ```
 
-## `tracelens export`
+## `tracesage export`
 
 Dump runs to JSONL.
 
 ```bash
-tracelens export [OPTIONS]
+tracesage export [OPTIONS]
 ```
 
 Options:
@@ -90,16 +90,16 @@ Output format: first line per run is the `Run` row; subsequent lines are
 `event`).
 
 ```bash
-tracelens export --run-id order-8821 -o trace.jsonl
-tracelens export --all -o all_traces.jsonl
+tracesage export --run-id order-8821 -o trace.jsonl
+tracesage export --all -o all_traces.jsonl
 ```
 
-## `tracelens stats`
+## `tracesage stats`
 
 Print summary stats.
 
 ```bash
-tracelens stats [--data-dir PATH] [--json]
+tracesage stats [--data-dir PATH] [--json]
 ```
 
 Options:
@@ -114,12 +114,12 @@ Output:
 - `total_tokens_input` / `total_tokens_output` — sums
 - `db_size_bytes` — SQLite file size
 
-## `tracelens runs`
+## `tracesage runs`
 
 List root runs.
 
 ```bash
-tracelens runs [OPTIONS]
+tracesage runs [OPTIONS]
 ```
 
 Options:
@@ -132,16 +132,16 @@ Options:
 - `--json` — emit one JSON object per line (NDJSON)
 
 ```bash
-tracelens runs --status failed --limit 20
-tracelens runs --json | jq -r .run_id | head
+tracesage runs --status failed --limit 20
+tracesage runs --json | jq -r .run_id | head
 ```
 
-## `tracelens gc`
+## `tracesage gc`
 
 Enforce retention. Deletes oldest runs (and their blobs) beyond the cap.
 
 ```bash
-tracelens gc [OPTIONS]
+tracesage gc [OPTIONS]
 ```
 
 Options:
@@ -155,17 +155,17 @@ Options:
 Schedule via cron / systemd timer:
 
 ```bash
-# /etc/cron.daily/tracelens-gc
-tracelens gc --data-dir /var/lib/tracelens --max-runs 50000 --max-blob-size-gb 5
+# /etc/cron.daily/tracesage-gc
+tracesage gc --data-dir /var/lib/tracesage --max-runs 50000 --max-blob-size-gb 5
 ```
 
-## `tracelens import`
+## `tracesage import`
 
 Inverse of `export`: read a JSONL export back into a data directory (creating it
 if needed). Useful for backups and moving runs between machines.
 
 ```bash
-tracelens import [OPTIONS]
+tracesage import [OPTIONS]
 ```
 
 Options:
@@ -174,26 +174,26 @@ Options:
 - `--input, -i PATH` — JSONL file, or `-` for stdin (default `-`)
 
 ```bash
-tracelens export --all -o backup.jsonl
-tracelens import --data-dir ~/.tracelens-restore -i backup.jsonl
+tracesage export --all -o backup.jsonl
+tracesage import --data-dir ~/.tracesage-restore -i backup.jsonl
 ```
 
 One malformed line is skipped with a warning rather than aborting the import.
 
-## `tracelens doctor`
+## `tracesage doctor`
 
 Read-only diagnostics for a data directory: schema version, run counts, and
 orphan/missing-blob checks.
 
 ```bash
-tracelens doctor [--data-dir PATH]
+tracesage doctor [--data-dir PATH]
 ```
 
-## `tracelens version`
+## `tracesage version`
 
 Print version.
 
 ```bash
-tracelens version
-# tracelens 0.2.0
+tracesage version
+# tracesage 0.2.0
 ```

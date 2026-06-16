@@ -1,7 +1,7 @@
 """FastAPI app factory.
 
 `create_app` accepts already-initialized dependencies (db, blob_store, ws_manager,
-config, stats). Lifecycle is owned by `TraceLens`, not the app — `lifespan` exists
+config, stats). Lifecycle is owned by `TraceSage`, not the app — `lifespan` exists
 only to satisfy the `@asynccontextmanager` contract required by CLAUDE.md.
 """
 from __future__ import annotations
@@ -15,38 +15,38 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from tracelens.models import Stats
-from tracelens.server.auth import auth_middleware
-from tracelens.server.rest import router as rest_router
-from tracelens.server.ws import WebSocketManager, ws_runs, ws_trace
+from tracesage.models import Stats
+from tracesage.server.auth import auth_middleware
+from tracesage.server.rest import router as rest_router
+from tracesage.server.ws import WebSocketManager, ws_runs, ws_trace
 
 if TYPE_CHECKING:
-    from tracelens.config import TraceLensConfig
-    from tracelens.storage.backend import StorageBackend
-    from tracelens.storage.blob_store import BlobStore
+    from tracesage.config import TraceSageConfig
+    from tracesage.storage.backend import StorageBackend
+    from tracesage.storage.blob_store import BlobStore
 
 
-_LOG = logging.getLogger("tracelens.server")
+_LOG = logging.getLogger("tracesage.server")
 
 
 def create_app(
     db: StorageBackend,
     blob_store: BlobStore,
     ws_manager: WebSocketManager,
-    config: TraceLensConfig,
+    config: TraceSageConfig,
     stats: Stats | None = None,
 ) -> FastAPI:
     """Build the FastAPI app. Caller owns the lifecycle of injected dependencies."""
-    from tracelens import __version__
+    from tracesage import __version__
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # Startup/shutdown of injected deps is owned by TraceLens, not the app.
+        # Startup/shutdown of injected deps is owned by TraceSage, not the app.
         # This block exists so the app is built with the modern lifespan API
         # (see CLAUDE.md: never use deprecated @app.on_event).
         yield
 
-    app = FastAPI(title="tracelens", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="tracesage", version=__version__, lifespan=lifespan)
     app.state.db = db
     app.state.blob_store = blob_store
     app.state.ws_manager = ws_manager

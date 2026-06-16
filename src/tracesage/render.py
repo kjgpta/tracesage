@@ -1,7 +1,7 @@
 """Pure-stdlib renderers for a run's trace.
 
 `render_run_tree` turns a Run + its events into an indented ASCII/Unicode tree for
-terminal debugging (used by the `tracelens show` CLI). `TraceView` is a small
+terminal debugging (used by the `tracesage show` CLI). `TraceView` is a small
 notebook helper whose `_repr_html_` embeds the live UI for a run.
 
 No third-party dependencies and nothing here touches the DB — callers pass the Run
@@ -14,7 +14,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from tracelens.models import Run, StoredEvent
+    from tracesage.models import Run, StoredEvent
 
 # Kind glyphs mirror the UI's TYPE_ICONS so the terminal and browser agree.
 _KIND_ICON = {
@@ -207,7 +207,7 @@ def render_run_tree(
 class TraceView:
     """Notebook helper: rich-displays a run by embedding the live UI in an iframe.
 
-    Returned by ``TraceLens.run_view(run_id)``. In a Jupyter cell it renders the
+    Returned by ``TraceSage.run_view(run_id)``. In a Jupyter cell it renders the
     interactive trace; outside a notebook it just shows the URL.
     """
 
@@ -224,7 +224,7 @@ class TraceView:
     def _repr_html_(self) -> str:
         if not self.url:
             return (
-                f"<div><b>tracelens</b>: no UI URL for run "
+                f"<div><b>tracesage</b>: no UI URL for run "
                 f"<code>{html.escape(self.run_id)}</code> "
                 "(start with an embedded server or set <code>public_url</code>).</div>"
             )
@@ -232,7 +232,7 @@ class TraceView:
         return (
             f'<div style="border:1px solid #ddd;border-radius:8px;overflow:hidden">'
             f'<div style="font:12px monospace;padding:4px 8px;background:#f5f5f5">'
-            f'\U0001f50d tracelens · run {html.escape(self.run_id)} · '
+            f'\U0001f50d tracesage · run {html.escape(self.run_id)} · '
             f'<a href="{safe}" target="_blank">open in new tab</a></div>'
             f'<iframe src="{safe}" width="100%" height="{self.height}" '
             f'style="border:0"></iframe></div>'

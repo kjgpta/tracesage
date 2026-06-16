@@ -1,12 +1,12 @@
 # Concepts: topology node kinds
 
-When a run completes, tracelens groups every callback event into one of
+When a run completes, tracesage groups every callback event into one of
 **five "kinds"** of topology nodes — plus a synthesized **`mcp`** node when you
 attribute tools to an MCP server:
 
 `agent` &nbsp;·&nbsp; `tool` &nbsp;·&nbsp; `llm` &nbsp;·&nbsp; `retriever` &nbsp;·&nbsp; `chain` &nbsp;·&nbsp; `mcp`
 
-This page is the reference for what each kind means, how tracelens
+This page is the reference for what each kind means, how tracesage
 classifies events into it, and why the distinction matters when you're
 debugging a run.
 
@@ -39,9 +39,9 @@ grouping, and the handler is safe under concurrency.
 
 ---
 
-## How tracelens decides which kind a node is
+## How tracesage decides which kind a node is
 
-When events land in storage, tracelens classifies each event by walking a
+When events land in storage, tracesage classifies each event by walking a
 priority list (defined in `storage/sqlite_backend.py::get_topology`):
 
 1. **`event_type` first.**
@@ -66,7 +66,7 @@ priority list (defined in `storage/sqlite_backend.py::get_topology`):
    an `agent_name`, but never call anything, so they're plumbing, not
    cognition.
 
-6. **MCP overlay (synthesized).** If you've registered MCP attribution, tracelens
+6. **MCP overlay (synthesized).** If you've registered MCP attribution, tracesage
    also adds one `mcp:<server>` node per server and wires `mcp → tool` and
    `agent → mcp` edges. These don't come from callback events — they're a
    provenance overlay (see [MCP server nodes](#mcp-server-nodes-a-synthesized-node)).
@@ -183,7 +183,7 @@ A `chain` node represents **infrastructure**, not business logic. It
 covers four things:
 
 1. **LCEL `RunnableSequence`** — the value `prompt | llm | parser`
-   produces. tracelens decomposes the sequence into its components, so an
+   produces. tracesage decomposes the sequence into its components, so an
    LCEL chain shows up as `chain:RunnableSequence` connected to
    `chain:ChatPromptTemplate`, `llm:<name>`, and `chain:StrOutputParser`.
 2. **LCEL primitives** — `ChatPromptTemplate`, `StrOutputParser`,
@@ -220,7 +220,7 @@ node type you'll see in the topology — **`mcp`** — but it is **synthesized**
 emitted by a callback.
 
 When you attribute tools to their MCP server (via `register_mcp_client`, see
-[mcp.md](mcp.md)), tracelens adds one `mcp:<server>` node per server and draws edges
+[mcp.md](mcp.md)), tracesage adds one `mcp:<server>` node per server and draws edges
 **mcp → tool** (the tools that server provides) and **agent → mcp** (agents that called
 them). The tool nodes themselves are still ordinary `tool` nodes — the `mcp` node is a
 grouping/provenance overlay so you can answer "which tools came from which server, and
@@ -284,7 +284,7 @@ types:
 | `chain` | Same as `agent`, but with primitive `agent_name` *or* no descendants |
 | `mcp` | None — **synthesized** from MCP tool attribution, not a callback event |
 
-The synthetic `run_start` event is tracelens-internal and doesn't produce
+The synthetic `run_start` event is tracesage-internal and doesn't produce
 a topology node — it exists so the dashboard's run list gets a lifecycle
 ping when a root run begins. (`run_end` is a reserved event type but is not
 currently emitted; run completion is inferred from the root chain ending.)
@@ -298,7 +298,7 @@ currently emitted; run completion is inferred from the root chain ending.)
   then open `http://localhost:7842/ui`
 - **Browse the gallery** to see different combinations of kinds:
   [the examples gallery](examples.md)
-- **Check the topology source-of-truth** in `src/tracelens/models.py`
+- **Check the topology source-of-truth** in `src/tracesage/models.py`
   (the `TopologyNode` and `EventType` definitions) and
-  `src/tracelens/storage/sqlite_backend.py::get_topology()` (the
+  `src/tracesage/storage/sqlite_backend.py::get_topology()` (the
   classification SQL).

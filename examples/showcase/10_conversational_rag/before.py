@@ -27,10 +27,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 DOCS = [
-    "TraceLens is an observability tool for LangChain and LangGraph apps.",
-    "TraceLens pricing: the open-source core is free; the hosted tier is $29/month.",
-    "TraceLens stores traces locally under ~/.tracelens by default.",
-    "To install TraceLens, run pip install tracelens[langchain].",
+    "TraceSage is an observability tool for LangChain and LangGraph apps.",
+    "TraceSage pricing: the open-source core is free; the hosted tier is $29/month.",
+    "TraceSage stores traces locally under ~/.tracesage by default.",
+    "To install TraceSage, run pip install tracesage[langchain].",
 ]
 
 
@@ -101,7 +101,7 @@ async def main() -> None:
     graph = build_graph()
     config = {"configurable": {"thread_id": "demo-session-1"}}
     turns = [
-        "What is TraceLens?",
+        "What is TraceSage?",
         "How much does it cost?",
         "And how do I install it?",
     ]
