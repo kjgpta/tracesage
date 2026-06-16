@@ -42,7 +42,7 @@ A failed WebSocket handshake is closed with code `4401`.
 Liveness probe. Public — never requires auth.
 
 ```json
-{ "status": "ok", "version": "0.1.0" }
+{ "status": "ok", "version": "0.1.1" }
 ```
 
 ### `GET /api/runs`

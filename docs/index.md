@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/tracesage-logo-badge.png" alt="tracesage" width="420">
+</p>
+
 # tracesage
 
 **Production observability for LangChain & LangGraph multi-agent systems.**

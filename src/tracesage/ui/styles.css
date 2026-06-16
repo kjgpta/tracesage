@@ -133,7 +133,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .brand:hover { color: var(--text-strong); }
 .brand-name {
   font-weight: 600; font-size: 15px; letter-spacing: -0.2px;
+  color: var(--accent);
 }
+.brand-accent { color: var(--success); }
 
 .stats-ribbon { display: flex; gap: 6px; }
 .stat-chip {

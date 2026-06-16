@@ -10,6 +10,8 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
+  logo: assets/tracesage-icon.png
+  favicon: assets/tracesage-icon.png
   features:
     - navigation.instant
     - navigation.tracking
