@@ -10,15 +10,23 @@ import pytest_asyncio
 from tracesage.config import TraceSageConfig
 
 
-async def wait_for_drain(tracer, timeout: float = 3.0) -> None:
+async def wait_for_drain(tracer, timeout: float = 30.0) -> None:
     """Block until the tracer's queue has been fully processed by the worker.
 
     Use this after invoking a graph in tests, before asserting on the DB —
     otherwise events may still be in flight.
+
+    `timeout` is a generous *ceiling*, not a delay: on a healthy run
+    ``queue.join()`` returns near-instantly. A floor of 30s is enforced so
+    callers passing a small value still tolerate slow CI runners (notably
+    Windows, where sqlite + blob I/O is far slower and a 5s budget can expire
+    before the worker finishes a deep nested-graph trace). Callers needing
+    longer (e.g. the 100-run stress test) pass a larger value explicitly.
     """
+    budget = max(timeout, 30.0)
     try:
-        await asyncio.wait_for(tracer._queue.join(), timeout=timeout)
-    except asyncio.TimeoutError:
+        await asyncio.wait_for(tracer._queue.join(), timeout=budget)
+    except (TimeoutError, asyncio.TimeoutError):
         pass
     # Brief settle for trailing broadcasts/counter updates
     await asyncio.sleep(0.1)
