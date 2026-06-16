@@ -5,11 +5,12 @@
 **Production observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
-[![PyPI version](https://img.shields.io/pypi/v/tracesage.svg)](https://pypi.org/project/tracesage/)
-[![Python versions](https://img.shields.io/pypi/pyversions/tracesage.svg)](https://pypi.org/project/tracesage/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
+[![PyPI version](https://img.shields.io/pypi/v/tracesage)](https://pypi.org/project/tracesage/)
+[![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
+[![License: MIT](https://img.shields.io/pypi/l/tracesage)](LICENSE)
+[![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://kjgpta.github.io/tracesage/)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange)](#status)
 
 </div>
 
