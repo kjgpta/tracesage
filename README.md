@@ -183,9 +183,9 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
 
 ### Watch a trace stream in
 
-<video src="https://github.com/kjgpta/tracesage/raw/main/docs/assets/tracesage-demo.mp4" controls muted width="100%"></video>
+[![tracesage trace demo](assets/tracesage-demo.gif)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
 
-_If the player doesn't load, [download the clip](docs/assets/tracesage-demo.mp4) — it also plays inline on the [docs site](https://kjgpta.github.io/tracesage/)._
+_Sped-up preview — [watch the full-quality clip](docs/assets/tracesage-demo.mp4), or see it play inline on the [docs site](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)._
 
 ## Concepts: topology node kinds
 
