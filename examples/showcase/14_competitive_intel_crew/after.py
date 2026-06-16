@@ -1,6 +1,6 @@
-"""14 — Competitive Intelligence Crew (with tracelens).
+"""14 — Competitive Intelligence Crew (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows scout_a and scout_b executing concurrently (each with
 its own DuckDuckGo search + scout LLM call) and joining at the analyst synthesis node —
 a clean fan-out / fan-in topology.
@@ -24,7 +24,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -104,9 +104,9 @@ async def main() -> None:
     graph = build_graph()
     company = "Notion"
     print(f"Target: {company}\n")
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"company": company})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("Brief:\n", result["brief"])
         if sys.stdin.isatty():
             await asyncio.to_thread(input, "\n🔍 Open the printed trace link, then press Enter to exit.")

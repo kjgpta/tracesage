@@ -11,8 +11,8 @@ import aiosqlite
 import pytest
 import pytest_asyncio
 
-from tracelens.models import EventType, Run, RunStatus, StoredEvent
-from tracelens.storage import SQLiteBackend
+from tracesage.models import EventType, Run, RunStatus, StoredEvent
+from tracesage.storage import SQLiteBackend
 
 
 def _now() -> datetime:

@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
 from tests.integration.conftest import wait_for_drain
-from tracelens.models import EventType, RunStatus
+from tracesage.models import EventType, RunStatus
 
 
 class ResearchState(TypedDict):
@@ -38,10 +38,10 @@ def build_research_supervisor():
     """Build a supervisor graph that visits web → doc → summary → end."""
     # Supervisor cycles through routing decisions deterministically
     supervisor_llm = FakeListChatModel(responses=["web", "doc", "summary", "done"])
-    web_llm = FakeListChatModel(responses=["Web result: tracelens observability"])
+    web_llm = FakeListChatModel(responses=["Web result: tracesage observability"])
     doc_llm = FakeListChatModel(responses=["Doc result: callback handler protocol"])
     summary_llm = FakeListChatModel(
-        responses=["Final summary: tracelens traces LangChain agents."]
+        responses=["Final summary: tracesage traces LangChain agents."]
     )
 
     async def supervisor_node(state: ResearchState) -> dict:
@@ -104,7 +104,7 @@ async def test_system_2_root_run_id_propagation(integration_tracer):
     graph = build_research_supervisor()
 
     initial: ResearchState = {
-        "query": "What is tracelens?",
+        "query": "What is tracesage?",
         "next": "",
         "web_results": "",
         "doc_results": "",
@@ -139,7 +139,7 @@ async def test_system_2_multiple_sub_agents_visible(integration_tracer):
 
     await graph.ainvoke(
         {
-            "query": "What is tracelens?",
+            "query": "What is tracesage?",
             "next": "",
             "web_results": "",
             "doc_results": "",

@@ -75,7 +75,7 @@ jobs:
           python -m pip install -e ".[dev,langchain]"
       - name: Mypy
         continue-on-error: true
-        run: mypy src/tracelens
+        run: mypy src/tracesage
 
   package:
     needs: lint
@@ -93,5 +93,5 @@ jobs:
       - name: Clean-install wheel and smoke-test public API
         run: |
           python -m pip install dist/*.whl
-          python -c "from tracelens import TraceLens, TraceLensConfig, __version__; print('import OK', __version__)"
-          tracelens version
+          python -c "from tracesage import TraceSage, TraceSageConfig, __version__; print('import OK', __version__)"
+          tracesage version

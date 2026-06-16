@@ -1,10 +1,10 @@
-site_name: tracelens
+site_name: tracesage
 site_description: Production observability for LangChain & LangGraph multi-agent systems.
-site_url: https://kjgpta.github.io/tracelens/
-site_author: tracelens contributors
+site_url: https://kjgpta.github.io/tracesage/
+site_author: tracesage contributors
 
-repo_url: https://github.com/kjgpta/tracelens
-repo_name: kjgpta/tracelens
+repo_url: https://github.com/kjgpta/tracesage
+repo_name: kjgpta/tracesage
 edit_uri: edit/main/docs/
 
 theme:
@@ -44,9 +44,9 @@ theme:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/kjgpta/tracelens
+      link: https://github.com/kjgpta/tracesage
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/tracelens/
+      link: https://pypi.org/project/tracesage/
 
 markdown_extensions:
   - admonition

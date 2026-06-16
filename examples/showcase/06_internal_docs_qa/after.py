@@ -1,6 +1,6 @@
-"""06 — Internal Docs Q&A (with tracelens).
+"""06 — Internal Docs Q&A (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the retriever node (and its latency), the exact chunks
 it pulled in the drawer payloads, and the grounded answer that cites them.
 
@@ -24,7 +24,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnablePassthrough
 from langchain_openai import OpenAIEmbeddings
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 FAQ: list[Document] = [
     Document(page_content="Acme Cloud has three plans: Free, Pro, and Enterprise. "
@@ -79,7 +79,7 @@ def main() -> None:
     question = "How much does the Pro plan cost and how much storage does it include?"
     print(f"Q: {question}\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         print("A:", chain.invoke({"question": question}))
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             input("\n🔍 Open the printed trace link, then press Enter to exit.")

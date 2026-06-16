@@ -1,7 +1,7 @@
 """MCP tool-source attribution helpers.
 
 langchain-mcp-adapters does not reliably expose which MCP server a tool came from
-on the returned LangChain tools (see langchain-mcp-adapters issue #484), so tracelens
+on the returned LangChain tools (see langchain-mcp-adapters issue #484), so tracesage
 records the mapping explicitly. Register tools at setup (before invoking your graph);
 the callback handler then tags each tool event with its MCP server, and the UI groups
 tools by source.
@@ -9,14 +9,14 @@ tools by source.
 Typical usage::
 
     from langchain_mcp_adapters.client import MultiServerMCPClient
-    from tracelens.adapters.mcp import register_mcp_client
+    from tracesage.adapters.mcp import register_mcp_client
 
     client = MultiServerMCPClient({"weather": {...}, "math": {...}})
     tools = await register_mcp_client(tracer, client)   # tools attributed per server
     # ... add your own @tool functions (left as "local"), build the agent with `tools`
 
-Nothing here is imported when you ``import tracelens`` — langchain-mcp-adapters is an
-optional dependency (``pip install tracelens[mcp]``) imported lazily on first use.
+Nothing here is imported when you ``import tracesage`` — langchain-mcp-adapters is an
+optional dependency (``pip install tracesage[mcp]``) imported lazily on first use.
 """
 from __future__ import annotations
 
@@ -24,16 +24,16 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from tracelens.tracer import TraceLens
+    from tracesage.tracer import TraceSage
 
-log = logging.getLogger("tracelens.adapters.mcp")
+log = logging.getLogger("tracesage.adapters.mcp")
 
 _INSTALL_HINT = (
-    "MCP support requires langchain-mcp-adapters. Install with: pip install 'tracelens[mcp]'"
+    "MCP support requires langchain-mcp-adapters. Install with: pip install 'tracesage[mcp]'"
 )
 
 
-def register_mcp_tools(tracer: TraceLens, tools: list[Any], server: str) -> list[Any]:
+def register_mcp_tools(tracer: TraceSage, tools: list[Any], server: str) -> list[Any]:
     """Attribute an explicit list of (already-loaded) LangChain tools to one MCP server.
 
     Use this when you load tools per-server yourself. Returns the same list for
@@ -75,7 +75,7 @@ async def _load_server_tools(client: Any, server: str) -> list[Any]:
         return list(await load_mcp_tools(session))
 
 
-async def register_mcp_client(tracer: TraceLens, client: Any) -> list[Any]:
+async def register_mcp_client(tracer: TraceSage, client: Any) -> list[Any]:
     """Load every server's tools from a langchain-mcp-adapters ``MultiServerMCPClient``
     and attribute each tool to its originating server.
 
@@ -93,7 +93,7 @@ async def register_mcp_client(tracer: TraceLens, client: Any) -> list[Any]:
         try:
             tools = await _load_server_tools(client, server)
         except Exception as e:
-            log.warning("tracelens: failed to load MCP tools for server %r: %s", server, e)
+            log.warning("tracesage: failed to load MCP tools for server %r: %s", server, e)
             continue
         all_tools.extend(register_mcp_tools(tracer, tools, server))
         # Persist the full tool list for this server so the topology/inventory can
@@ -105,5 +105,5 @@ async def register_mcp_client(tracer: TraceLens, client: Any) -> list[Any]:
             try:
                 await tracer.db.upsert_mcp_tools(server, names)
             except Exception as e:
-                log.warning("tracelens: failed to persist MCP tools for %r: %s", server, e)
+                log.warning("tracesage: failed to persist MCP tools for %r: %s", server, e)
     return all_tools

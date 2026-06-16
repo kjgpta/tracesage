@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
     from starlette.responses import Response
 
-    from tracelens.config import TraceLensConfig
+    from tracesage.config import TraceSageConfig
 
 
 _HEALTH_PATH = "/api/health"
@@ -75,7 +75,7 @@ async def auth_middleware(
     if _is_public_path(request.url.path):
         return await call_next(request)
 
-    config: TraceLensConfig = request.app.state.config
+    config: TraceSageConfig = request.app.state.config
     if config.auth_token is None:
         return await call_next(request)
 
@@ -87,7 +87,7 @@ async def auth_middleware(
     return await call_next(request)
 
 
-async def check_ws_auth(websocket: WebSocket, config: TraceLensConfig) -> bool:
+async def check_ws_auth(websocket: WebSocket, config: TraceSageConfig) -> bool:
     """Validate WebSocket handshake. Closes with 4401 and returns False on failure.
 
     Token sources, in order:

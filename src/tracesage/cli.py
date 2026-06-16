@@ -1,19 +1,19 @@
-"""tracelens CLI: viewer + utilities. Does NOT ingest events.
+"""tracesage CLI: viewer + utilities. Does NOT ingest events.
 
 Commands:
-    tracelens serve     # start read-only viewer pointing at an existing data dir
-    tracelens demo      # seed a sample trace and open the UI (fastest first look)
-    tracelens show      # print a run's trace as a terminal tree
-    tracelens watch     # live-tail a run's events in the terminal
-    tracelens view      # open an exported JSONL trace in the UI directly
-    tracelens diff      # compare two runs side by side
-    tracelens export    # dump runs to JSONL
-    tracelens import    # load a JSONL export into a data dir
-    tracelens stats     # print summary stats
-    tracelens runs      # list runs
-    tracelens gc        # enforce retention (delete oldest runs over the cap)
-    tracelens doctor    # read-only diagnostics
-    tracelens version   # print version
+    tracesage serve     # start read-only viewer pointing at an existing data dir
+    tracesage demo      # seed a sample trace and open the UI (fastest first look)
+    tracesage show      # print a run's trace as a terminal tree
+    tracesage watch     # live-tail a run's events in the terminal
+    tracesage view      # open an exported JSONL trace in the UI directly
+    tracesage diff      # compare two runs side by side
+    tracesage export    # dump runs to JSONL
+    tracesage import    # load a JSONL export into a data dir
+    tracesage stats     # print summary stats
+    tracesage runs      # list runs
+    tracesage gc        # enforce retention (delete oldest runs over the cap)
+    tracesage doctor    # read-only diagnostics
+    tracesage version   # print version
 """
 from __future__ import annotations
 
@@ -26,13 +26,13 @@ from pathlib import Path
 
 import typer
 
-from tracelens import __version__
-from tracelens.config import TraceLensConfig
-from tracelens.models import Stats
+from tracesage import __version__
+from tracesage.config import TraceSageConfig
+from tracesage.models import Stats
 
 app = typer.Typer(
-    name="tracelens",
-    help="tracelens: production observability for LangChain multi-agent systems.",
+    name="tracesage",
+    help="tracesage: production observability for LangChain multi-agent systems.",
     no_args_is_help=True,
 )
 
@@ -45,23 +45,23 @@ def _make_backend(data_dir: Path, *, read_only: bool = True):
     Only `serve` (which legitimately may want to bind to a fresh dir) sets
     `read_only=False`.
     """
-    from tracelens.storage import BlobStore, SQLiteBackend
+    from tracesage.storage import BlobStore, SQLiteBackend
 
-    cfg = TraceLensConfig(data_dir=data_dir)
+    cfg = TraceSageConfig(data_dir=data_dir)
     if read_only:
         if not data_dir.exists():
             typer.echo(
                 f"error: data dir does not exist: {data_dir}\n"
-                f"hint: pass --data-dir/-d pointing at an existing tracelens "
-                f"data directory (default: {Path.home() / '.tracelens'}).",
+                f"hint: pass --data-dir/-d pointing at an existing tracesage "
+                f"data directory (default: {Path.home() / '.tracesage'}).",
                 err=True,
             )
             raise typer.Exit(1)
         if not cfg.db_path.exists():
             typer.echo(
                 f"error: no traces.db at {cfg.db_path}\n"
-                f"hint: this directory exists but has no tracelens data. "
-                f"Either run your traced code with TraceLens.create() pointing "
+                f"hint: this directory exists but has no tracesage data. "
+                f"Either run your traced code with TraceSage.create() pointing "
                 f"here, or pass --data-dir to a different location.",
                 err=True,
             )
@@ -89,7 +89,7 @@ async def _import_record(db, obj: dict, known_run_ids: set[str]) -> str:
     list). Without this, a nested trace's sub-run events would fail the FK on
     import. Mirrors what real ingestion does (a runs row per run_id).
     """
-    from tracelens.models import Run, RunStatus, StoredEvent
+    from tracesage.models import Run, RunStatus, StoredEvent
 
     kind = obj.get("_kind")
     payload = {k: v for k, v in obj.items() if k != "_kind"}
@@ -115,11 +115,11 @@ async def _import_record(db, obj: dict, known_run_ids: set[str]) -> str:
     return "skip"
 
 
-async def _serve_async(cfg: TraceLensConfig, *, label: str, open_browser: bool) -> None:
+async def _serve_async(cfg: TraceSageConfig, *, label: str, open_browser: bool) -> None:
     """Run the read-only viewer for `cfg.data_dir`, announce the URL once the socket
     is bound (so --port 0 reports the real port), and optionally open a browser."""
-    from tracelens.server import WebSocketManager, create_app
-    from tracelens.storage import BlobStore, SQLiteBackend
+    from tracesage.server import WebSocketManager, create_app
+    from tracesage.storage import BlobStore, SQLiteBackend
 
     cfg.ensure_data_dirs()
     db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
@@ -153,7 +153,7 @@ async def _serve_async(cfg: TraceLensConfig, *, label: str, open_browser: bool) 
                 if socks:
                     bound_port = socks[0].getsockname()[1]
         url = f"http://{cfg.host}:{bound_port}/ui"
-        typer.echo(f"tracelens viewer at {url}  ({label})")
+        typer.echo(f"tracesage viewer at {url}  ({label})")
         if open_browser:
             import webbrowser
 
@@ -173,31 +173,31 @@ async def _serve_async(cfg: TraceLensConfig, *, label: str, open_browser: bool) 
 @app.command()
 def serve(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens",
+        Path.home() / ".tracesage",
         "--data-dir",
         "-d",
-        help="Path to an existing tracelens data directory.",
+        help="Path to an existing tracesage data directory.",
     ),
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address."),
     port: int = typer.Option(7842, "--port", "-p", help="Bind port."),
     auth_token: str | None = typer.Option(
         None,
         "--auth-token",
-        envvar="TRACELENS_AUTH_TOKEN",
+        envvar="TRACESAGE_AUTH_TOKEN",
         help="Required if --host is non-loopback.",
     ),
     open_browser: bool = typer.Option(
         False, "--open", "-o", help="Open the viewer in your browser once it's up."
     ),
 ) -> None:
-    """Start a read-only viewer for an existing tracelens data directory.
+    """Start a read-only viewer for an existing tracesage data directory.
 
-    This does NOT ingest events — only the TraceLens.create() API in your
+    This does NOT ingest events — only the TraceSage.create() API in your
     Python code does that. Use `serve` to inspect data after the fact, or to
     run the UI on a different host than the producer.
     """
     # Build config; will raise on host=0.0.0.0 without token (production rail).
-    cfg = TraceLensConfig(data_dir=data_dir, host=host, port=port, auth_token=auth_token)
+    cfg = TraceSageConfig(data_dir=data_dir, host=host, port=port, auth_token=auth_token)
     try:
         asyncio.run(_serve_async(cfg, label=f"data: {data_dir}", open_browser=open_browser))
     except KeyboardInterrupt:
@@ -207,7 +207,7 @@ def serve(
 @app.command()
 def show(
     run_id: str = typer.Argument(..., help="Run id to render."),
-    data_dir: Path = typer.Option(Path.home() / ".tracelens", "--data-dir", "-d"),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
     color: bool | None = typer.Option(
         None, "--color/--no-color", help="Force ANSI colour on/off (default: auto)."
     ),
@@ -218,7 +218,7 @@ def show(
         _cfg, db, _blob = _make_backend(data_dir)
         await db.init()
         try:
-            from tracelens.render import render_run_tree
+            from tracesage.render import render_run_tree
 
             run = await db.get_run(run_id)
             if run is None:
@@ -236,7 +236,7 @@ def show(
 @app.command()
 def watch(
     run_id: str = typer.Argument(..., help="Run id to follow."),
-    data_dir: Path = typer.Option(Path.home() / ".tracelens", "--data-dir", "-d"),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
     interval: float = typer.Option(1.0, "--interval", help="Poll interval (seconds)."),
     once: bool = typer.Option(
         False, "--once", help="Print the current events and exit (no follow loop)."
@@ -246,7 +246,7 @@ def watch(
 
     Useful while a long run is still in flight in another process. Ctrl-C to stop.
     """
-    from tracelens.render import _KIND_ICON, _kind_of
+    from tracesage.render import _KIND_ICON, _kind_of
 
     async def _watch() -> int:
         _cfg, db, _blob = _make_backend(data_dir)
@@ -286,7 +286,7 @@ def watch(
 def diff(
     run_a: str = typer.Argument(..., help="First run id."),
     run_b: str = typer.Argument(..., help="Second run id."),
-    data_dir: Path = typer.Option(Path.home() / ".tracelens", "--data-dir", "-d"),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
 ) -> None:
     """Compare two runs side by side (status, steps, tokens, tools, errors)."""
 
@@ -334,7 +334,7 @@ def diff(
 
 @app.command()
 def view(
-    input: Path = typer.Argument(..., help="A JSONL export produced by `tracelens export`."),
+    input: Path = typer.Argument(..., help="A JSONL export produced by `tracesage export`."),
     host: str = typer.Option("127.0.0.1", "--host", "-h"),
     port: int = typer.Option(7842, "--port", "-p"),
     open_browser: bool = typer.Option(False, "--open", "-o", help="Open in browser."),
@@ -342,14 +342,14 @@ def view(
     """Open an exported JSONL trace in the UI directly (imports into a temp dir, serves it)."""
     import tempfile
 
-    from tracelens.storage import SQLiteBackend
+    from tracesage.storage import SQLiteBackend
 
     if not input.exists():
         typer.echo(f"file not found: {input}", err=True)
         raise typer.Exit(1)
 
-    tmp = Path(tempfile.mkdtemp(prefix="tracelens-view-"))
-    cfg = TraceLensConfig(data_dir=tmp, host=host, port=port)
+    tmp = Path(tempfile.mkdtemp(prefix="tracesage-view-"))
+    cfg = TraceSageConfig(data_dir=tmp, host=host, port=port)
     cfg.ensure_data_dirs()
 
     async def _load_and_serve() -> None:
@@ -380,8 +380,8 @@ def view(
 @app.command()
 def demo(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens-demo", "--data-dir", "-d",
-        help="Where to write the demo data (default: ~/.tracelens-demo).",
+        Path.home() / ".tracesage-demo", "--data-dir", "-d",
+        help="Where to write the demo data (default: ~/.tracesage-demo).",
     ),
     host: str = typer.Option("127.0.0.1", "--host", "-h"),
     port: int = typer.Option(7842, "--port", "-p"),
@@ -390,12 +390,12 @@ def demo(
         False, "--check", help="Seed the demo data and exit (no server)."
     ),
 ) -> None:
-    """Seed a sample trace and open the UI — the fastest way to see tracelens working."""
-    cfg = TraceLensConfig(data_dir=data_dir, host=host, port=port)
+    """Seed a sample trace and open the UI — the fastest way to see tracesage working."""
+    cfg = TraceSageConfig(data_dir=data_dir, host=host, port=port)
     cfg.ensure_data_dirs()
 
     async def _run() -> None:
-        from tracelens.storage import SQLiteBackend
+        from tracesage.storage import SQLiteBackend
 
         db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
         await db.init()
@@ -417,7 +417,7 @@ async def _seed_demo(db) -> str:
     import uuid
     from datetime import datetime, timedelta
 
-    from tracelens.models import EventType, Run, RunStatus, StoredEvent
+    from tracesage.models import EventType, Run, RunStatus, StoredEvent
 
     t0 = datetime.now(UTC)
     root = f"demo-{uuid.uuid4().hex[:8]}"
@@ -458,7 +458,7 @@ async def _seed_demo(db) -> str:
 @app.command()
 def export(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens", "--data-dir", "-d"
+        Path.home() / ".tracesage", "--data-dir", "-d"
     ),
     run_id: str | None = typer.Option(None, "--run-id", help="Single run to export."),
     all_runs: bool = typer.Option(False, "--all", help="Export every run."),
@@ -526,7 +526,7 @@ def export(
 @app.command()
 def stats(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens", "--data-dir", "-d"
+        Path.home() / ".tracesage", "--data-dir", "-d"
     ),
     as_json: bool = typer.Option(
         False, "--json", help="Emit a single JSON object instead of human-readable kv pairs.",
@@ -553,7 +553,7 @@ def stats(
 @app.command()
 def runs(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens", "--data-dir", "-d"
+        Path.home() / ".tracesage", "--data-dir", "-d"
     ),
     status: str = typer.Option(
         "all", "--status",
@@ -576,7 +576,7 @@ def runs(
         <run_id>  <status>  <started_at>  <total_steps>  tags=[...]
 
     Pass --json for machine-readable NDJSON. Useful for piping into jq, or
-    feeding `tracelens export --run-id` per row.
+    feeding `tracesage export --run-id` per row.
     """
     if status not in {"all", "running", "completed", "failed"}:
         typer.echo(f"--status must be one of: all running completed failed (got {status!r})", err=True)
@@ -627,7 +627,7 @@ def runs(
 @app.command()
 def gc(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens", "--data-dir", "-d"
+        Path.home() / ".tracesage", "--data-dir", "-d"
     ),
     max_runs: int = typer.Option(10_000, "--max-runs", help="Keep at most N most-recent runs."),
     max_blob_size_gb: float | None = typer.Option(
@@ -722,7 +722,7 @@ def gc(
 @app.command("import")
 def import_(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens", "--data-dir", "-d"
+        Path.home() / ".tracesage", "--data-dir", "-d"
     ),
     input: Path = typer.Option(
         Path("-"), "--input", "-i", help='JSONL file or "-" for stdin.'
@@ -730,7 +730,7 @@ def import_(
 ) -> None:
     """Import a JSONL export back into a data dir (inverse of `export`).
 
-    Reads lines produced by `tracelens export` (each tagged with
+    Reads lines produced by `tracesage export` (each tagged with
     "_kind": "run" or "_kind": "event") and upserts them into the target
     data dir, creating/initializing it if needed. One malformed line is
     skipped with a warning rather than aborting the whole import.
@@ -780,7 +780,7 @@ def import_(
 @app.command()
 def doctor(
     data_dir: Path = typer.Option(
-        Path.home() / ".tracelens", "--data-dir", "-d"
+        Path.home() / ".tracesage", "--data-dir", "-d"
     ),
 ) -> None:
     """Run read-only diagnostics on a data dir and print a health report."""
@@ -873,8 +873,8 @@ def doctor(
 
 @app.command()
 def version() -> None:
-    """Print tracelens version."""
-    typer.echo(f"tracelens {__version__}")
+    """Print tracesage version."""
+    typer.echo(f"tracesage {__version__}")
 
 
 if __name__ == "__main__":

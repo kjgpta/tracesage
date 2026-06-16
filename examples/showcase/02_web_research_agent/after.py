@@ -1,6 +1,6 @@
-"""02 — Web Research ReAct Agent (with tracelens).
+"""02 — Web Research ReAct Agent (with tracesage).
 
-Identical to before.py except for the tracelens lines. The trace makes the ReAct loop
+Identical to before.py except for the tracesage lines. The trace makes the ReAct loop
 visible: each search tool call, its query and results, and how many iterations the agent
 took before answering.
 
@@ -20,7 +20,7 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -51,7 +51,7 @@ def main() -> None:
     question = "Who won the most recent FIFA World Cup, and in what year?"
     print(f"Q: {question}\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures the agent loop
+    with tracesage.trace():  # ← tracesage: starts the UI + captures the agent loop
         result = agent.invoke({"input": question})
         print("A:", result["output"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

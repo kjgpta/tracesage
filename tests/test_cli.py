@@ -1,4 +1,4 @@
-"""Tests for the tracelens CLI. Uses Typer's CliRunner for end-to-end invocation."""
+"""Tests for the tracesage CLI. Uses Typer's CliRunner for end-to-end invocation."""
 from __future__ import annotations
 
 import asyncio
@@ -7,21 +7,21 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from tracelens.cli import app
-from tracelens.config import TraceLensConfig
-from tracelens.storage import SQLiteBackend
+from tracesage.cli import app
+from tracesage.config import TraceSageConfig
+from tracesage.storage import SQLiteBackend
 
 runner = CliRunner()
 
 
 def _bootstrap_empty_db(tmp_path: Path) -> Path:
-    """Create an empty but valid tracelens data dir for read-only tests.
+    """Create an empty but valid tracesage data dir for read-only tests.
 
     The new CLI fail-loud behavior (B11.b) refuses to silently create a fresh
     DB on a typo'd --data-dir, so tests that need an empty data dir must
     pre-initialize one.
     """
-    cfg = TraceLensConfig(data_dir=tmp_path)
+    cfg = TraceSageConfig(data_dir=tmp_path)
     cfg.ensure_data_dirs()
 
     async def _init() -> None:
@@ -34,11 +34,11 @@ def _bootstrap_empty_db(tmp_path: Path) -> Path:
 
 
 def test_version_prints_version() -> None:
-    from tracelens import __version__
+    from tracesage import __version__
 
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "tracelens" in result.stdout
+    assert "tracesage" in result.stdout
     assert __version__ in result.stdout
 
 
@@ -125,11 +125,11 @@ def test_export_jsonl_format(tmp_path: Path) -> None:
     import asyncio
     from datetime import datetime, timezone
 
-    from tracelens.config import TraceLensConfig
-    from tracelens.models import EventType, Run, RunStatus, StoredEvent
-    from tracelens.storage import SQLiteBackend
+    from tracesage.config import TraceSageConfig
+    from tracesage.models import EventType, Run, RunStatus, StoredEvent
+    from tracesage.storage import SQLiteBackend
 
-    cfg = TraceLensConfig(data_dir=tmp_path)
+    cfg = TraceSageConfig(data_dir=tmp_path)
     cfg.ensure_data_dirs()
 
     async def setup() -> None:
@@ -180,9 +180,9 @@ def _seed_run(tmp_path: Path) -> Path:
     """Seed a data dir with one run + three events; return the data dir."""
     from datetime import datetime, timezone
 
-    from tracelens.models import EventType, Run, RunStatus, StoredEvent
+    from tracesage.models import EventType, Run, RunStatus, StoredEvent
 
-    cfg = TraceLensConfig(data_dir=tmp_path)
+    cfg = TraceSageConfig(data_dir=tmp_path)
     cfg.ensure_data_dirs()
 
     async def setup() -> None:
@@ -233,7 +233,7 @@ def test_export_import_round_trip(tmp_path: Path) -> None:
     assert "imported 1 runs" in result.output
 
     # The run must now be present in the destination data dir.
-    cfg = TraceLensConfig(data_dir=dst)
+    cfg = TraceSageConfig(data_dir=dst)
 
     async def _check() -> None:
         db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
@@ -268,7 +268,7 @@ def test_export_import_round_trip_preserves_nested_subrun_events(tmp_path: Path)
     assert imp.exit_code == 0, imp.output
     assert "0 skipped" in imp.output, f"events were dropped on import: {imp.output}"
 
-    cfg = TraceLensConfig(data_dir=dst)
+    cfg = TraceSageConfig(data_dir=dst)
 
     async def _check() -> None:
         db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)

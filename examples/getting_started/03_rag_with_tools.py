@@ -1,6 +1,6 @@
 """Example 3: Full-stack RAG with LCEL chain + retriever + tools.
 
-Demonstrates EVERY tracelens component type in one example so the topology
+Demonstrates EVERY tracesage component type in one example so the topology
 view shows all five columns populated:
 
     chain   - LangGraph (top-level orchestrator) + LCEL RunnableSequence + StrOutputParser
@@ -36,7 +36,7 @@ try:
 except ImportError:
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracelens import TraceLens  # noqa: E402
+from tracesage import TraceSage  # noqa: E402
 
 
 # ---- A fake retriever that returns deterministic documents ---------------- #
@@ -83,8 +83,8 @@ class RAGState(TypedDict):
 
 
 async def main() -> None:
-    tracer = await TraceLens.create()
-    print("tracelens at http://localhost:7842/ui")
+    tracer = await TraceSage.create()
+    print("tracesage at http://localhost:7842/ui")
 
     retriever = FakeRetriever(
         docs_by_topic={

@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
 from tests.integration.conftest import wait_for_drain
-from tracelens.models import EventType, RunStatus
+from tracesage.models import EventType, RunStatus
 
 
 class WriterCriticState(TypedDict):

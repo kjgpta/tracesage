@@ -1,12 +1,12 @@
-# tracelens
+# tracesage
 
 **Production observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
 ```python
-from tracelens import TraceLens
+from tracesage import TraceSage
 
-tracer = await TraceLens.create()                          # one-time setup
+tracer = await TraceSage.create()                          # one-time setup
 
 result = await graph.ainvoke(
     {"input": payload},
@@ -21,10 +21,10 @@ result = await graph.ainvoke(
 
 ---
 
-## Why tracelens
+## Why tracesage
 
 LangChain agents emit a rich callback stream — chain start/end, tool start/end,
-LLM start/end, retrieval, errors. tracelens captures all of it without
+LLM start/end, retrieval, errors. tracesage captures all of it without
 changing your workflow logic, persists it locally (SQLite + gzipped blobs),
 and renders it in an interactive graph + timeline UI in real time.
 
@@ -53,7 +53,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 -   :material-cog: **[Configuration](configuration.md)**
 
-    Every `TRACELENS_*` env var explained.
+    Every `TRACESAGE_*` env var explained.
 
 -   :material-shield-check: **[Production](production.md)**
 
@@ -66,7 +66,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 -   :material-console: **[CLI reference](cli.md)**
 
-    `tracelens serve` / `export` / `stats` / `runs` / `gc`.
+    `tracesage serve` / `export` / `stats` / `runs` / `gc`.
 
 -   :material-puzzle: **[Extending](extending.md)**
 

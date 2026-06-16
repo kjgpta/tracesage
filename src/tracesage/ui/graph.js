@@ -1,4 +1,4 @@
-/* graph.js - custom SVG renderer for the tracelens topology view.
+/* graph.js - custom SVG renderer for the tracesage topology view.
  *
  * Replaces the previous Cytoscape integration. Why:
  *   - Cytoscape's arrow rendering was hard to make impossible-to-miss in our

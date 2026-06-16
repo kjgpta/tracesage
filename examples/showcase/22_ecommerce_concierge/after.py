@@ -1,6 +1,6 @@
-"""22 — E-commerce Shopping Concierge (with tracelens).
+"""22 — E-commerce Shopping Concierge (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows each agent step and every action tool call —
 search_catalog, add_to_cart (a side-effecting cart mutation), and view_cart — so you can
 see exactly what the agent did to the cart and why.
@@ -21,7 +21,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 CATALOG = [
     {"sku": "TS-01", "name": "Cotton T-Shirt", "price": 19.0, "tags": "shirt top casual"},
@@ -92,7 +92,7 @@ def main() -> None:
     request = "Find a casual shirt and a cap, add one of each to my cart, then show the cart."
     print(f"Shopper: {request}\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         result = executor.invoke({"input": request})
         print("Concierge:", result["output"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

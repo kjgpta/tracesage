@@ -1,6 +1,6 @@
-"""27 — Map-Reduce Long-Doc Summarizer (with tracelens).
+"""27 — Map-Reduce Long-Doc Summarizer (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the map fan-out (all chunk summaries running in
 parallel) and the reduce call that folds them together — plus token usage per call.
 
@@ -19,7 +19,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 DOCUMENT = """
 The printing press, introduced by Johannes Gutenberg around 1440, transformed Europe.
@@ -91,7 +91,7 @@ def summarize(text: str) -> str:
 def main() -> None:
     print(f"Document: {len(DOCUMENT)} chars, summarizing via map-reduce...\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         print("Summary:", summarize(DOCUMENT))
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             input("\n🔍 Open the printed trace link, then press Enter to exit.")

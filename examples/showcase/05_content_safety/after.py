@@ -1,6 +1,6 @@
-"""05 — Content Safety Pipeline (with tracelens).
+"""05 — Content Safety Pipeline (with tracesage).
 
-Identical to before.py except for the tracelens lines. The trace shows the three checks
+Identical to before.py except for the tracesage lines. The trace shows the three checks
 running as concurrent branches (not sequentially), each with its own latency — so you can
 confirm the fan-out is actually parallel and spot the slowest classifier.
 
@@ -19,7 +19,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableParallel
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -60,7 +60,7 @@ def main() -> None:
     chain = build_chain()
     content = "Hey, email me at jane.doe@example.com and I'll send the spreadsheet."
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures the parallel checks
+    with tracesage.trace():  # ← tracesage: starts the UI + captures the parallel checks
         result = chain.invoke({"content": content})
         print("DECISION:", result["decision"], "| flagged by:", result["flagged_by"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

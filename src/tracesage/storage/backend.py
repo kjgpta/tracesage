@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from tracelens.models import Run, RunStatus, StoredEvent, Topology
+from tracesage.models import Run, RunStatus, StoredEvent, Topology
 
 
 @runtime_checkable

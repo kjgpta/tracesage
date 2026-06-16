@@ -1,24 +1,24 @@
 <div align="center">
 
-# tracelens
+# tracesage
 
 **Production observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
-[![PyPI version](https://img.shields.io/pypi/v/tracelens.svg)](https://pypi.org/project/tracelens/)
-[![Python versions](https://img.shields.io/pypi/pyversions/tracelens.svg)](https://pypi.org/project/tracelens/)
+[![PyPI version](https://img.shields.io/pypi/v/tracesage.svg)](https://pypi.org/project/tracesage/)
+[![Python versions](https://img.shields.io/pypi/pyversions/tracesage.svg)](https://pypi.org/project/tracesage/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/kjgpta/tracelens/actions/workflows/ci.yml/badge.svg)](https://github.com/kjgpta/tracelens/actions/workflows/ci.yml)
+[![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
 
 </div>
 
 ```python
-from tracelens import TraceLens
+from tracesage import TraceSage
 
 # Illustrative only — `await` runs inside an async function. See Quick start
 # below for a complete, runnable `async def main()`.
-tracer = await TraceLens.create()                          # one-time setup
+tracer = await TraceSage.create()                          # one-time setup
 
 result = await graph.ainvoke(
     {"input": payload},
@@ -32,7 +32,7 @@ result = await graph.ainvoke(
 
 ## Contents
 
-- [Why tracelens](#why-tracelens)
+- [Why tracesage](#why-tracesage)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Concepts: topology node kinds](#concepts-topology-node-kinds)
@@ -47,10 +47,10 @@ result = await graph.ainvoke(
 
 ---
 
-## Why tracelens
+## Why tracesage
 
 LangChain agents emit a rich callback stream — chain start/end, tool start/end,
-LLM start/end, retrieval, errors. **tracelens** captures all of it without
+LLM start/end, retrieval, errors. **tracesage** captures all of it without
 changing your workflow logic, persists it locally (SQLite + gzipped blobs),
 and renders it in an interactive graph + timeline UI in real time.
 
@@ -67,17 +67,17 @@ and renders it in an interactive graph + timeline UI in real time.
 ## Install
 
 ```bash
-pip install tracelens[langchain]
+pip install tracesage[langchain]
 ```
 
 Requires **Python 3.11+**. The `[langchain]` extra pulls `langchain-core`;
 that's the only mandatory third-party dep beyond the standard FastAPI /
 aiosqlite / pydantic stack. If your app uses **LangGraph**, also `pip install
-langgraph` (tracelens doesn't pull it).
+langgraph` (tracesage doesn't pull it).
 
-tracelens is **provider-agnostic** — it traces LangChain's callback stream, so
+tracesage is **provider-agnostic** — it traces LangChain's callback stream, so
 OpenAI / Anthropic / local models are all captured automatically; there's no
-provider setting in tracelens. Install whichever provider you use:
+provider setting in tracesage. Install whichever provider you use:
 
 ```bash
 pip install langchain-openai      # OPENAI_API_KEY=...
@@ -88,7 +88,7 @@ For MCP tool-source attribution (loads tools from MCP servers and tags them by
 source), install the `mcp` extra:
 
 ```bash
-pip install 'tracelens[mcp]'
+pip install 'tracesage[mcp]'
 ```
 
 ## Quick start
@@ -96,31 +96,31 @@ pip install 'tracelens[mcp]'
 **See it in 5 seconds** — seed a sample trace and open the UI:
 
 ```bash
-tracelens demo
+tracesage demo
 ```
 
 **Sync scripts / notebooks** — wrap your code; every LangChain call is captured
 automatically (no `callbacks=` wiring) and a clickable trace link is printed:
 
 ```python
-import tracelens
+import tracesage
 
-with tracelens.trace() as tl:          # starts the UI + global capture
-    result = agent.invoke("your input")     # 🔍 tracelens: http://127.0.0.1:7842/ui/#run=...
+with tracesage.trace() as tl:          # starts the UI + global capture
+    result = agent.invoke("your input")     # 🔍 tracesage: http://127.0.0.1:7842/ui/#run=...
     input("Trace ready — open the printed link, then Enter to exit.")  # keep the UI up
 ```
 
 (The embedded UI stops when the `with` block / process exits; traces persist to
-`~/.tracelens`, so you can also reopen them later with `tracelens serve`.)
+`~/.tracesage`, so you can also reopen them later with `tracesage serve`.)
 
-**Async apps** — use the context manager (or `await TraceLens.create()` for full control):
+**Async apps** — use the context manager (or `await TraceSage.create()` for full control):
 
 ```python
 import asyncio
-from tracelens import TraceLens
+from tracesage import TraceSage
 
 async def main():
-    async with TraceLens.session(install=True) as tl:   # install=True → global capture
+    async with TraceSage.session(install=True) as tl:   # install=True → global capture
         await graph.ainvoke({"input": "your payload"}, config={"tags": ["my-system"]})
         await tl.flush()                                 # ensure events are persisted
         print(tl.run_url("<run_id>"))                    # deep link to a run
@@ -137,20 +137,20 @@ That's it. Open **http://localhost:7842/ui** and explore.
 Once you have traces, debug them without leaving your terminal:
 
 ```bash
-tracelens show <run_id>          # render a run as a tree in the terminal
-tracelens watch <run_id>         # live-tail events as they stream
-tracelens diff <run_a> <run_b>   # compare two runs (tokens, tools, errors)
-tracelens view trace.jsonl       # open an exported trace in the UI directly
+tracesage show <run_id>          # render a run as a tree in the terminal
+tracesage watch <run_id>         # live-tail events as they stream
+tracesage diff <run_a> <run_b>   # compare two runs (tokens, tools, errors)
+tracesage view trace.jsonl       # open an exported trace in the UI directly
 ```
 
-**Test your agents** — the `tracelens_capture` pytest fixture is auto-registered:
+**Test your agents** — the `tracesage_capture` pytest fixture is auto-registered:
 
 ```python
-def test_agent_uses_search(tracelens_capture):
+def test_agent_uses_search(tracesage_capture):
     agent.invoke("find me a hotel")
-    tracelens_capture.assert_tool_called("search")
-    tracelens_capture.assert_no_errors()
-    assert tracelens_capture.total_tokens()[0] < 5000
+    tracesage_capture.assert_tool_called("search")
+    tracesage_capture.assert_no_errors()
+    assert tracesage_capture.total_tokens()[0] < 5000
 ```
 
 See **[`docs/development.md`](docs/development.md)** for the full developer guide, and
@@ -185,7 +185,7 @@ Quick mental model:
   tell server-provided tools from your hardcoded ones (see [docs/mcp.md](docs/mcp.md)).
 
 Read the full reference at **[`docs/concepts.md`](docs/concepts.md)** —
-it covers how tracelens classifies events into kinds, why agents with no
+it covers how tracesage classifies events into kinds, why agents with no
 descendants get demoted to `chain`, and walks through a research-pipeline
 topology piece by piece.
 
@@ -210,21 +210,21 @@ topology piece by piece.
 - Path-traversal blocked at runtime
 - Per-run event cap (circuit breaker) and root-level sampling for high volumes
 - Bounded internal state (no unbounded memory growth in long-running processes)
-- **Kill switch:** `TRACELENS_ENABLED=false` makes it a complete no-op (no server, no
+- **Kill switch:** `TRACESAGE_ENABLED=false` makes it a complete no-op (no server, no
   DB/worker, no-op handler) — integrate once, disable per-environment. See
   [docs/production.md](docs/production.md).
 
 ### CLI
 
 ```bash
-tracelens serve  --data-dir ~/.tracelens          # read-only viewer
-tracelens export --run-id RUN_ID -o trace.jsonl   # export to JSONL
-tracelens import -i trace.jsonl                   # import a JSONL export
-tracelens stats  --data-dir ~/.tracelens          # summary stats
-tracelens runs   --status failed --limit 20       # list runs
-tracelens gc     --max-runs 10000                 # retention cleanup
-tracelens doctor --data-dir ~/.tracelens          # data-dir diagnostics
-tracelens version
+tracesage serve  --data-dir ~/.tracesage          # read-only viewer
+tracesage export --run-id RUN_ID -o trace.jsonl   # export to JSONL
+tracesage import -i trace.jsonl                   # import a JSONL export
+tracesage stats  --data-dir ~/.tracesage          # summary stats
+tracesage runs   --status failed --limit 20       # list runs
+tracesage gc     --max-runs 10000                 # retention cleanup
+tracesage doctor --data-dir ~/.tracesage          # data-dir diagnostics
+tracesage version
 ```
 
 See [`docs/cli.md`](docs/cli.md) for full reference.
@@ -236,10 +236,10 @@ The [`examples/`](examples/) directory has three tiers:
 - **[`getting_started/`](examples/getting_started/)** — 3 standalone demos driven by
   `FakeListChatModel` (**no API key**): smart-search agent, research supervisor, RAG.
 - **[`mcp/`](examples/mcp/)** — tools from 2 local MCP servers + 2 hardcoded tools,
-  attributed by source in the topology (needs `tracelens[mcp]`).
+  attributed by source in the topology (needs `tracesage[mcp]`).
 - **[`showcase/`](examples/showcase/)** — **30 real before/after apps** across popular use
   cases (customer support, RAG, multi-agent, MCP, reasoning loops, finance/legal/insurance).
-  Each ships a plain `before.py` and an `after.py` with tracelens added, so `diff` shows the
+  Each ships a plain `before.py` and an `after.py` with tracesage added, so `diff` shows the
   exact integration.
 
 ```bash
@@ -262,18 +262,18 @@ writer-critic loops, map-reduce, MCP, self-correction, and finance/legal/insuran
 |---|---|
 | [Quickstart](docs/quickstart.md) | First trace in five minutes |
 | [Developer guide](docs/development.md) | Trace links, sync/notebook setup, CLI debugging, pytest fixture |
-| [Configuration](docs/configuration.md) | Every `TRACELENS_*` env var explained |
-| [CLI reference](docs/cli.md) | All `tracelens` subcommands |
+| [Configuration](docs/configuration.md) | Every `TRACESAGE_*` env var explained |
+| [CLI reference](docs/cli.md) | All `tracesage` subcommands |
 | [Production guide](docs/production.md) | Sampling, auth, retention, deployment |
-| [Comparison](docs/comparison.md) | tracelens vs LangSmith / LangFuse / Phoenix |
-| [Extending tracelens](docs/extending.md) | Adding framework adapters and storage backends |
-| **[Examples](examples/showcase/)** | **30 before/after apps with tracelens added** |
+| [Comparison](docs/comparison.md) | tracesage vs LangSmith / LangFuse / Phoenix |
+| [Extending tracesage](docs/extending.md) | Adding framework adapters and storage backends |
+| **[Examples](examples/showcase/)** | **30 before/after apps with tracesage added** |
 
 ## Comparison
 
-When to use `tracelens` vs alternatives:
+When to use `tracesage` vs alternatives:
 
-| | tracelens | LangSmith | LangFuse | Phoenix |
+| | tracesage | LangSmith | LangFuse | Phoenix |
 |---|---|---|---|---|
 | Zero infra | ✓ | cloud / enterprise self-host | Docker + Postgres | ✓ |
 | Pure pip install | ✓ | ✓ (cloud) | ✗ | ✓ |
@@ -294,8 +294,8 @@ Bench results (5,000 events, 100 distinct run_ids, 20% blob-eligible):
 | Windows NTFS | 60–100 ev/s | 1–2 s | 0 |
 
 Windows NTFS is the bottleneck (gzip + fsync amplification). For very high
-throughput on Windows, raise `TRACELENS_WORKER_BATCH_SIZE` to 200 and
-`TRACELENS_WORKER_BATCH_TIMEOUT` to 0.5.
+throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
+`TRACESAGE_WORKER_BATCH_TIMEOUT` to 0.5.
 
 ## Status
 
@@ -310,11 +310,11 @@ See [the changelog](docs/changelog.md) for release notes.
 Issues and pull requests are welcome.
 
 - Read [`docs/contributing.md`](docs/contributing.md) before sending a PR
-- For non-trivial changes, open a [discussion](https://github.com/kjgpta/tracelens/discussions/categories/ideas) first
-- Bugs and feature requests use the [issue templates](https://github.com/kjgpta/tracelens/issues/new/choose)
+- For non-trivial changes, open a [discussion](https://github.com/kjgpta/tracesage/discussions/categories/ideas) first
+- Bugs and feature requests use the [issue templates](https://github.com/kjgpta/tracesage/issues/new/choose)
 - Security reports: see [`SECURITY.md`](.github/SECURITY.md) — please don't open public issues for vulnerabilities
 - All participation is governed by the [Code of Conduct](.github/CODE_OF_CONDUCT.md)
 
 ## License
 
-[MIT](LICENSE) © tracelens contributors
+[MIT](LICENSE) © tracesage contributors

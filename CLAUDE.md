@@ -1,14 +1,14 @@
-# CLAUDE.md — tracelens project conventions
+# CLAUDE.md — tracesage project conventions
 Shared context for all Claude agents working on this codebase. Read this before any change.
 
 ## Project facts
 
-- **PyPI distribution name:** `tracelens`
-- **Python import name:** `tracelens`
-- **Top-level class:** `TraceLens`
+- **PyPI distribution name:** `tracesage`
+- **Python import name:** `tracesage`
+- **Top-level class:** `TraceSage`
 - **Python:** 3.11+ (target 3.11 syntax, but allow 3.12/3.13)
 - **License:** MIT
-- **Package layout:** `src/tracelens/` (src layout)
+- **Package layout:** `src/tracesage/` (src layout)
 - **Server bind default:** `127.0.0.1:7842`
 
 ## Code conventions
@@ -71,11 +71,11 @@ class Foo(BaseModel):
 
 | Owner | Files |
 |---|---|
-| Orchestrator | `pyproject.toml`, `src/tracelens/__init__.py`, `models.py`, `config.py`, `storage/backend.py` (Protocol only), `tests/conftest.py`, `tests/integration/**`, `cli.py`, `examples/**`, docs |
+| Orchestrator | `pyproject.toml`, `src/tracesage/__init__.py`, `models.py`, `config.py`, `storage/backend.py` (Protocol only), `tests/conftest.py`, `tests/integration/**`, `cli.py`, `examples/**`, docs |
 | **Agent A (Storage)** | `storage/sqlite_backend.py`, `storage/blob_store.py`, `storage/__init__.py` re-exports, `tests/test_database.py`, `tests/test_blob_store.py` |
 | **Agent B (Pipeline)** | `tracer.py`, `worker.py`, `adapters/__init__.py`, `adapters/langchain.py`, `tests/test_tracer.py`, `tests/test_worker.py`, `tests/test_handler.py` |
 | **Agent C (Server)** | `server/__init__.py`, `server/app.py`, `server/rest.py`, `server/ws.py`, `server/auth.py`, `tests/test_server.py` |
-| **Agent D (UI)** | `src/tracelens/ui/index.html`, `ui/app.js`, `ui/graph.js`, `ui/styles.css` |
+| **Agent D (UI)** | `src/tracesage/ui/index.html`, `ui/app.js`, `ui/graph.js`, `ui/styles.css` |
 
 If you need to edit a file owned by another agent, STOP and surface the conflict.
 

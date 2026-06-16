@@ -23,8 +23,8 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_openai import OpenAIEmbeddings
 
 DOCS = [
-    "TraceLens binds to 127.0.0.1:7842 by default and refuses 0.0.0.0 without an auth token.",
-    "Add observability by calling tracelens.trace(); it installs a global LangChain handler.",
+    "TraceSage binds to 127.0.0.1:7842 by default and refuses 0.0.0.0 without an auth token.",
+    "Add observability by calling tracesage.trace(); it installs a global LangChain handler.",
     "The callback handler never raises: every method is wrapped in try/except and returns None.",
     "Events are batched by a worker; one bad event is skipped, the rest of the batch persists.",
     "Blob paths are stored relative to base_dir and validated on read to block path traversal.",
@@ -44,7 +44,7 @@ def make_llm(temperature: float = 0.0) -> Runnable:
 
 def build_store() -> Chroma:
     docs = [Document(page_content=t, metadata={"id": i}) for i, t in enumerate(DOCS)]
-    return Chroma.from_documents(docs, OpenAIEmbeddings(), collection_name="tracelens_faq")
+    return Chroma.from_documents(docs, OpenAIEmbeddings(), collection_name="tracesage_faq")
 
 
 def build_chain() -> Runnable:
@@ -97,7 +97,7 @@ def build_chain() -> Runnable:
 
 def main() -> None:
     chain = build_chain()
-    question = "How does tracelens keep a bad event from breaking my agent?"
+    question = "How does tracesage keep a bad event from breaking my agent?"
     print(f"Q: {question}\n")
     print("A:", chain.invoke(question))
 

@@ -1,6 +1,6 @@
-"""12 — Hierarchical Writing Org (with tracelens).
+"""12 — Hierarchical Writing Org (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the org graph and *drills into* each compiled subgraph
 (outline_team → draft_team) and their inner nodes — deep nesting you can replay layer by
 layer.
@@ -23,7 +23,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.3) -> Runnable:
@@ -95,10 +95,10 @@ async def main() -> None:
     topic = "why small teams ship faster"
     print(f"Topic: {topic}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"topic": topic})
         print(result["final"])
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             await asyncio.to_thread(input, "\n🔍 Open the printed trace link, then press Enter to exit.")
 

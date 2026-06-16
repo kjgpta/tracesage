@@ -22,8 +22,8 @@ python after.py                              # same app + live trace UI
 diff before.py after.py
 ```
 
-The only difference is `from tracelens import TraceLens`, wrapping the run in
-`async with TraceLens.session(install=True)`, and a single `await tl.flush()`. The
+The only difference is `from tracesage import TraceSage`, wrapping the run in
+`async with TraceSage.session(install=True)`, and a single `await tl.flush()`. The
 `install=True` registers a global LangChain handler, so there is no `callbacks=` wiring —
 the graph construction is byte-identical between the two files.
 

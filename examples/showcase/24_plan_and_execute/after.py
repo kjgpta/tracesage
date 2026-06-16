@@ -1,6 +1,6 @@
-"""24 — Plan-and-Execute Agent (with tracelens).
+"""24 — Plan-and-Execute Agent (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the planner's structured step list, each executor pass
 hitting the calculator tool, and — when a step fails — the replan branch revising the
 plan, so you can see the plan/execute split and the dynamic recovery loop.
@@ -24,7 +24,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -114,9 +114,9 @@ async def main() -> None:
     )
     state = {"problem": problem, "steps": [], "results": [], "cursor": 0, "replans": 0}
     print(f"Problem: {problem}\n")
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke(state)
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         for line in result["results"]:
             print(" •", line)
         if sys.stdin.isatty():  # keep the UI up so you can explore (demo only)

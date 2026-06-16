@@ -1,6 +1,6 @@
 # Example 4 — MCP tools attributed by source
 
-Shows tracelens distinguishing tools that come from **MCP servers** from tools
+Shows tracesage distinguishing tools that come from **MCP servers** from tools
 **hardcoded** in your workflow, in **three scenarios**. Each tool node in the
 topology graph gets a coloured **ring + server-name chip** for its MCP server, a
 matching dynamic **legend**, and a polished, collapsible **"Tools by source"**
@@ -38,7 +38,7 @@ the tools the agents called).
 ## Run
 
 ```bash
-pip install 'tracelens[mcp]'
+pip install 'tracesage[mcp]'
 
 python examples/mcp/mcp_only.py               # then open http://localhost:7842/ui
 python examples/mcp/local_only.py

@@ -1,6 +1,6 @@
-"""07 — Multi-Query RAG (with tracelens).
+"""07 — Multi-Query RAG (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the expansion LLM call, the THREE parallel retriever
 calls (one per query variant), the fuse/de-dup step, and the final grounded answer — so
 query expansion and the merge become visible end to end.
@@ -26,7 +26,7 @@ from langchain_core.runnables import Runnable
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 DOCS = [
     "Solar panels convert sunlight into electricity using photovoltaic cells.",
@@ -114,9 +114,9 @@ async def main() -> None:
     question = "How can I store solar energy for night-time use at home?"
     print(f"Q: {question}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"question": question})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("Variants:", result["variants"])
         print("\nA:", result["answer"])
         if sys.stdin.isatty():  # keep the UI up so you can explore (demo only)

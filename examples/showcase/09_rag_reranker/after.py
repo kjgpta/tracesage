@@ -1,6 +1,6 @@
-"""09 — RAG + Reranker (with tracelens).
+"""09 — RAG + Reranker (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the retriever pulling top-8, a distinct LLM rerank
 step scoring them down to top-3, and the cited answer — so you can see exactly which
 chunks ended up grounding the response and how reranking changed that set.
@@ -23,11 +23,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_openai import OpenAIEmbeddings
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 DOCS = [
-    "TraceLens binds to 127.0.0.1:7842 by default and refuses 0.0.0.0 without an auth token.",
-    "Add observability by calling tracelens.trace(); it installs a global LangChain handler.",
+    "TraceSage binds to 127.0.0.1:7842 by default and refuses 0.0.0.0 without an auth token.",
+    "Add observability by calling tracesage.trace(); it installs a global LangChain handler.",
     "The callback handler never raises: every method is wrapped in try/except and returns None.",
     "Events are batched by a worker; one bad event is skipped, the rest of the batch persists.",
     "Blob paths are stored relative to base_dir and validated on read to block path traversal.",
@@ -47,7 +47,7 @@ def make_llm(temperature: float = 0.0) -> Runnable:
 
 def build_store() -> Chroma:
     docs = [Document(page_content=t, metadata={"id": i}) for i, t in enumerate(DOCS)]
-    return Chroma.from_documents(docs, OpenAIEmbeddings(), collection_name="tracelens_faq")
+    return Chroma.from_documents(docs, OpenAIEmbeddings(), collection_name="tracesage_faq")
 
 
 def build_chain() -> Runnable:
@@ -100,10 +100,10 @@ def build_chain() -> Runnable:
 
 def main() -> None:
     chain = build_chain()
-    question = "How does tracelens keep a bad event from breaking my agent?"
+    question = "How does tracesage keep a bad event from breaking my agent?"
     print(f"Q: {question}\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         print("A:", chain.invoke(question))
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             input("\n🔍 Open the printed trace link, then press Enter to exit.")

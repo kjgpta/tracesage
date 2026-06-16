@@ -20,7 +20,7 @@ python after.py
 diff before.py after.py
 ```
 
-`import tracelens` + `with tracelens.trace():` around `agent.invoke(...)`.
+`import tracesage` + `with tracesage.trace():` around `agent.invoke(...)`.
 
 ## What the trace shows
 

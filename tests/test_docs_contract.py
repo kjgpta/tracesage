@@ -7,8 +7,8 @@ just import the real objects and check membership.
 """
 from __future__ import annotations
 
-from tracelens.cli import app
-from tracelens.config import TraceLensConfig
+from tracesage.cli import app
+from tracesage.config import TraceSageConfig
 
 
 def _registered_command_names() -> set[str]:
@@ -43,7 +43,7 @@ def test_documented_cli_commands_exist() -> None:
 
 
 def test_documented_config_fields_exist() -> None:
-    """Core documented config env vars must map to real TraceLensConfig fields."""
+    """Core documented config env vars must map to real TraceSageConfig fields."""
     documented = {
         "host",
         "port",
@@ -53,6 +53,6 @@ def test_documented_config_fields_exist() -> None:
         "per_run_event_cap",
         "max_runs",
     }
-    fields = set(TraceLensConfig.model_fields)
+    fields = set(TraceSageConfig.model_fields)
     missing = documented - fields
-    assert not missing, f"documented config fields missing from TraceLensConfig: {sorted(missing)}"
+    assert not missing, f"documented config fields missing from TraceSageConfig: {sorted(missing)}"

@@ -1,6 +1,6 @@
-"""10 — Conversational RAG with memory (with tracelens).
+"""10 — Conversational RAG with memory (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open the
+Identical to before.py except for the tracesage lines marked below. Run it, then open the
 printed link: the trace shows 3 linked runs on ONE thread_id, the history-aware `rewrite`
 node turning each follow-up into a standalone query, the Chroma retrieval, and the answer.
 
@@ -26,13 +26,13 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 DOCS = [
-    "TraceLens is an observability tool for LangChain and LangGraph apps.",
-    "TraceLens pricing: the open-source core is free; the hosted tier is $29/month.",
-    "TraceLens stores traces locally under ~/.tracelens by default.",
-    "To install TraceLens, run pip install tracelens[langchain].",
+    "TraceSage is an observability tool for LangChain and LangGraph apps.",
+    "TraceSage pricing: the open-source core is free; the hosted tier is $29/month.",
+    "TraceSage stores traces locally under ~/.tracesage by default.",
+    "To install TraceSage, run pip install tracesage[langchain].",
 ]
 
 
@@ -103,16 +103,16 @@ async def main() -> None:
     graph = build_graph()
     config = {"configurable": {"thread_id": "demo-session-1"}}
     turns = [
-        "What is TraceLens?",
+        "What is TraceSage?",
         "How much does it cost?",
         "And how do I install it?",
     ]
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         for turn in turns:
             print(f"\nQ: {turn}")
             result = await graph.ainvoke({"messages": [("user", turn)]}, config)
             print("A:", result["messages"][-1].content)
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():
             await asyncio.to_thread(
                 input, "\n🔍 Open the printed trace link, then press Enter to exit."

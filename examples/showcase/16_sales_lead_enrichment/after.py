@@ -1,6 +1,6 @@
-"""16 — Sales Lead Enrichment & Outreach (with tracelens).
+"""16 — Sales Lead Enrichment & Outreach (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the `fake_crm_lookup` tool call, the structured qualify
 score, and which conditional edge fired — so you can see *why* a lead was drafted or
 dropped, end to end.
@@ -23,7 +23,7 @@ from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -103,9 +103,9 @@ async def main() -> None:
     company = "Acme Robotics"
     print(f"Lead: {company}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"company": company})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("Qualified:", result["qualified"], "—", result["reason"])
         print("\nOutreach:\n", result["outreach"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

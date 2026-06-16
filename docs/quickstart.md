@@ -5,14 +5,14 @@ Run any LangChain or LangGraph workflow with full observability in under a minut
 ## Install
 
 ```bash
-pip install tracelens[langchain]
+pip install tracesage[langchain]
 ```
 
-`tracelens` requires Python 3.11+ and pulls `langchain-core` as the only mandatory
+`tracesage` requires Python 3.11+ and pulls `langchain-core` as the only mandatory
 external dependency for the LangChain adapter. If your app uses **LangGraph**, also
-`pip install langgraph` (tracelens doesn't pull it). tracelens is **provider-agnostic** —
+`pip install langgraph` (tracesage doesn't pull it). tracesage is **provider-agnostic** —
 it traces the LangChain callback stream, so OpenAI, Anthropic, local models, etc. are all
-captured automatically; there is no provider setting in tracelens.
+captured automatically; there is no provider setting in tracesage.
 
 ### Using a real provider
 
@@ -27,13 +27,13 @@ pip install langchain-anthropic   && export ANTHROPIC_API_KEY=...
 ```
 
 You construct the model exactly as you normally would (`ChatOpenAI(...)`,
-`ChatAnthropic(...)`, or `init_chat_model("anthropic:claude-...")`) — tracelens captures it
+`ChatAnthropic(...)`, or `init_chat_model("anthropic:claude-...")`) — tracesage captures it
 whichever you choose.
 
 ## See it in 5 seconds
 
 ```bash
-tracelens demo      # seeds a sample trace, opens the UI
+tracesage demo      # seeds a sample trace, opens the UI
 ```
 
 ## Integrate (the whole thing)
@@ -42,23 +42,23 @@ tracelens demo      # seeds a sample trace, opens the UI
 automatically (no `callbacks=` wiring), and a clickable trace link prints:
 
 ```python
-import tracelens
+import tracesage
 
-with tracelens.trace():                 # starts the UI + global capture
-    result = agent.invoke("your input")  # 🔍 tracelens: http://127.0.0.1:7842/ui/#run=...
+with tracesage.trace():                 # starts the UI + global capture
+    result = agent.invoke("your input")  # 🔍 tracesage: http://127.0.0.1:7842/ui/#run=...
     input("Trace ready — open the printed link, then press Enter to exit.")
 ```
 
 The embedded UI server stops when the `with` block (and the process) exits, so a one-shot
 script needs to stay alive while you look — hence the `input(...)`. (Traces also persist to
-`~/.tracelens`, so you can always reopen them later with `tracelens serve`.)
+`~/.tracesage`, so you can always reopen them later with `tracesage serve`.)
 
-**Async apps** — use the context manager (or `await TraceLens.create()` for full control):
+**Async apps** — use the context manager (or `await TraceSage.create()` for full control):
 
 ```python
-from tracelens import TraceLens
+from tracesage import TraceSage
 
-async with TraceLens.session(install=True) as tl:   # install=True → global capture
+async with TraceSage.session(install=True) as tl:   # install=True → global capture
     result = await graph.ainvoke({"input": payload})
     await tl.flush()                                 # ensure events are persisted
 ```
@@ -87,15 +87,15 @@ Open `http://localhost:7842/ui` in your browser to see the trace live as it runs
 Override defaults via env vars or the config object:
 
 ```python
-from tracelens import TraceLens, TraceLensConfig
+from tracesage import TraceSage, TraceSageConfig
 
-cfg = TraceLensConfig(
+cfg = TraceSageConfig(
     host="127.0.0.1",
     port=7842,
     sample_rate=0.1,           # capture 10% of runs in production
     per_run_event_cap=10_000,  # circuit breaker per run
 )
-tracer = await TraceLens.create(config=cfg)
+tracer = await TraceSage.create(config=cfg)
 ```
 
 See [configuration.md](configuration.md) for the full list.
@@ -106,7 +106,7 @@ The tracer is created once at app startup. Reuse `tracer.handler` across every
 invocation:
 
 ```python
-tracer = await TraceLens.create()
+tracer = await TraceSage.create()
 
 for input_payload in incoming_requests:
     result = await graph.ainvoke(
@@ -119,7 +119,7 @@ Each invocation creates a separate run in the dashboard. Tags propagate.
 
 ## Stopping cleanly
 
-`TraceLens` registers an `atexit` cleanup, but for explicit shutdown:
+`TraceSage` registers an `atexit` cleanup, but for explicit shutdown:
 
 ```python
 await tracer.stop()  # drains queue, closes DB, stops server
@@ -130,7 +130,7 @@ await tracer.stop()  # drains queue, closes DB, stops server
 The UI is also available as a CLI viewer that does not ingest:
 
 ```bash
-tracelens serve --data-dir ~/.tracelens
+tracesage serve --data-dir ~/.tracesage
 ```
 
 Useful for inspecting traces from a previous session, or running the viewer on
@@ -138,9 +138,9 @@ a different machine pointed at a synced data directory.
 
 ## Next steps
 
-- [development.md](development.md) — trace links, sync/notebook setup, terminal debugging (`show`/`watch`/`diff`), the `tracelens_capture` pytest fixture
-- [configuration.md](configuration.md) — every knob (including the `TRACELENS_ENABLED` kill switch)
+- [development.md](development.md) — trace links, sync/notebook setup, terminal debugging (`show`/`watch`/`diff`), the `tracesage_capture` pytest fixture
+- [configuration.md](configuration.md) — every knob (including the `TRACESAGE_ENABLED` kill switch)
 - [production.md](production.md) — sampling, auth, retention, disabling, deployment patterns
 - [cli.md](cli.md) — `serve`, `demo`, `show`, `watch`, `diff`, `view`, `export`, `stats`, `gc`
 - [mcp.md](mcp.md) — attributing tools to their MCP server
-- [comparison.md](comparison.md) — when to use tracelens vs LangSmith / Phoenix / LangFuse
+- [comparison.md](comparison.md) — when to use tracesage vs LangSmith / Phoenix / LangFuse

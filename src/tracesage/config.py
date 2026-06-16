@@ -1,4 +1,4 @@
-"""Configuration via env vars (TRACELENS_*) and optional TOML file.
+"""Configuration via env vars (TRACESAGE_*) and optional TOML file.
 
 Production safety: refuses to start if host=0.0.0.0 without auth_token.
 """
@@ -10,19 +10,19 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class TraceLensConfig(BaseSettings):
-    """All configuration. Override via TRACELENS_* env vars or constructor kwargs."""
+class TraceSageConfig(BaseSettings):
+    """All configuration. Override via TRACESAGE_* env vars or constructor kwargs."""
 
     model_config = SettingsConfigDict(
-        env_prefix="TRACELENS_",
+        env_prefix="TRACESAGE_",
         env_file=None,
         extra="ignore",
     )
 
     # --- Kill switch ---
-    # Set TRACELENS_ENABLED=false (or enabled=False) to make tracelens a complete
+    # Set TRACESAGE_ENABLED=false (or enabled=False) to make tracesage a complete
     # no-op: no embedded server, no DB/worker/queue, a no-op callback handler, and
-    # near-zero overhead. This lets you wire tracelens into your code ONCE and turn
+    # near-zero overhead. This lets you wire tracesage into your code ONCE and turn
     # it off per-environment (e.g. disable in prod) without touching the integration.
     enabled: bool = True
 
@@ -38,9 +38,9 @@ class TraceLensConfig(BaseSettings):
     # running or public_url set). Disable in noisy/production setups.
     print_run_url: bool = True
     # Start the embedded uvicorn UI server inside the traced process. Set False (or
-    # TRACELENS_START_SERVER=false) in production to keep capturing traces to the data
+    # TRACESAGE_START_SERVER=false) in production to keep capturing traces to the data
     # dir without running a web server in your app process — view them later with
-    # `tracelens serve`. A `start_server=` kwarg to create()/session()/start() overrides this.
+    # `tracesage serve`. A `start_server=` kwarg to create()/session()/start() overrides this.
     start_server: bool = True
     # Allowed CORS origins. Defaults to "*" (the bundled UI is same-origin and does
     # not need it); tighten to an explicit allowlist when exposing the server beyond
@@ -48,7 +48,7 @@ class TraceLensConfig(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
     # --- Storage ---
-    data_dir: Path = Field(default_factory=lambda: Path.home() / ".tracelens")
+    data_dir: Path = Field(default_factory=lambda: Path.home() / ".tracesage")
     db_filename: str = "traces.db"
     blob_subdir: str = "blobs"
     db_pool_size: int = 5
@@ -86,13 +86,13 @@ class TraceLensConfig(BaseSettings):
         return self.data_dir / self.blob_subdir
 
     @model_validator(mode="after")
-    def _validate_production_safety(self) -> TraceLensConfig:
+    def _validate_production_safety(self) -> TraceSageConfig:
         # Hard fail-stop: must have an auth token when binding to non-loopback.
         # Skipped when disabled — nothing binds, so the bind-safety rule is moot.
         if self.enabled and self.host not in {"127.0.0.1", "localhost", "::1"} and not self.auth_token:
             raise ValueError(
-                f"TRACELENS_AUTH_TOKEN must be set when binding to {self.host!r}. "
-                "Either set the env var, pass auth_token to TraceLensConfig, or bind to 127.0.0.1."
+                f"TRACESAGE_AUTH_TOKEN must be set when binding to {self.host!r}. "
+                "Either set the env var, pass auth_token to TraceSageConfig, or bind to 127.0.0.1."
             )
         if not 0.0 <= self.sample_rate <= 1.0:
             raise ValueError(f"sample_rate must be in [0.0, 1.0], got {self.sample_rate}")

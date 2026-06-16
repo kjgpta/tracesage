@@ -10,11 +10,11 @@ Usage:
 
 Mechanism:
     1. Parent spawns a child subprocess running this script with `--mode=child`.
-    2. Child opens an TraceLens pointed at a fixed data dir, fires N events, sleeps.
+    2. Child opens an TraceSage pointed at a fixed data dir, fires N events, sleeps.
     3. Parent waits a bit, then kills the child with SIGKILL (POSIX) / TerminateProcess (Win).
     4. Parent reopens the same DB and asserts: schema intact, events partially present,
        no broken/half-written rows, no stuck `database is locked` errors.
-    5. Parent runs a second TraceLens against the same dir and emits more events,
+    5. Parent runs a second TraceSage against the same dir and emits more events,
        verifying the worker can recover and append cleanly.
 """
 from __future__ import annotations
@@ -35,15 +35,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 async def child_main(data_dir: Path, n_events: int) -> None:
     """Run as the doomed child: emit events, then sleep until killed."""
-    from tracelens import EventType, RawEvent, TraceLens, TraceLensConfig
+    from tracesage import EventType, RawEvent, TraceSage, TraceSageConfig
 
-    cfg = TraceLensConfig(
+    cfg = TraceSageConfig(
         data_dir=data_dir,
         port=0,
         queue_maxsize=10_000,
         log_level="WARNING",
     )
-    tracer = await TraceLens.create(cfg, start_server=False)
+    tracer = await TraceSage.create(cfg, start_server=False)
     print(f"CHILD: tracer up at {data_dir}", flush=True)
     for i in range(n_events):
         run_id = f"crash-run-{i % 10}"
@@ -110,7 +110,7 @@ def parent_main() -> int:
         print("PARENT: FAIL — too few events persisted")
         return 1
 
-    print("PARENT: opening fresh TraceLens against same dir to verify it recovers...", flush=True)
+    print("PARENT: opening fresh TraceSage against same dir to verify it recovers...", flush=True)
     try:
         events_after_recovery = asyncio.run(_recover_and_emit(data_dir))
     except Exception as e:
@@ -156,11 +156,11 @@ async def _inspect_db(data_dir: Path) -> tuple[int, int]:
 
 
 async def _recover_and_emit(data_dir: Path) -> int:
-    """Open a new TraceLens against the same dir, emit more events, verify."""
-    from tracelens import EventType, RawEvent, TraceLens, TraceLensConfig
+    """Open a new TraceSage against the same dir, emit more events, verify."""
+    from tracesage import EventType, RawEvent, TraceSage, TraceSageConfig
 
-    cfg = TraceLensConfig(data_dir=data_dir, port=0, log_level="WARNING")
-    tracer = await TraceLens.create(cfg, start_server=False)
+    cfg = TraceSageConfig(data_dir=data_dir, port=0, log_level="WARNING")
+    tracer = await TraceSage.create(cfg, start_server=False)
     try:
         # Use a brand-new run so FK is clean.
         run_id = f"recovery-{uuid.uuid4()}"

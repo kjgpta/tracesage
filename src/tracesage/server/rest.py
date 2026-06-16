@@ -17,12 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from tracelens.config import TraceLensConfig
-from tracelens.models import Run, Stats, StoredEvent, Topology
-from tracelens.storage.backend import StorageBackend
-from tracelens.storage.blob_store import BlobStore
+from tracesage.config import TraceSageConfig
+from tracesage.models import Run, Stats, StoredEvent, Topology
+from tracesage.storage.backend import StorageBackend
+from tracesage.storage.blob_store import BlobStore
 
-_LOG = logging.getLogger("tracelens.server.rest")
+_LOG = logging.getLogger("tracesage.server.rest")
 
 router = APIRouter(prefix="/api")
 
@@ -49,7 +49,7 @@ def get_blob_store(request: Request) -> BlobStore:
     return request.app.state.blob_store
 
 
-def get_config(request: Request) -> TraceLensConfig:
+def get_config(request: Request) -> TraceSageConfig:
     return request.app.state.config
 
 
@@ -94,7 +94,7 @@ class DeleteResponse(BaseModel):
 
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    from tracelens import __version__
+    from tracesage import __version__
 
     return HealthResponse(status="ok", version=__version__)
 

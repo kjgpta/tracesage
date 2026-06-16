@@ -1,8 +1,8 @@
-"""26 — LLM-as-Judge Eval Harness (with tracelens).
+"""26 — LLM-as-Judge Eval Harness (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: each dataset item is a separate root run (task → judge), so you can
-compare runs side by side with `tracelens diff`, inspect the judge's structured verdict,
+compare runs side by side with `tracesage diff`, inspect the judge's structured verdict,
 and watch token spend across the whole batch — the eval loop made observable.
 
 Run:
@@ -24,7 +24,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 DATASET: list[dict[str, str]] = [
     {"question": "What is the capital of France?", "expected": "Paris"},
@@ -92,14 +92,14 @@ def build_graph() -> Runnable:
 async def main() -> None:
     graph = build_graph()
     rows: list[EvalState] = []
-    async with TraceLens.session(install=True) as tl:  # ← tracelens: starts UI + captures every call
+    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts UI + captures every call
         for item in DATASET:
             result = await graph.ainvoke(
                 {"question": item["question"], "expected": item["expected"],
                  "answer": "", "score": 0.0, "rationale": ""}
             )
             rows.append(result)
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
 
         print(f"{'score':>5}  {'question':<32}  rationale")
         print("-" * 78)

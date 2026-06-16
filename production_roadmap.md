@@ -1,6 +1,6 @@
-# tracelens — Production Readiness Roadmap
+# tracesage — Production Readiness Roadmap
 
-A prioritized analysis of what's missing to run tracelens as production-grade
+A prioritized analysis of what's missing to run tracesage as production-grade
 observability infrastructure (not just local development — see the separate dev
 notes for that). Grounded in the current codebase.
 
@@ -22,7 +22,7 @@ A strong **single-node, embedded** core:
 The pipeline is **in-process and embedded** — queue, worker, and SQLite live inside
 the traced agent process. The single biggest decision:
 
-- **(A) Embedded library** — each app vendors tracelens and writes to its own local DB.
+- **(A) Embedded library** — each app vendors tracesage and writes to its own local DB.
 - **(B) Centralized collector** — a standalone service many agents push to.
 
 Most Tier-1 items below only matter for **(B)**. They are flagged `(B)`.
@@ -43,7 +43,7 @@ Most Tier-1 items below only matter for **(B)**. They are flagged `(B)`.
 - **OpenTelemetry / OTLP** — both *export* (Tempo / Datadog / Honeycomb / Grafana) and
   GenAI semantic-convention spans, plus **W3C trace-context propagation** so an agent
   trace correlates with the surrounding distributed trace. The #1 thing that makes
-  tracelens fit existing stacks instead of being a silo.
+  tracesage fit existing stacks instead of being a silo.
 - **Beyond LangChain** — only the LangChain/LangGraph adapter exists. Add a **manual
   API** (`with tracer.span(...)` / `@trace` decorator) so any code can emit, plus
   adapters for OpenAI/Anthropic SDKs, LlamaIndex, CrewAI/AutoGen.

@@ -1,6 +1,6 @@
-"""17 — Debate-to-Decision (with tracelens).
+"""17 — Debate-to-Decision (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open the
+Identical to before.py except for the tracesage lines marked below. Run it, then open the
 printed link: the trace replays the optimist→skeptic loop round by round, shows the round
 counter driving the conditional edge, and ends at the judge's verdict — the whole
 back-and-forth as a single graph.
@@ -24,7 +24,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 MAX_ROUNDS = 2
 
@@ -104,9 +104,9 @@ async def main() -> None:
     topic = "Should our team adopt a four-day work week?"
     print(f"Topic: {topic}\n")
 
-    async with TraceLens.session(install=True) as tl:  # ← tracelens: starts UI + captures every call
+    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts UI + captures every call
         result = await graph.ainvoke({"topic": topic, "transcript": [], "rounds": 0, "verdict": ""})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         for msg in result["transcript"]:
             print(" •", msg.content)
         print("\nVerdict:", result["verdict"])

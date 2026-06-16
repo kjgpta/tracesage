@@ -3,14 +3,14 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tracelens"
+name = "tracesage"
 version = "0.2.0"
 description = "Production observability adapter for LangChain/LangGraph multi-agent systems"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
-    { name = "tracelens contributors" },
+    { name = "tracesage contributors" },
 ]
 keywords = ["langchain", "langgraph", "observability", "tracing", "agents", "llm", "multi-agent"]
 classifiers = [
@@ -38,18 +38,18 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kjgpta/tracelens"
-Repository = "https://github.com/kjgpta/tracelens"
-Documentation = "https://kjgpta.github.io/tracelens/"
-Changelog = "https://github.com/kjgpta/tracelens/blob/main/docs/changelog.md"
-Issues = "https://github.com/kjgpta/tracelens/issues"
+Homepage = "https://github.com/kjgpta/tracesage"
+Repository = "https://github.com/kjgpta/tracesage"
+Documentation = "https://kjgpta.github.io/tracesage/"
+Changelog = "https://github.com/kjgpta/tracesage/blob/main/docs/changelog.md"
+Issues = "https://github.com/kjgpta/tracesage/issues"
 
 [project.optional-dependencies]
 langchain = [
     "langchain-core>=0.2.0,<1.4.0",
 ]
 # MCP tool-source attribution + the examples/mcp scenario. Optional: the
-# core package and `import tracelens` never require these (imported lazily).
+# core package and `import tracesage` never require these (imported lazily).
 mcp = [
     "langchain-mcp-adapters>=0.1.0",
     "mcp>=1.0.0",
@@ -72,18 +72,18 @@ dev = [
 ]
 
 [project.scripts]
-tracelens = "tracelens.cli:app"
+tracesage = "tracesage.cli:app"
 
-# Expose the trace-capture fixture (`tracelens_capture`) to users' pytest suites.
+# Expose the trace-capture fixture (`tracesage_capture`) to users' pytest suites.
 [project.entry-points.pytest11]
-tracelens = "tracelens.pytest_plugin"
+tracesage = "tracesage.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tracelens"]
+packages = ["src/tracesage"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/tracelens",
+    "src/tracesage",
     "tests",
     "examples",
     "README.md",
@@ -113,9 +113,9 @@ ignore = ["E501", "S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S105", "S106", "ASYNC230", "ASYNC109", "ASYNC240", "E741", "F401", "SIM105", "UP017", "UP041"]
-"src/tracelens/cli.py" = ["B008", "UP007"]  # Typer requires call expressions in defaults
-"src/tracelens/storage/sqlite_backend.py" = ["UP017"]  # CLAUDE.md mandates timezone.utc form
-"src/tracelens/models.py" = ["UP042"]  # str-Enum inheritance is intentional for JSON serialization
+"src/tracesage/cli.py" = ["B008", "UP007"]  # Typer requires call expressions in defaults
+"src/tracesage/storage/sqlite_backend.py" = ["UP017"]  # CLAUDE.md mandates timezone.utc form
+"src/tracesage/models.py" = ["UP042"]  # str-Enum inheritance is intentional for JSON serialization
 "tools/**/*.py" = ["S311", "SIM105"]  # bench uses random + try/except is fine here
 
 [tool.mypy]
@@ -125,7 +125,7 @@ warn_unused_ignores = false
 check_untyped_defs = false
 
 [tool.coverage.run]
-source = ["src/tracelens"]
+source = ["src/tracesage"]
 branch = true
 
 [tool.coverage.report]

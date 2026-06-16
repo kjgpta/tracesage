@@ -1,6 +1,6 @@
-"""11 — Supervisor Research Team (with tracelens).
+"""11 — Supervisor Research Team (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the supervisor's structured routing decisions and the
 supervisor → worker → supervisor loop, so you can see who acted next and why.
 
@@ -23,7 +23,7 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 WORKERS = ("researcher", "writer", "fact_checker")
 
@@ -109,9 +109,9 @@ async def main() -> None:
     topic = "Why are honeybees important to agriculture?"
     state = {"topic": topic, "notes": "", "draft": "", "verdict": "", "steps": 0}
     print(f"Topic: {topic}\n")
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke(state)
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         print("Draft:", result["draft"])
         print("Check:", result["verdict"])
         if sys.stdin.isatty():  # keep the UI up so you can explore (demo only)

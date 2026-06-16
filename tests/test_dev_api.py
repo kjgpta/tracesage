@@ -9,14 +9,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-import tracelens
-from tracelens import TraceLens, TraceLensConfig
-from tracelens.models import EventType, Run, RunStatus, StoredEvent
-from tracelens.render import TraceView, render_run_tree
+import tracesage
+from tracesage import TraceSage, TraceSageConfig
+from tracesage.models import EventType, Run, RunStatus, StoredEvent
+from tracesage.render import TraceView, render_run_tree
 
 
-def _cfg(tmp_path: Path, **kw) -> TraceLensConfig:
-    return TraceLensConfig(data_dir=tmp_path, host="127.0.0.1", print_run_url=False, **kw)
+def _cfg(tmp_path: Path, **kw) -> TraceSageConfig:
+    return TraceSageConfig(data_dir=tmp_path, host="127.0.0.1", print_run_url=False, **kw)
 
 
 # ----------------------------------------------------------------- run_url
@@ -26,7 +26,7 @@ def test_run_url_none_without_server(tmp_path: Path) -> None:
     """No embedded server and no public_url → no link to hand out."""
 
     async def _go() -> None:
-        tl = await TraceLens.create(_cfg(tmp_path), start_server=False)
+        tl = await TraceSage.create(_cfg(tmp_path), start_server=False)
         try:
             assert tl.run_url("abc") is None
         finally:
@@ -37,7 +37,7 @@ def test_run_url_none_without_server(tmp_path: Path) -> None:
 
 def test_run_url_uses_public_url(tmp_path: Path) -> None:
     async def _go() -> None:
-        tl = await TraceLens.create(
+        tl = await TraceSage.create(
             _cfg(tmp_path, public_url="https://traces.example.com/"), start_server=False
         )
         try:
@@ -56,7 +56,7 @@ def test_disabled_is_inert(tmp_path: Path) -> None:
     from langchain_core.language_models.fake import FakeListLLM
 
     async def _go() -> None:
-        tl = await TraceLens.create(_cfg(tmp_path, enabled=False, port=7799), start_server=True)
+        tl = await TraceSage.create(_cfg(tmp_path, enabled=False, port=7799), start_server=True)
         try:
             assert tl.bound_port is None, "disabled must not bind a server"
             assert tl.run_url("x") is None
@@ -73,13 +73,13 @@ def test_disabled_is_inert(tmp_path: Path) -> None:
 
 
 def test_env_var_disables(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("TRACELENS_ENABLED", "false")
-    cfg = TraceLensConfig(data_dir=tmp_path)
+    monkeypatch.setenv("TRACESAGE_ENABLED", "false")
+    cfg = TraceSageConfig(data_dir=tmp_path)
     assert cfg.enabled is False
 
 
 def test_background_tracer_disabled_starts_no_thread(tmp_path: Path) -> None:
-    tl = tracelens.start(_cfg(tmp_path, enabled=False, port=7798))
+    tl = tracesage.start(_cfg(tmp_path, enabled=False, port=7798))
     try:
         assert tl._thread is None, "disabled background tracer must not spin a thread"
         assert tl.run_url("x") is None
@@ -94,7 +94,7 @@ def test_session_install_captures_without_callbacks(tmp_path: Path) -> None:
     from langchain_core.language_models.fake import FakeListLLM
 
     async def _go() -> None:
-        async with TraceLens.session(_cfg(tmp_path, port=0), install=True) as tl:
+        async with TraceSage.session(_cfg(tmp_path, port=0), install=True) as tl:
             await FakeListLLM(responses=["hi"]).ainvoke("hello")  # no callbacks=
             await tl.flush()
             runs, _ = await tl.db.list_runs(limit=10, offset=0)
@@ -111,7 +111,7 @@ def test_session_without_install_does_not_capture(tmp_path: Path) -> None:
     from langchain_core.language_models.fake import FakeListLLM
 
     async def _go() -> None:
-        async with TraceLens.session(_cfg(tmp_path, port=0), install=False) as tl:
+        async with TraceSage.session(_cfg(tmp_path, port=0), install=False) as tl:
             await FakeListLLM(responses=["hi"]).ainvoke("hello")  # not wired
             await tl.flush()
             runs, _ = await tl.db.list_runs(limit=10, offset=0)
@@ -175,7 +175,7 @@ def test_embedded_server_serves_ui_and_api(tmp_path: Path) -> None:
     from langchain_core.language_models.fake import FakeListLLM
 
     async def _go() -> None:
-        async with TraceLens.session(_cfg(tmp_path, port=0), install=True) as tl:
+        async with TraceSage.session(_cfg(tmp_path, port=0), install=True) as tl:
             await FakeListLLM(responses=["hi"]).ainvoke("hello")
             await tl.flush()
             assert tl.bound_port
@@ -199,7 +199,7 @@ def test_embedded_server_serves_ui_and_api(tmp_path: Path) -> None:
 def test_background_tracer_sync_capture(tmp_path: Path) -> None:
     from langchain_core.language_models.fake import FakeListLLM
 
-    tl = tracelens.start(_cfg(tmp_path, port=0), install=True)
+    tl = tracesage.start(_cfg(tmp_path, port=0), install=True)
     try:
         FakeListLLM(responses=["sync"]).invoke("hi")  # main-thread sync call
         tl.flush()
@@ -216,7 +216,7 @@ def test_background_tracer_sync_capture(tmp_path: Path) -> None:
 async def test_richer_error_traceback_persisted(tmp_path: Path) -> None:
     import uuid
 
-    async with TraceLens.session(_cfg(tmp_path, port=0), install=False) as tl:
+    async with TraceSage.session(_cfg(tmp_path, port=0), install=False) as tl:
         h = tl.handler
         rid = uuid.uuid4()
         h.on_chain_start({"name": "c"}, {"x": 1}, run_id=rid)

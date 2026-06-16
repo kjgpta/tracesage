@@ -12,7 +12,7 @@ any other communication tied to the project.
 
 ## Reporting
 
-To report a concern, email **kjgpta+tracelens@users.noreply.github.com**.
+To report a concern, email **kjgpta+tracesage@users.noreply.github.com**.
 All reports are reviewed and handled confidentially.
 
 ## Enforcement

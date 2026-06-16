@@ -1,6 +1,6 @@
-"""03 — Text-to-SQL Analyst (with tracelens).
+"""03 — Text-to-SQL Analyst (with tracesage).
 
-Identical to before.py except for the tracelens lines. The trace shows each generated
+Identical to before.py except for the tracesage lines. The trace shows each generated
 SQL query as a tool call, and — when the model writes bad SQL — the returned `SQL ERROR`
 and the corrected retry, so you can see the self-correction happen.
 
@@ -24,13 +24,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 SCHEMA = """\
 customers(id INTEGER, name TEXT, country TEXT)
 orders(id INTEGER, customer_id INTEGER, amount REAL, status TEXT)"""
 
-_DB_PATH = str(Path(tempfile.gettempdir()) / "tracelens_showcase_sales.db")
+_DB_PATH = str(Path(tempfile.gettempdir()) / "tracesage_showcase_sales.db")
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -94,7 +94,7 @@ def main() -> None:
     question = "Which customer has the highest total of paid orders?"
     print(f"Q: {question}\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures the SQL tool calls
+    with tracesage.trace():  # ← tracesage: starts the UI + captures the SQL tool calls
         result = agent.invoke({"input": question})
         print("A:", result["output"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

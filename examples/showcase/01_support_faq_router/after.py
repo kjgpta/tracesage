@@ -1,6 +1,6 @@
-"""01 — Support FAQ Router (with tracelens).
+"""01 — Support FAQ Router (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the classifier LLM call, which branch fired, and the
 specialist answer — so you can see *why* a question was routed where it was.
 
@@ -19,7 +19,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableBranch, RunnablePassthrough
 
-import tracelens  # ← tracelens
+import tracesage  # ← tracesage
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -83,7 +83,7 @@ def main() -> None:
     question = "I was double-charged on my last invoice — can I get a refund?"
     print(f"Q: {question}\n")
 
-    with tracelens.trace():  # ← tracelens: starts the UI + captures every call
+    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
         print("A:", chain.invoke({"question": question}))
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             input("\n🔍 Open the printed trace link, then press Enter to exit.")

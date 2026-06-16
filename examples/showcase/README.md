@@ -1,11 +1,11 @@
-# tracelens showcase — 30 agentic apps, before & after
+# tracesage showcase — 30 agentic apps, before & after
 
 A gallery of **real, runnable** LangChain / LangGraph applications across the use cases
 teams actually build — each shipped in **two versions**:
 
-- **`before.py`** — the plain LangChain/LangGraph app. No tracelens.
-- **`after.py`** — the *same* app with tracelens added. `diff before.py after.py` shows
-  exactly how little it takes (usually `import tracelens` + one `with` block).
+- **`before.py`** — the plain LangChain/LangGraph app. No tracesage.
+- **`after.py`** — the *same* app with tracesage added. `diff before.py after.py` shows
+  exactly how little it takes (usually `import tracesage` + one `with` block).
 
 Run `before.py` to see the app work; run `after.py` to get the same result **plus** a
 live trace UI. The point is the diff and what the trace reveals.
@@ -21,29 +21,29 @@ export OPENAI_API_KEY=...                 # or set LLM_PROVIDER=anthropic + ANTH
 Every app uses `init_chat_model`, so you can point it at any provider with `LLM_PROVIDER`
 / `LLM_MODEL`. Each app's README lists any extra dependency (search, vector store, MCP).
 
-## Adding tracelens (the whole integration)
+## Adding tracesage (the whole integration)
 
 Synchronous apps:
 
 ```python
-import tracelens
+import tracesage
 
-with tracelens.trace():        # starts the UI + captures every LangChain call
+with tracesage.trace():        # starts the UI + captures every LangChain call
     result = chain.invoke(...)
 ```
 
 Async / LangGraph apps:
 
 ```python
-from tracelens import TraceLens
+from tracesage import TraceSage
 
-async with TraceLens.session(install=True) as tl:
+async with TraceSage.session(install=True) as tl:
     result = await graph.ainvoke(...)
     await tl.flush()
 ```
 
-That's it — no `callbacks=[...]` threading. A `🔍 tracelens: …` link prints on the first
-run; traces also persist to `~/.tracelens`, so `tracelens serve` reopens them later.
+That's it — no `callbacks=[...]` threading. A `🔍 tracesage: …` link prints on the first
+run; traces also persist to `~/.tracesage`, so `tracesage serve` reopens them later.
 
 ## The gallery
 

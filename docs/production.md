@@ -1,6 +1,6 @@
-# Running tracelens in production
+# Running tracesage in production
 
-`tracelens` is a single-process embedded library. It is suitable for
+`tracesage` is a single-process embedded library. It is suitable for
 production monitoring of a single Python application, and architected so future
 versions can split the producer (your app) from the consumer (a centralized
 trace server).
@@ -12,15 +12,15 @@ trace server).
 - `per_run_event_cap=50000` — single runaway run won't fill the queue.
 - Queue drops events instead of blocking the user's pipeline. Counter exposed in `/api/stats`.
 
-## Turning tracelens off (kill switch)
+## Turning tracesage off (kill switch)
 
-Wire tracelens in once and disable it per-environment — no code change:
+Wire tracesage in once and disable it per-environment — no code change:
 
 ```bash
-export TRACELENS_ENABLED=false      # prod: complete no-op
+export TRACESAGE_ENABLED=false      # prod: complete no-op
 ```
 
-When disabled, `TraceLens.create()` / `tracelens.trace()` / `TraceLens.session()`
+When disabled, `TraceSage.create()` / `tracesage.trace()` / `TraceSage.session()`
 return an **inert tracer**: no embedded server is started, no DB/worker/queue is
 created, `.handler` is a no-op callback, and overhead is near zero. Your
 `callbacks=[tracer.handler]` (or global `install()`) wiring keeps working untouched —
@@ -30,11 +30,11 @@ keep it out of an environment that doesn't want it.
 **Overhead when disabled** (measured against a near-instant fake LLM, so it's a
 worst-case microbenchmark — real LLM latency dwarfs all of these):
 
-- **Startup:** `TraceLens.create()` returns in ~0.3 ms and binds nothing — no port, no
+- **Startup:** `TraceSage.create()` returns in ~0.3 ms and binds nothing — no port, no
   DB file, no worker task, no background thread.
-- **Per call, global-install pattern** (`tracelens.trace()` / `install=True`):
+- **Per call, global-install pattern** (`tracesage.trace()` / `install=True`):
   effectively zero — `install()` is a no-op, so nothing is registered with LangChain
-  and your calls take the same path as if tracelens weren't there.
+  and your calls take the same path as if tracesage weren't there.
 - **Per call, explicit `callbacks=[tracer.handler]` pattern:** a small *fixed* cost
   (~14 µs/call in the microbenchmark) from LangChain building a callback manager and
   doing one skip-check per event. It does not scale with your workload; against a real
@@ -42,26 +42,26 @@ worst-case microbenchmark — real LLM latency dwarfs all of these):
   `ignore_*` flag, so its methods are never actually invoked.
 
 For literal zero overhead with the same code in every environment, prefer the
-global-install pattern and toggle `TRACELENS_ENABLED`.
+global-install pattern and toggle `TRACESAGE_ENABLED`.
 
 ## Recommended production config
 
 If you DO want tracing in prod but not the dev conveniences:
 
 ```python
-from tracelens import TraceLens, TraceLensConfig
+from tracesage import TraceSage, TraceSageConfig
 
-cfg = TraceLensConfig(
+cfg = TraceSageConfig(
     enabled=True,
     start_server=False,     # don't run the embedded UI server in your app process
     print_run_url=False,    # no stderr trace-link spam
     sample_rate=0.1,        # capture a slice (see Sampling guidance below)
 )
-tracer = await TraceLens.create(config=cfg)   # config drives start_server
+tracer = await TraceSage.create(config=cfg)   # config drives start_server
 ```
 
-Every field above has a `TRACELENS_*` env var (`TRACELENS_START_SERVER=false`,
-`TRACELENS_PRINT_RUN_URL=false`, `TRACELENS_SAMPLE_RATE=0.1`, …), so you can ship the same
+Every field above has a `TRACESAGE_*` env var (`TRACESAGE_START_SERVER=false`,
+`TRACESAGE_PRINT_RUN_URL=false`, `TRACESAGE_SAMPLE_RATE=0.1`, …), so you can ship the same
 code and tune it per environment without editing it. A `start_server=` kwarg to
 `create()`/`session()` overrides the config when you need to force it.
 
@@ -73,7 +73,7 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app):
-    app.state.tracer = await TraceLens.create(config=cfg)
+    app.state.tracer = await TraceSage.create(config=cfg)
     try:
         yield
     finally:
@@ -82,13 +82,13 @@ async def lifespan(app):
 
 Then pass `config={"callbacks": [app.state.tracer.handler]}` on each `ainvoke`, or call
 `app.state.tracer.install()` once after create to capture globally. (The `async with
-TraceLens.session(...)` context manager is for scripts/one-shot runs — it tears down at
+TraceSage.session(...)` context manager is for scripts/one-shot runs — it tears down at
 block exit.)
 
-Then view the data out-of-band with `tracelens serve --data-dir <dir>` (or point it at
+Then view the data out-of-band with `tracesage serve --data-dir <dir>` (or point it at
 durable storage). Note the embedded SQLite + local blobs are best for single-process /
 single-node today; centralized multi-process collection is on the roadmap (see
-[`production_roadmap.md`](https://github.com/kjgpta/tracelens/blob/main/production_roadmap.md)).
+[`production_roadmap.md`](https://github.com/kjgpta/tracesage/blob/main/production_roadmap.md)).
 
 ## Sampling guidance
 
@@ -111,19 +111,19 @@ Set `auth_token` (any random string ≥ 32 chars) and the server enforces:
 Constant-time comparison via `hmac.compare_digest` prevents timing leaks.
 
 ```bash
-export TRACELENS_HOST=0.0.0.0
-export TRACELENS_AUTH_TOKEN=$(openssl rand -hex 32)
+export TRACESAGE_HOST=0.0.0.0
+export TRACESAGE_AUTH_TOKEN=$(openssl rand -hex 32)
 ```
 
-`tracelens` will refuse to start if `host` is non-loopback and `auth_token` is unset.
+`tracesage` will refuse to start if `host` is non-loopback and `auth_token` is unset.
 
 ## TLS
 
-`tracelens` does not terminate TLS. Run behind a reverse proxy (nginx, Caddy,
+`tracesage` does not terminate TLS. Run behind a reverse proxy (nginx, Caddy,
 Traefik, AWS ALB). Example nginx:
 
 ```nginx
-location /tracelens/ {
+location /tracesage/ {
     proxy_pass http://127.0.0.1:7842/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -141,7 +141,7 @@ retention cap:
 
 ```bash
 # Daily cron / systemd timer
-tracelens gc --max-runs 50000
+tracesage gc --max-runs 50000
 ```
 
 This deletes the oldest runs and their blobs, in FIFO order.
@@ -151,7 +151,7 @@ This deletes the oldest runs and their blobs, in FIFO order.
 The data directory is fully portable:
 
 ```bash
-rsync -a --delete ~/.tracelens/ backup-host:~/tracelens_$(date +%F)/
+rsync -a --delete ~/.tracesage/ backup-host:~/tracesage_$(date +%F)/
 ```
 
 Include `traces.db`, `traces.db-wal`, `traces.db-shm`, and the `blobs/` directory.
@@ -186,7 +186,7 @@ If you need more throughput on Windows, raise `worker_batch_size` to 200 and
 
 ## Troubleshooting
 
-- **"Refusing to start: 0.0.0.0 without TRACELENS_AUTH_TOKEN"** — set the env var.
+- **"Refusing to start: 0.0.0.0 without TRACESAGE_AUTH_TOKEN"** — set the env var.
 - **"Queue drain timed out"** at shutdown — your worker fell behind; some events lost.
   Raise `queue_maxsize` or shutdown with more time.
 - **"FOREIGN KEY constraint failed"** in worker logs — usually means your LangGraph
@@ -199,4 +199,4 @@ If you need more throughput on Windows, raise `worker_batch_size` to 200 and
 
 A future release will add a remote-server mode (`producer → HTTP → trace server`) that
 preserves your existing API. The data directory format will be compatible —
-old data accessible via `tracelens serve` against the existing dir.
+old data accessible via `tracesage serve` against the existing dir.

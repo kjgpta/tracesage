@@ -1,6 +1,6 @@
-"""15 — Code-Migration Crew (with tracelens).
+"""15 — Code-Migration Crew (with tracesage).
 
-Identical to before.py except for the tracelens lines marked below. Run it, then open
+Identical to before.py except for the tracesage lines marked below. Run it, then open
 the printed link: the trace shows the planner → fan-out transform → reviewer shape, with
 one similar LLM call per file inside the migrate node — so you can spot a slow or failing
 work item among many.
@@ -23,7 +23,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
-from tracelens import TraceLens  # ← tracelens
+from tracesage import TraceSage  # ← tracesage
 
 REPO: dict[str, str] = {
     "area.py": "def area(r):\n    return 3.14159 * r * r",
@@ -93,9 +93,9 @@ def build_graph() -> Runnable:
 
 async def main() -> None:
     graph = build_graph()
-    async with TraceLens.session(install=True) as tl:  # ← tracelens
+    async with TraceSage.session(install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"files": [], "migrated": {}, "summary": ""})
-        await tl.flush()  # ← tracelens: ensure events persist
+        await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             await asyncio.to_thread(input, "\n🔍 Open the printed trace link, then press Enter to exit.")
     for name, code in result["migrated"].items():

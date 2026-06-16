@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible bug in tracelens
+description: Report a reproducible bug in tracesage
 title: "[bug]: "
 labels: ["bug", "needs-triage"]
 body:
@@ -9,14 +9,14 @@ body:
         Thanks for taking the time to file a bug.
 
         Before submitting, please:
-        - Search [existing issues](https://github.com/kjgpta/tracelens/issues) to avoid duplicates.
-        - Try the latest version (`pip install -U tracelens`) to confirm the bug still reproduces.
+        - Search [existing issues](https://github.com/kjgpta/tracesage/issues) to avoid duplicates.
+        - Try the latest version (`pip install -U tracesage`) to confirm the bug still reproduces.
 
   - type: input
     id: version
     attributes:
-      label: tracelens version
-      description: Output of `tracelens version`
+      label: tracesage version
+      description: Output of `tracesage version`
       placeholder: "0.1.0"
     validations:
       required: true
@@ -78,7 +78,7 @@ body:
         The smallest possible code snippet that reproduces the bug. Bugs without a reproduction case are very hard to fix.
       render: python
       placeholder: |
-        from tracelens import TraceLens
+        from tracesage import TraceSage
         # ...
     validations:
       required: true
