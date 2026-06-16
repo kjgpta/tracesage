@@ -195,5 +195,5 @@ Print version.
 
 ```bash
 tracesage version
-# tracesage 0.1.0
+# tracesage 0.1.1
 ```

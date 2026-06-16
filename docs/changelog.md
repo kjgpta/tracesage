@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.1.1] — 2026-06-16
+
+Branding, docs, and packaging polish — no runtime/behaviour changes.
+
+### Added
+- Brand logo assets under `assets/` — the topology `>` mark + `tracesage` wordmark,
+  in dark / light / transparent and square-icon variants.
+- The documentation site now carries the logo and favicon (MkDocs Material), and the
+  README and docs home lead with the brand logo.
+
+### Changed
+- UI brand wordmark is now two-tone — `trace` in the accent blue, `sage` in green —
+  echoing the logo's blue→green gradient (and it adapts to the light/dark theme).
+- README badges modernized: dropped the legacy `.svg` suffixes (more reliable
+  rendering across viewers), license pulled live from PyPI metadata, CI badge pinned
+  to `main`, and a Docs badge added.
+
 ## [0.1.0] — 2026-06-16
 
 First public release.
@@ -107,5 +124,6 @@ First public release.
 - Cost tracking and PII redaction planned for a future release
 - CrewAI / AutoGen / LlamaIndex adapters planned for a future release
 
-[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.1
 [0.1.0]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.0
