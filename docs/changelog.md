@@ -9,22 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
-## [0.2.0] — 2026-06-15
+## [0.1.0] — 2026-06-16
+
+First public release.
 
 ### Added
+
+#### Core pipeline
+- LangChain `BaseCallbackHandler` integration for chain, agent, tool, LLM,
+  chat-model, retriever events (`on_chain_start`, `on_chat_model_start`, etc.)
+- `TraceSage.create()` factory wires storage + worker + server on a single event loop
+- Async event queue with batched SQLite writes (50 events / 100 ms default)
+- Gzipped blob storage for full event payloads (`*_END` events)
+- Pluggable `StorageBackend` protocol (SQLite implementation)
+
+#### Server + UI
+- FastAPI server with REST + WebSocket endpoints, lifespan-managed
+- Endpoints: `/api/runs`, `/api/runs/{id}/journey`, `/api/runs/{id}/steps/{event_id}/full`,
+  `/api/stats`, `/api/topology`, `/api/tools`, `/api/runs/{id}/export?format=jsonl`,
+  `DELETE /api/runs/{id}`, `/ws/trace/{run_id}`, `/ws/runs`
+- Single-page interactive dashboard with Cytoscape.js + dagre graph view
+- Run list, timeline, step drawer, dark/light themes, keyboard shortcuts
+- Within-run search/filter of the timeline
+- WebSocket reconnect with exponential backoff (1s → 30s)
+- Replay mode for runs at 1x/2x/5x speed
 
 #### MCP tool-source attribution
 - `tracesage.adapters.mcp.register_mcp_client(tracer, client)` loads a
   `MultiServerMCPClient`'s tools and attributes each to its originating MCP server
   (works around langchain-mcp-adapters not exposing provenance); plus
   `register_mcp_tools()` for explicit lists and `TraceSage.register_tool_source()`
-- Tool events carry an `mcp_server` field, persisted on the event and in a new
-  `mcp_tools` table (schema v3) so a server's tools — including uncalled ones —
-  appear in the topology and `GET /api/tools` inventory even in `serve` mode
+- Tool events carry an `mcp_server` field, persisted on the event and in an
+  `mcp_tools` table so a server's tools — including uncalled ones — appear in the
+  topology and `GET /api/tools` inventory even in `serve` mode
 - UI: MCP server nodes, agent→server and server→tool edges, per-server colour
   rings/chips on tool nodes, a draggable, collapsible **"Tools by source"** panel,
   and a dynamic legend
-- New optional extra `tracesage[mcp]` (langchain-mcp-adapters, mcp, langgraph),
+- Optional extra `tracesage[mcp]` (langchain-mcp-adapters, mcp, langgraph),
   imported lazily — `import tracesage` never requires it
 
 #### Developer experience
@@ -44,92 +65,47 @@ _Nothing yet._
   tree; `TraceSage.run_view()` renders the live UI inline in Jupyter
 - **Richer errors**: exception type + full traceback captured on error events and
   retrievable in the UI drawer / `/full`
-- **New CLI commands**: `demo`, `show`, `watch`, `diff`, `view`, and `serve --open`
 - **pytest plugin**: the `tracesage_capture` fixture (auto-registered) with
   `assert_tool_called`, `assert_no_errors`, `total_tokens`, etc. — for both sync
   and async tests
 - `TraceSage.flush()` to await full persistence (handy in tests/notebooks)
-- In-UI within-run **search/filter** of the timeline
-
-#### Examples
-- Restructured `examples/` into `getting_started/` (no-key demos), `mcp/`
-  (MCP attribution), and a new **`showcase/`** gallery — 30 real before/after
-  apps across customer support, RAG, multi-agent, MCP, reasoning loops, and
-  finance/legal/insurance verticals
-
-### Fixed
-- Auth middleware no longer 401s CORS preflight (`OPTIONS`) requests; CORS is the
-  outermost layer
-- WebSocket: per-socket send lock so catchup can't race a worker broadcast
-- Worker: removed a double `task_done()` on the cancellation path
-- Storage: timestamps normalized to fixed-width UTC so lexical ordering is
-  monotonic (keyset pagination correctness)
-- BlobStore: path-traversal guard now enforced on write as well as read
-- Adapter: token counts of `0` no longer dropped; per-run caches guarded by a lock
-- CLI `gc --max-blob-size-gb` no longer re-walks the whole blob tree per deletion;
-  `export`/`import` no longer leave dangling `blob_path` references, and import
-  synthesizes `runs` rows for nested sub-runs
-
-### Changed
-- Schema version 1 → 3 (additive, auto-migrated on `init()`; existing data preserved)
-
-## [0.1.0] — 2026-05-02
-
-### Added
-
-#### Core pipeline
-- LangChain `BaseCallbackHandler` integration for chain, agent, tool, LLM,
-  chat-model, retriever events (`on_chain_start`, `on_chat_model_start`, etc.)
-- `TraceSage.create()` factory wires storage + worker + server on a single event loop
-- Async event queue with batched SQLite writes (50 events / 100 ms default)
-- Gzipped blob storage for full event payloads (`*_END` events)
-- Pluggable `StorageBackend` protocol (SQLite implementation in v0.1)
-
-#### Server + UI
-- FastAPI server with REST + WebSocket endpoints, lifespan-managed
-- Endpoints: `/api/runs`, `/api/runs/{id}/journey`, `/api/runs/{id}/steps/{event_id}/full`,
-  `/api/stats`, `/api/topology`, `/api/runs/{id}/export?format=jsonl`,
-  `DELETE /api/runs/{id}`, `/ws/trace/{run_id}`, `/ws/runs`
-- Single-page interactive dashboard with Cytoscape.js + dagre graph view
-- Run list, timeline, step drawer, dark/light themes, keyboard shortcuts
-- WebSocket reconnect with exponential backoff (1s → 30s)
-- Replay mode for runs at 1x/2x/5x speed
 
 #### CLI
-- `tracesage serve` (read-only viewer)
-- `tracesage export` (JSONL dump)
-- `tracesage stats`
-- `tracesage gc` (retention)
-- `tracesage version`
+- `tracesage serve` (read-only viewer), `export` (JSONL dump), `import`, `stats`,
+  `runs`, `gc` (retention), `version`, `doctor`
+- Developer commands: `demo`, `show`, `watch`, `diff`, `view`, and `serve --open`
 
 #### Production safety
 - Hard fail-stop when binding non-loopback addresses without `auth_token`
 - Bearer-token HTTP auth (skip `/api/health`); constant-time comparison
-- WebSocket auth via `?token=` query param or `Sec-WebSocket-Protocol` subprotocol
-- Path-traversal guard in BlobStore
+- CORS preflight (`OPTIONS`) handled by the outermost CORS layer, never 401'd by auth
+- WebSocket auth via `?token=` query param or `Sec-WebSocket-Protocol` subprotocol;
+  per-socket send lock so catchup can't race a worker broadcast
+- Path-traversal guard in BlobStore (enforced on read and write)
 - Per-run event cap (circuit breaker) + root-level sampling
 - Bounded LRU eviction on all internal run-id maps (no memory leaks in long runs)
 - Worker FK auto-creation for sub-runs (handles nested LangGraph correctly)
 - `queue.join()` waits for full persistence (not just dequeue)
 
-#### Tests
-- 77 unit + integration tests passing across all layers
-- 4 viability test systems: order pipeline, research supervisor, parallel review, writer-critic loop
-- 100-concurrent stress test (`tests/stress/`)
-- Crash-recovery harness (`tools/crash_recovery_test.py`) verified ACID survival
-- Bench tool (`tools/bench.py`) with cross-platform throughput numbers
+#### Examples
+- `examples/` organized into `getting_started/` (no-key demos), `mcp/`
+  (MCP attribution), and a **`showcase/`** gallery — 30 real before/after apps
+  across customer support, RAG, multi-agent, MCP, reasoning loops, and
+  finance/legal/insurance verticals
 
 #### Tooling
 - GitHub Actions CI matrix: Linux/Windows/macOS × Python 3.11/3.12/3.13
-- Trusted Publishing release workflow
+- Trusted Publishing release workflow; MkDocs documentation site
 - Ruff lint config
+- Crash-recovery harness (`tools/crash_recovery_test.py`) and a throughput
+  bench tool (`tools/bench.py`)
 
 ### Known limitations
 
-- Centralized multi-producer mode planned for v0.2
-- OpenInference / OpenTelemetry export planned for v0.3
-- Cost tracking and PII redaction planned for v0.2
-- CrewAI / AutoGen / LlamaIndex adapters planned for v0.4+
+- Centralized multi-producer mode planned for a future release
+- OpenInference / OpenTelemetry export planned for a future release
+- Cost tracking and PII redaction planned for a future release
+- CrewAI / AutoGen / LlamaIndex adapters planned for a future release
 
-[0.2.0]: https://github.com/kjgpta/tracesage/releases/tag/v0.2.0
+[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.0
