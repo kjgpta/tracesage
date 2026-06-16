@@ -299,7 +299,7 @@ throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
 
 ## Status
 
-**v0.2 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
+**v0.1 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
 single-Python-process deployments; centralized multi-process / remote-collector mode
 is on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
 

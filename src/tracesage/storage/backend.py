@@ -1,4 +1,4 @@
-"""StorageBackend protocol — the contract that v0.2 backends (Postgres, JSONL, remote HTTP) implement.
+"""StorageBackend protocol — the contract that future backends (Postgres, JSONL, remote HTTP) implement.
 
 Ships SQLiteBackend. The protocol is defined here so the protocol surface stays
 backend-neutral.

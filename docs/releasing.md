@@ -163,9 +163,9 @@ the actual publish, so you want this part to be boring.
 ```bash
 # pyproject.toml — version is the source of truth
 grep -E '^version\s*=' pyproject.toml
-# version = "0.2.0"
+# version = "0.1.0"
 
-# CHANGELOG.md — should have a "## [0.2.0]" section with the release notes,
+# CHANGELOG.md — should have a "## [0.1.0]" section with the release notes,
 # AND a "## [Unreleased]" placeholder above it for the next iteration.
 ```
 
@@ -195,8 +195,8 @@ You should see:
 
 ```
 dist/
-├── tracesage-0.2.0.tar.gz             # sdist
-└── tracesage-0.2.0-py3-none-any.whl   # wheel
+├── tracesage-0.1.0.tar.gz             # sdist
+└── tracesage-0.1.0-py3-none-any.whl   # wheel
 ```
 
 ### 3.4 Lint with twine
@@ -245,7 +245,7 @@ python -m venv /tmp/tl-test
 source /tmp/tl-test/bin/activate    # PowerShell: .\Scripts\Activate.ps1
                                     # bash on Windows: source /tmp/tl-test/Scripts/activate
 
-pip install "dist/tracesage-0.2.0-py3-none-any.whl[langchain]"
+pip install "dist/tracesage-0.1.0-py3-none-any.whl[langchain]"
 
 # Smoke checks.
 python -c "from tracesage import TraceSage; print('OK')"
@@ -288,7 +288,7 @@ off about the build.
 
 ```bash
 git add pyproject.toml CHANGELOG.md
-git commit -m "Release v0.2.0"
+git commit -m "Release v0.1.0"
 git push origin main
 ```
 
@@ -298,8 +298,8 @@ CI runs again on this push. Wait until it's green before tagging.
 
 ```bash
 # Annotated tag (preferred over lightweight).
-git tag -a v0.2.0 -m "v0.2.0 — initial release"
-git push origin v0.2.0
+git tag -a v0.1.0 -m "v0.1.0 — initial release"
+git push origin v0.1.0
 ```
 
 This is the moment of truth. Pushing a tag matching `v*` triggers
@@ -343,10 +343,10 @@ path for one-offs or when CI isn't available.
 
 ```bash
 # Wait ~30s after the workflow finishes — PyPI's CDN is async.
-pip install tracesage==0.2.0
+pip install tracesage==0.1.0
 
 # Or check the listing:
-# https://pypi.org/project/tracesage/0.2.0/
+# https://pypi.org/project/tracesage/0.1.0/
 ```
 
 Take a moment to read the rendered README on the PyPI page. If anything
@@ -360,8 +360,8 @@ They're separate but both come from the same tag.
 
 ```bash
 # Easiest: use the gh CLI.
-gh release create v0.2.0 \
-  --title "v0.2.0" \
+gh release create v0.1.0 \
+  --title "v0.1.0" \
   --notes-file - <<'EOF'
 First public release of tracesage.
 
@@ -384,9 +384,9 @@ EOF
 
 Or use the web UI: https://github.com/kjgpta/tracesage/releases/new
 
-- Choose the existing tag `v0.2.0`
-- Title: `v0.2.0`
-- Description: paste from your `CHANGELOG.md` `[0.2.0]` section
+- Choose the existing tag `v0.1.0`
+- Title: `v0.1.0`
+- Description: paste from your `docs/changelog.md` `[0.1.0]` section
 - Click *Publish release*
 
 GitHub auto-attaches the source `.tar.gz` and `.zip` from the tag.
@@ -410,10 +410,10 @@ already set, give the CDN another minute and hard-refresh.
 ### 5.1 Bump for next development cycle
 
 ```bash
-# pyproject.toml: version = "0.2.1"  (patch) or "0.2.0" (minor)
+# pyproject.toml: version = "0.1.1"  (patch) or "0.2.0" (minor)
 # CHANGELOG.md: add a fresh "## [Unreleased]" section at the top.
 
-git commit -am "Bump to 0.2.1-dev"
+git commit -am "Bump to 0.1.1-dev"
 git push
 ```
 
@@ -425,11 +425,11 @@ are just:
 
 ```bash
 # Update version in pyproject.toml + CHANGELOG.md
-git commit -am "Release v0.2.1"
+git commit -am "Release v0.1.1"
 git push
-git tag -a v0.2.1 -m "v0.2.1"
-git push origin v0.2.1
-gh release create v0.2.1 ...
+git tag -a v0.1.1 -m "v0.1.1"
+git push origin v0.1.1
+gh release create v0.1.1 ...
 ```
 
 ### 5.3 Versioning policy
@@ -447,7 +447,7 @@ gh release create v0.2.1 ...
 ### "File already exists" on PyPI upload
 PyPI is immutable. You can't re-upload the same version. Either:
 
-- Bump the patch (`0.2.0` → `0.2.1`) and try again
+- Bump the patch (`0.1.0` → `0.1.1`) and try again
 - Yank the broken release: PyPI project page → *Manage* → *Releases* → *Yank*.
   Yanked releases stay listed but `pip install` won't pick them by default.
 
@@ -485,20 +485,20 @@ The Pages CDN caches aggressively. After the `docs.yml` workflow finishes:
 For RC / beta releases, use a PEP 440-compatible suffix:
 
 ```
-version = "0.2.0rc1"   # release candidate
-version = "0.2.0b1"    # beta
-version = "0.2.0a1"    # alpha
-version = "0.2.0.dev1" # dev / nightly
+version = "0.1.0rc1"   # release candidate
+version = "0.1.0b1"    # beta
+version = "0.1.0a1"    # alpha
+version = "0.1.0.dev1" # dev / nightly
 ```
 
-Tag the same way: `git tag v0.2.0rc1`. PyPI won't show pre-releases on
+Tag the same way: `git tag v0.1.0rc1`. PyPI won't show pre-releases on
 the project page by default; users need `pip install tracesage --pre`
 to install them.
 
 ### Yanking a bad release
 - PyPI project page → *Manage* → *Releases* → click the version → *Yank release*
 - Provide a reason (will be shown to anyone trying to install the version)
-- Yanked versions stay installable via explicit pin (`pip install tracesage==0.2.0`)
+- Yanked versions stay installable via explicit pin (`pip install tracesage==0.1.0`)
   but won't be picked by version solvers
 
 ### Removing a release entirely (rare)
@@ -539,7 +539,7 @@ git push -u origin main
 # 1. Bump version in pyproject.toml + CHANGELOG.md
 # 2. Commit and push to main; wait for CI to go green
 # 3. Tag and push:
-git tag -a v0.2.0 -m "v0.2.0"
-git push origin v0.2.0
-# 4. Create GitHub Release (gh release create v0.2.0 ...)
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+# 4. Create GitHub Release (gh release create v0.1.0 ...)
 ```

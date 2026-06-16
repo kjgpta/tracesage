@@ -87,6 +87,6 @@ Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?`
 
 ## Status
 
-**v0.2 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
+**v0.1 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
 single-Python-process deployments; centralized multi-process / remote-collector mode
 is on the roadmap. See the [changelog](changelog.md) for release notes.
