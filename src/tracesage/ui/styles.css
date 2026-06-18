@@ -754,7 +754,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tools-panel {
   position: absolute;
   top: 56px; right: 12px;
-  z-index: 5;
+  /* Sit above the graph SVG, the graph-controls toolbar (z-index 10) and the
+     replay-step badge (z-index 50) so the panel can never be parked *behind* the
+     topology/trace graph. Stays below the node drawer (1000) and modals. */
+  z-index: 60;
   width: 268px;
   max-height: calc(100% - 120px);
   display: flex; flex-direction: column;
@@ -963,22 +966,37 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   display: flex; align-items: center; gap: 8px;
 }
 .step-card .icon {
+  /* EVENT_ICONS are short text labels (CHAIN, AGENT, TOOL, LLM, RETR, RUN, ERR),
+     not single glyphs. A fixed 22px square is too small for them — the text
+     overflowed the box and ran onto the timestamp. Use a fixed-width tag wide
+     enough for the longest label so labels never overflow and timestamps stay
+     aligned across rows. */
   flex: 0 0 auto;
-  width: 22px; height: 22px;
+  width: 46px; height: 18px;
+  padding: 0 4px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  font-size: 13px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.3px;
+  color: var(--text-dim);
+  white-space: nowrap; overflow: hidden;
 }
 .step-card .icon.error { background: color-mix(in srgb, var(--error) 22%, var(--surface-2)); }
 .step-card .ts {
+  /* Never shrink or wrap: the timestamp must always keep its full width so a
+     long event name can't overrun / overlap it. */
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-family: var(--font-mono);
   color: var(--text-dim);
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 .step-card .name {
+  /* min-width:0 is required for text-overflow:ellipsis to work on a flex item;
+     without it the name refuses to shrink and overflows onto its neighbours. */
   flex: 1;
+  min-width: 0;
   color: var(--text-strong);
   font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

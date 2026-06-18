@@ -20,7 +20,13 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -51,7 +57,7 @@ def main() -> None:
     question = "Who won the most recent FIFA World Cup, and in what year?"
     print(f"Q: {question}\n")
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures the agent loop
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures the agent loop
         result = agent.invoke({"input": question})
         print("A:", result["output"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

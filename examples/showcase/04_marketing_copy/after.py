@@ -19,7 +19,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnablePassthrough
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 
 def make_llm(temperature: float = 0.7) -> Runnable:
@@ -55,7 +61,7 @@ def main() -> None:
     chain = build_chain()
     brief = "A noise-cancelling water bottle that plays lo-fi music while you hydrate."
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures every chain stage
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures every chain stage
         out = chain.invoke({"brief": brief})
         print("DRAFT:\n", out["draft"], "\n")
         print("VARIANTS:\n", out["variants"], "\n")

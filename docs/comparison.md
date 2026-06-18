@@ -30,7 +30,7 @@ sweet spot. Here's when to pick which.
 | Eval framework | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Dataset management | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Prompt versioning | ✗ (non-goal) | ✓ | ✓ | ✗ |
-| OpenTelemetry export | v0.3+ | partial | ✓ | ✓ |
+| OpenTelemetry export | ✓ (0.2+) | partial | ✓ | ✓ |
 | Cost tracking | v0.3+ | ✓ | ✓ | ✓ |
 | PII redaction | ✓ | ✓ | ✓ | partial |
 | MIT licensed | ✓ | proprietary | MIT | Elastic v2 |
@@ -46,7 +46,8 @@ It is intentionally NOT trying to be:
 - A prompt version control system
 - A team collaboration platform
 - A cloud SaaS
-- An OpenTelemetry collector (yet)
+- An OpenTelemetry collector or backend (it *exports* to one via OTLP — see
+  [Configuration → OpenTelemetry export](configuration.md) — but it isn't a collector)
 
 For any of those, the alternatives above are better. For a developer who wants
 to debug a LangGraph at 2am on a flight with no internet, `tracesage` works.
@@ -68,7 +69,7 @@ The data directory is portable JSONL-exportable. You can:
 
 ## What we're aiming for in v1.0
 
-- OpenInference / OTLP export
+- OpenInference semantic-convention attributes (OTLP export already shipped in 0.2.0)
 - Cost tracking
 - React-based UI with eval scaffolding
 - Postgres backend for centralized deployments

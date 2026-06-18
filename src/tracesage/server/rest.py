@@ -105,8 +105,9 @@ async def list_runs(
     status: Annotated[str | None, Query(pattern="^(running|completed|failed|all)$")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    tag: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
 ) -> RunListResponse:
-    runs, total = await db.list_runs(status=status, limit=limit, offset=offset)
+    runs, total = await db.list_runs(status=status, limit=limit, offset=offset, tag=tag)
     return RunListResponse(runs=runs, total=total, limit=limit, offset=offset)
 
 

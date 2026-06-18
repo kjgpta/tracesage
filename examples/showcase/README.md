@@ -43,7 +43,25 @@ async with TraceSage.session(install=True) as tl:
 ```
 
 That's it — no `callbacks=[...]` threading. A `🔍 tracesage: …` link prints on the first
-run; traces also persist to `~/.tracesage`, so `tracesage serve` reopens them later.
+run; traces persist to disk, so `tracesage serve` reopens them later.
+
+**Each demo is its own application.** Because the topology map and "Tools by source"
+aggregate every run in a data dir, each `after.py` writes to its own dir
+(`~/.tracesage/<folder-name>`, e.g. `~/.tracesage/01_support_faq_router`) so demos never
+merge into one graph — the same pattern you should use to keep your own apps separate:
+
+```python
+from pathlib import Path
+import tracesage
+
+DATA_DIR = Path.home() / ".tracesage" / "my-app"          # one dir per application
+with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):
+    result = chain.invoke(...)
+```
+
+Each script prints its `Data dir:` and `tracesage runs -d <dir>` on startup; inspect a
+demo with `tracesage runs -d ~/.tracesage/<folder-name>`. See
+[Configuration → Isolating multiple applications](../../docs/configuration.md).
 
 ## The gallery
 

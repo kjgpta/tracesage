@@ -938,9 +938,15 @@ export class GraphView {
 
   /** Reset viewBox to fit the entire content. */
   fit() {
-    if (this.nodes.length === 0) return;
-    const xs = this.nodes.map(n => n.x);
-    const ys = this.nodes.map(n => n.y);
+    // Only fit to VISIBLE nodes. In run-trace mode the non-participating nodes
+    // are parked far off-screen (x/y = -100000); including them would blow the
+    // bounding box up to the whole canvas and shrink the run to a dot. Filtering
+    // them out makes "fit" zoom to just the run, mirroring topology mode (where
+    // every node is visible, so this filter is a no-op).
+    const visible = this.nodes.filter(n => n.x > -50000 && n.y > -50000);
+    if (visible.length === 0) return;
+    const xs = visible.map(n => n.x);
+    const ys = visible.map(n => n.y);
     const minX = Math.min(...xs) - NODE_HALF * 3;
     const minY = Math.min(...ys) - NODE_HALF * 3;
     const maxX = Math.max(...xs) + NODE_HALF * 3;

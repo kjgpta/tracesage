@@ -24,7 +24,13 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracesage import TraceSage  # ← tracesage
+from pathlib import Path  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 DATASET: list[dict[str, str]] = [
     {"question": "What is the capital of France?", "expected": "Paris"},
@@ -92,7 +98,7 @@ def build_graph() -> Runnable:
 async def main() -> None:
     graph = build_graph()
     rows: list[EvalState] = []
-    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts UI + captures every call
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage: starts UI + captures every call
         for item in DATASET:
             result = await graph.ainvoke(
                 {"question": item["question"], "expected": item["expected"],

@@ -20,7 +20,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 
 class LineItem(BaseModel):
@@ -90,7 +96,7 @@ GRAND TOTAL ................... 900.00
 
 def main() -> None:
     extractor = build_extractor()
-    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures every call
         report("Clean invoice (should PASS)", extractor, GOOD_INVOICE)
         report("Messy invoice (should FAIL)", extractor, BAD_INVOICE)
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

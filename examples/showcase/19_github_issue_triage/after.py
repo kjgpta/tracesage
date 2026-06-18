@@ -21,7 +21,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 ISSUE: dict[str, object] = {
     "number": 482,
@@ -88,7 +94,7 @@ def main() -> None:
     issue_text = f"Issue #{ISSUE['number']}: {ISSUE['title']}\n\n{ISSUE['body']}"
     print(issue_text, "\n")
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures every call
         result = agent.invoke({"input": issue_text})
         print("Summary:", result["output"])
         print("Final issue state:", ISSUE)

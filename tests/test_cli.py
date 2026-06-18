@@ -250,6 +250,49 @@ def test_export_import_round_trip(tmp_path: Path) -> None:
     asyncio.run(_check())
 
 
+def test_export_import_round_trip_positional_args(tmp_path: Path) -> None:
+    """export RUN_ID / import FILE positionally (consistent with show/watch/view),
+    in addition to the --run-id / --input flags."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    _seed_run(src)
+
+    exp = tmp_path / "exp.jsonl"
+    # run id given POSITIONALLY, not via --run-id
+    result = runner.invoke(
+        app, ["export", "--data-dir", str(src), "r1", "--output", str(exp)]
+    )
+    assert result.exit_code == 0, result.output
+
+    # input file given POSITIONALLY, not via --input
+    result = runner.invoke(
+        app, ["import", "--data-dir", str(dst), str(exp)]
+    )
+    assert result.exit_code == 0, result.output
+    assert "imported 1 runs" in result.output
+
+
+def test_export_requires_a_run_id_even_positionally(tmp_path: Path) -> None:
+    _bootstrap_empty_db(tmp_path)
+    result = runner.invoke(app, ["export", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "run id" in result.output.lower() or "--all" in result.output
+
+
+def test_python_dash_m_entrypoint_runs() -> None:
+    """`python -m tracesage` must work (a __main__.py exists), not just the
+    `tracesage` console script."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "tracesage", "version"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "tracesage" in result.stdout
+
+
 def test_export_import_round_trip_preserves_nested_subrun_events(tmp_path: Path) -> None:
     """Regression: a trace with sub-runs (events whose run_id != root) must survive
     export → import. `export` only lists top-level runs, so import must synthesize a

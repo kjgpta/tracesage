@@ -289,6 +289,19 @@ a topology node — it exists so the dashboard's run list gets a lifecycle
 ping when a root run begins. (`run_end` is a reserved event type but is not
 currently emitted; run completion is inferred from the root chain ending.)
 
+## Summary vs. request/response payload
+
+Each step in the timeline has two levels of detail:
+
+- **Summary** — a short, truncated **one-line preview** (e.g. `weather_agent:
+  input={…}`), capped by `summary_max_chars`. It's there so you can scan the
+  timeline quickly without opening anything.
+- **Request / Response payloads** — the *full* data, stored as gzipped blobs.
+  A step pairs its `*_start` event (the **request**: inputs / prompt / query)
+  with its `*_end` event (the **response**: outputs / result). Click any step
+  in the UI and the drawer shows both, side by side, plus tokens, duration, and
+  any error.
+
 ---
 
 ## Where to go next

@@ -22,7 +22,13 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracesage import TraceSage  # ← tracesage
+from pathlib import Path  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -103,7 +109,7 @@ async def main() -> None:
     graph = build_graph()
     ticket = "After the latest update the desktop app crashes on launch with a 0xC0000005 error."
     print(f"Ticket: {ticket}\n")
-    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts the UI + captures every call
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage: starts the UI + captures every call
         result = await graph.ainvoke({"ticket": ticket})
         await tl.flush()  # ← tracesage: ensure events persist
         print("Routed to:", result["specialist"], "| resolved:", result["resolved"])

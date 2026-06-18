@@ -60,3 +60,24 @@ The 30 apps span five themes — see the full index in the
 - **Domain verticals** — invoice extraction, contract clause risk, insurance claim intake
 
 Each app folder has its own README explaining what the trace reveals.
+
+## Each example is its own application (isolated data dir)
+
+The topology map and the **"Tools by source"** panel aggregate every run in a data dir,
+so two applications sharing one dir would merge into a single graph. To keep them
+separate, **every example writes to its own data dir** under `~/.tracesage/`:
+
+- `getting_started/` → `~/.tracesage/smart-search`, `…/research-supervisor`, `…/rag-tools`
+- `mcp/` → `~/.tracesage/mcp-mixed`, `…/mcp-only`, `…/local-tools`, `…/multi-mcp`
+- `showcase/<NN>_<name>/after.py` → `~/.tracesage/<NN>_<name>` (its folder name)
+
+Each script prints its `Data dir:` and `tracesage runs -d <dir>` on startup. Inspect one
+example's runs without others bleeding in:
+
+```bash
+tracesage runs  -d ~/.tracesage/smart-search
+tracesage serve -d ~/.tracesage/smart-search
+```
+
+Use the same pattern for your own apps — one `data_dir` per application. See
+[Configuration → Isolating multiple applications](configuration.md).

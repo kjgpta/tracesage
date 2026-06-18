@@ -39,6 +39,9 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
 - **MCP-aware.** Tools loaded from MCP servers are attributed by source — see which tools
   came from which server vs. which are hardcoded. See [MCP support](mcp.md).
+- **OpenTelemetry export.** Optionally ship every trace as OTel spans to a collector /
+  Tempo / Jaeger / Datadog / Honeycomb — the bridge to your production stack. See
+  [Configuration → OpenTelemetry export](configuration.md).
 - **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned.
 - **MIT licensed.** Free forever.
 
@@ -84,13 +87,15 @@ Once a run lands, the UI shows:
 
 - **Run list** — every run with status, tags, started-at, total steps, total tokens
 - **Topology graph** — agent / tool / chain / retriever relationships across runs
-- **Timeline** — chronological steps with click-to-expand full payloads
+- **Timeline** — chronological steps; click any step to expand its full **request and
+  response** payloads (MCP-backed tools are tagged with their server)
 - **Replay** — animate any completed run at 1x / 2x / 5x
 
 Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?` help.
 
 ## Status
 
-**v0.1 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
-single-Python-process deployments; centralized multi-process / remote-collector mode
-is on the roadmap. See the [changelog](changelog.md) for release notes.
+**v0.2 — beta.** API may still shift before v1.0. Production-monitoring-ready for
+single-Python-process deployments, with OpenTelemetry export to bridge into a central
+stack; native multi-process / remote-collector storage is on the roadmap. See the
+[changelog](changelog.md) for release notes.

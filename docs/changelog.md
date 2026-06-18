@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.0] — 2026-06-18
+
+The "full picture + production bridge" release: complete request/response capture,
+OpenTelemetry export, per-application isolation, and a batch of UI/CLI/safety fixes.
+
+### Added
+- **OpenTelemetry (OTLP) export.** Set `otlp_endpoint` (env `TRACESAGE_OTLP_ENDPOINT`)
+  and every event is also exported as an OTel span to a collector / Tempo / Jaeger /
+  Datadog / Honeycomb, in addition to the local SQLite store. Maps `root_run_id`→trace,
+  `run_id`→span, `parent_run_id`→parent, with token/error/MCP attributes. Optional
+  `tracesage[otel]` extra; best-effort and never breaks the app if the collector is
+  down. Config: `otlp_endpoint`, `otlp_service_name`, `otlp_headers`.
+- **Full request *and* response payloads.** `*_start` events (inputs/prompts/queries)
+  are now persisted as blobs alongside the existing `*_end` outputs, so the UI step
+  drawer shows the request and response paired together for each step.
+- **`tracesage show` colour + ordering** — each element kind (chain/agent/tool/llm/
+  retriever) renders in its own colour, MCP-backed tools are tagged `mcp:<server>`,
+  and `--reverse` flips sibling order (default follows execution flow).
+- **`python -m tracesage`** now works (added `__main__`).
+- **Positional args** for `tracesage export [RUN_ID]` and `import [INPUT]` (the
+  `--run-id` / `--input` flags still work).
+- Examples each write to their own data dir, demonstrating per-application isolation;
+  new "Isolating multiple applications" docs.
+
+### Changed
+- **Topology + "Tools by source" isolation.** These are computed per data dir, so
+  applications are kept separate by giving each its own `data_dir` (documented). All
+  bundled examples now follow this.
+- UI static assets are served with `Cache-Control: no-cache`, so UI updates take
+  effect on a normal reload (no more stale cached `app.js`/`styles.css`).
+- `tracesage runs --tag` is now filtered in SQL, so it composes correctly with
+  `--limit`/`--offset` and the reported total.
+- Removed the now-unused `aiofiles` runtime dependency.
+
+### Fixed
+- **Embedded UI server fails soft on a busy port.** A port conflict made uvicorn call
+  `sys.exit(1)`, whose `SystemExit` previously crashed the *host application*; it is
+  now contained — tracing continues without the local UI.
+- Auth: a non-ASCII bearer token / `?token=` no longer raises (it failed open to a
+  500); it fails closed with 401/4401.
+- `BlobStore.read()` no longer blocks the event loop (decompress + parse offloaded).
+- Timeline step cards: the kind label (CHAIN/TOOL/LLM/…) no longer overflows its box
+  and overruns the timestamp.
+- "Tools by source" panel: raised above the graph, clamped fully inside the pane, and
+  re-clamped when a side pane expands (it slides over instead of being hidden).
+- "Fit to view" in run-trace mode now fits the run instead of zooming out to include
+  off-screen hidden nodes.
+
 ## [0.1.1] — 2026-06-16
 
 Branding, docs, and packaging polish — no runtime/behaviour changes.

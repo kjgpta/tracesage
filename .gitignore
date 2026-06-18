@@ -60,7 +60,6 @@ coverage.xml
 .tracesage-demo/
 tracesage_test/
 bench_data/
-examples/**/mcp_demo_data/
 
 # Build artifacts
 *.tar.gz
@@ -68,3 +67,8 @@ examples/**/mcp_demo_data/
 
 # MkDocs build output
 site/
+
+# Local drafts / articles — kept out of the public repo
+drafts/
+*.draft.md
+tracesage-substack-article.md

@@ -262,28 +262,31 @@ class SQLiteBackend:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        tag: str | None = None,
     ) -> tuple[list[Run], int]:
         # Filter to top-level runs only (run_id == root_run_id). Sub-runs from nested
         # LangGraph nodes have their own rows for events FK but should not appear in
         # the user-facing run list.
-        if status is None or status == "all":
-            count_sql = "SELECT COUNT(*) AS n FROM runs WHERE run_id = root_run_id"
-            count_params: tuple = ()
-            list_sql = (
-                "SELECT * FROM runs WHERE run_id = root_run_id "
-                "ORDER BY started_at DESC LIMIT ? OFFSET ?"
-            )
-            list_params: tuple = (limit, offset)
-        else:
-            count_sql = (
-                "SELECT COUNT(*) AS n FROM runs WHERE run_id = root_run_id AND status = ?"
-            )
-            count_params = (status,)
-            list_sql = (
-                "SELECT * FROM runs WHERE run_id = root_run_id AND status = ? "
-                "ORDER BY started_at DESC LIMIT ? OFFSET ?"
-            )
-            list_params = (status, limit, offset)
+        clauses = ["run_id = root_run_id"]
+        where_params: list = []
+        if status is not None and status != "all":
+            clauses.append("status = ?")
+            where_params.append(status)
+        if tag:
+            # tags is stored as a JSON array TEXT; a substring match on the raw
+            # JSON is an acceptable (and intentionally loose) tag-substring filter.
+            # Applied in SQL so it composes with COUNT/LIMIT/OFFSET below.
+            clauses.append("tags LIKE ?")
+            where_params.append(f"%{tag}%")
+        where = " AND ".join(clauses)
+
+        count_sql = f"SELECT COUNT(*) AS n FROM runs WHERE {where}"  # noqa: S608 - clauses are static, values bound via ?
+        count_params: tuple = tuple(where_params)
+        list_sql = (
+            f"SELECT * FROM runs WHERE {where} "  # noqa: S608 - clauses are static, values bound via ?
+            "ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        )
+        list_params: tuple = (*where_params, limit, offset)
 
         async with self._conn() as conn:
             cur = await conn.execute(count_sql, count_params)

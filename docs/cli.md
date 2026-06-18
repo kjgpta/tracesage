@@ -35,13 +35,23 @@ tracesage demo               # seed + serve + open browser
 tracesage demo --check       # seed only, then exit (for smoke tests / CI)
 ```
 
+Note: `demo` writes to its own dir (`~/.tracesage-demo` by default, override with
+`-d`), separate from the default `~/.tracesage`, so it never mixes with your real
+runs.
+
 ## `tracesage show`
 
-Render a run's trace as an indented tree in the terminal (no server needed).
+Render a run's trace as an indented tree in the terminal (no server needed). Each
+element kind (chain, agent, tool, llm, retriever, …) is printed in its own colour,
+tools backed by an MCP server are tagged `mcp:<server>`, and siblings follow
+execution flow (oldest-first).
 
 ```bash
-tracesage show <run_id> [--no-color]
+tracesage show <run_id> [--no-color] [--reverse]
 ```
+
+- `--no-color` — disable ANSI colour (auto-detected by default)
+- `--reverse, -r` — order siblings newest-first instead of execution order
 
 ## `tracesage watch`
 
@@ -74,11 +84,12 @@ tracesage view trace.jsonl [--open]
 Dump runs to JSONL.
 
 ```bash
-tracesage export [OPTIONS]
+tracesage export [RUN_ID] [OPTIONS]
 ```
 
 Options:
 
+- `RUN_ID` (positional) — single run to export; alternative to `--run-id`
 - `--data-dir, -d PATH`
 - `--run-id ID` — single run to export
 - `--all` — export every run
@@ -128,7 +139,8 @@ Options:
 - `--status STATUS` — `all` | `running` | `completed` | `failed` (default `all`)
 - `--limit, -l N` — max rows (default 50)
 - `--offset N` — pagination offset
-- `--tag TEXT` — only runs whose tags contain this substring (client-side filter)
+- `--tag TEXT` — only runs whose tags contain this substring (filtered in SQL, so
+  it composes correctly with `--limit`/`--offset` and the reported total)
 - `--json` — emit one JSON object per line (NDJSON)
 
 ```bash
@@ -165,17 +177,19 @@ Inverse of `export`: read a JSONL export back into a data directory (creating it
 if needed). Useful for backups and moving runs between machines.
 
 ```bash
-tracesage import [OPTIONS]
+tracesage import [INPUT] [OPTIONS]
 ```
 
 Options:
 
+- `INPUT` (positional) — JSONL file; alternative to `--input`
 - `--data-dir, -d PATH` — target data dir
 - `--input, -i PATH` — JSONL file, or `-` for stdin (default `-`)
 
 ```bash
 tracesage export --all -o backup.jsonl
 tracesage import --data-dir ~/.tracesage-restore -i backup.jsonl
+tracesage import backup.jsonl                       # positional form
 ```
 
 One malformed line is skipped with a warning rather than aborting the import.

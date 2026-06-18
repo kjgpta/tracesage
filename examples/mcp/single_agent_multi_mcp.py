@@ -16,7 +16,6 @@ Run:
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sys
 from pathlib import Path
 from typing import TypedDict
@@ -35,7 +34,9 @@ from tracesage import TraceSage, TraceSageConfig  # noqa: E402
 from tracesage.adapters.mcp import register_mcp_client  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-DATA_DIR = HERE / "mcp_demo_data"
+# Dedicated data dir per example so applications stay isolated (topology/tools
+# are computed per data dir = per application).
+DATA_DIR = Path.home() / ".tracesage" / "multi-mcp"
 
 
 class State(TypedDict):
@@ -43,9 +44,10 @@ class State(TypedDict):
 
 
 async def main(check: bool = False) -> None:
-    shutil.rmtree(DATA_DIR, ignore_errors=True)
     tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
     print("tracesage UI: http://localhost:7842/ui")
+    print(f"Data dir:     {DATA_DIR}")
+    print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
 
     client = MultiServerMCPClient(
         {

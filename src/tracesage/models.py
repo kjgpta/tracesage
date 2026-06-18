@@ -29,9 +29,19 @@ class EventType(str, Enum):
     RETRY = "retry"
 
 
-# Event types whose payloads are large enough to warrant separate gzipped blob storage.
+# Event types whose payloads are stored as separate gzipped blobs, so the UI can
+# show the full data. Both the REQUEST side (*_start: inputs/prompts/queries) and
+# the RESPONSE side (*_end/*_finish: outputs/results) are persisted, so each step
+# can display its request and response payloads paired together.
 BLOB_ELIGIBLE_EVENTS: frozenset[EventType] = frozenset(
     {
+        # Request side (inputs/prompts/queries).
+        EventType.CHAIN_START,
+        EventType.TOOL_START,
+        EventType.LLM_START,
+        EventType.CHAT_MODEL_START,
+        EventType.RETRIEVER_START,
+        # Response side (outputs/results).
         EventType.LLM_END,
         EventType.CHAIN_END,
         EventType.AGENT_FINISH,

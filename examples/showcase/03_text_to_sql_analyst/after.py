@@ -26,6 +26,11 @@ from langchain_core.tools import tool
 
 import tracesage  # ← tracesage
 
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
+
 SCHEMA = """\
 customers(id INTEGER, name TEXT, country TEXT)
 orders(id INTEGER, customer_id INTEGER, amount REAL, status TEXT)"""
@@ -94,7 +99,7 @@ def main() -> None:
     question = "Which customer has the highest total of paid orders?"
     print(f"Q: {question}\n")
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures the SQL tool calls
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures the SQL tool calls
         result = agent.invoke({"input": question})
         print("A:", result["output"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
