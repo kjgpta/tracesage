@@ -366,9 +366,11 @@ throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
 
 ## Status
 
-**v0.1 — alpha.** API may still shift before v1.0. Production-monitoring-ready for
-single-Python-process deployments; centralized multi-process / remote-collector mode
-is on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
+**Alpha.** API may still shift before v1.0. The current published version is shown by the
+[PyPI badge](https://pypi.org/project/tracesage/) at the top (it tracks PyPI live — no
+version is hardcoded here, so it never gets ahead of an actual release). Production-
+monitoring-ready for single-Python-process deployments; centralized multi-process /
+remote-collector mode is on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
 
 See [the changelog](docs/changelog.md) for release notes.
 
