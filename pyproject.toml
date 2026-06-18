@@ -99,6 +99,12 @@ include = [
     "docs",
     "pyproject.toml",
 ]
+# Keep heavy UI screenshots / demo video out of the PyPI sdist — they exist only
+# for the GitHub repo + the (separately built) docs site, not for source installs.
+exclude = [
+    "docs/assets/ui-*.png",
+    "docs/assets/*.mp4",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

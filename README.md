@@ -31,14 +31,6 @@ result = await graph.ainvoke(
 # Open http://localhost:7842/ui to see the trace live
 ```
 
-<div align="center">
-
-<img src="assets/tracesage-demo.gif" alt="tracesage live trace demo" width="820">
-
-<sub>Live topology graph + step timeline as your agents run.</sub>
-
-</div>
-
 ---
 
 ## Contents
@@ -46,6 +38,7 @@ result = await graph.ainvoke(
 - [Why tracesage](#why-tracesage)
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Screenshots](#screenshots)
 - [Concepts: topology node kinds](#concepts-topology-node-kinds)
 - [Features](#features)
 - [Examples](#examples)
@@ -170,6 +163,33 @@ def test_agent_uses_search(tracesage_capture):
 See **[`docs/development.md`](docs/development.md)** for the full developer guide, and
 **[`examples/showcase/`](examples/showcase/)** for 30 before/after apps across popular use cases.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/ui-topology.png" alt="Live topology graph"></td>
+    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Live topology — agents, tools, LLMs and MCP servers across a run.</em></td>
+    <td align="center"><em>“Tools by source” — every tool grouped by origin (MCP servers vs. local).</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
+    <td width="50%"><img src="assets/ui-agent-drawer.png" alt="Agent inspector"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>MCP server inspector — invocations, errors, provided tools and callers.</em></td>
+    <td align="center"><em>Agent inspector — a node’s in-code tools and what called it.</em></td>
+  </tr>
+</table>
+
+### Watch a trace stream in
+
+[![tracesage trace demo](assets/tracesage-demo.gif)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
+
+_Sped-up preview — [watch the full-quality clip](docs/assets/tracesage-demo.mp4), or see it play inline on the [docs site](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)._
+
 ## Concepts: topology node kinds
 
 When you open the UI, every node in the topology graph is one of five event-based
@@ -217,17 +237,6 @@ topology piece by piece.
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
 - **Dark / light themes**, persisted in `localStorage`
 - **Keyboard shortcuts:** `j`/`k` next/prev run, `/` focus search, `t` toggle theme, `Esc`, `?`
-
-<table>
-<tr>
-<td width="50%"><img src="assets/ui-topology.png" alt="Topology graph"><br><sub><b>Topology</b> — agents, tools, LLMs and their call edges across a run.</sub></td>
-<td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source"><br><sub><b>Tools by source</b> — tools grouped by MCP server vs. local, with matching node rings.</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="assets/ui-agent-drawer.png" alt="Agent drawer"><br><sub><b>Agent drawer</b> — click an agent to see the MCP servers + in-code tools it uses.</sub></td>
-<td width="50%"><img src="assets/ui-mcp-drawer.png" alt="MCP server drawer"><br><sub><b>MCP server drawer</b> — click a server to see every tool it provides.</sub></td>
-</tr>
-</table>
 
 ### Production safety
 
