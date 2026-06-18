@@ -31,6 +31,14 @@ result = await graph.ainvoke(
 # Open http://localhost:7842/ui to see the trace live
 ```
 
+<div align="center">
+
+<img src="assets/tracesage-demo.gif" alt="tracesage live trace demo" width="820">
+
+<sub>Live topology graph + step timeline as your agents run.</sub>
+
+</div>
+
 ---
 
 ## Contents
@@ -209,6 +217,17 @@ topology piece by piece.
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
 - **Dark / light themes**, persisted in `localStorage`
 - **Keyboard shortcuts:** `j`/`k` next/prev run, `/` focus search, `t` toggle theme, `Esc`, `?`
+
+<table>
+<tr>
+<td width="50%"><img src="assets/ui-topology.png" alt="Topology graph"><br><sub><b>Topology</b> — agents, tools, LLMs and their call edges across a run.</sub></td>
+<td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source"><br><sub><b>Tools by source</b> — tools grouped by MCP server vs. local, with matching node rings.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="assets/ui-agent-drawer.png" alt="Agent drawer"><br><sub><b>Agent drawer</b> — click an agent to see the MCP servers + in-code tools it uses.</sub></td>
+<td width="50%"><img src="assets/ui-mcp-drawer.png" alt="MCP server drawer"><br><sub><b>MCP server drawer</b> — click a server to see every tool it provides.</sub></td>
+</tr>
+</table>
 
 ### Production safety
 
