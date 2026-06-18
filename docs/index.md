@@ -121,7 +121,8 @@ or uses, and (for MCP) its server of origin.
 
 ## Status
 
-**v0.2 — beta.** API may still shift before v1.0. Production-monitoring-ready for
-single-Python-process deployments, with OpenTelemetry export to bridge into a central
-stack; native multi-process / remote-collector storage is on the roadmap. See the
-[changelog](changelog.md) for release notes.
+**Beta.** API may still shift before v1.0. The PyPI badge shows the published version,
+stamped by the release workflow when a version actually ships (so it matches PyPI).
+Production-monitoring-ready for single-Python-process deployments, with OpenTelemetry
+export to bridge into a central stack; native multi-process / remote-collector storage is
+on the roadmap. See the [changelog](changelog.md) for release notes.

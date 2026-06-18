@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["langchain", "langgraph", "observability", "tracing", "agents", "llm", "multi-agent"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

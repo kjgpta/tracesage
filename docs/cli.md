@@ -209,5 +209,5 @@ Print version.
 
 ```bash
 tracesage version
-# tracesage 0.1.1
+# tracesage 0.2.0   (prints your installed version)
 ```

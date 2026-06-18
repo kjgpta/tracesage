@@ -42,8 +42,11 @@ A failed WebSocket handshake is closed with code `4401`.
 Liveness probe. Public — never requires auth.
 
 ```json
-{ "status": "ok", "version": "0.1.1" }
+{ "status": "ok", "version": "0.2.0" }
 ```
+
+`version` echoes the installed tracesage package version, so it always matches
+whatever you have running (the example just shows the shape).
 
 ### `GET /api/runs`
 
