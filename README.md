@@ -7,12 +7,12 @@
 **Production observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
-[![PyPI version](https://img.shields.io/pypi/v/tracesage)](https://pypi.org/project/tracesage/)
+[![PyPI](https://img.shields.io/badge/pypi-v0.2.0-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
 [![License: MIT](https://img.shields.io/pypi/l/tracesage)](LICENSE)
 [![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://kjgpta.github.io/tracesage/)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange)](#status)
+[![Status: beta](https://img.shields.io/badge/status-beta-blue)](#status)
 
 </div>
 
@@ -366,11 +366,11 @@ throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
 
 ## Status
 
-**Alpha.** API may still shift before v1.0. The current published version is shown by the
-[PyPI badge](https://pypi.org/project/tracesage/) at the top (it tracks PyPI live — no
-version is hardcoded here, so it never gets ahead of an actual release). Production-
-monitoring-ready for single-Python-process deployments; centralized multi-process /
-remote-collector mode is on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
+**Beta.** API may still shift before v1.0. The PyPI badge at the top shows the published
+version; it's stamped by the release workflow **when a version actually ships** (so it
+matches PyPI and never gets ahead of a release). Production-monitoring-ready for
+single-Python-process deployments; centralized multi-process / remote-collector mode is
+on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
 
 See [the changelog](docs/changelog.md) for release notes.
 
