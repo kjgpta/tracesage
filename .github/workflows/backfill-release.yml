@@ -1,0 +1,50 @@
+name: Backfill GitHub Release
+
+# Manually create (or refresh) a GitHub Release for an EXISTING tag — e.g. a tag
+# that was pushed before the auto-release job existed (v0.2.0), or any tag whose
+# Release is missing. This does NOT publish to PyPI; it only creates the Release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to create a GitHub Release for (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: write  # required to create the Release
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build sdist + wheel (to attach to the Release)
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Extract changelog section for the tag
+        run: |
+          version="${{ github.event.inputs.tag }}"
+          version="${version#v}"
+          awk -v ver="$version" '
+            $0 ~ ("^## \\[" ver "\\]") { grab = 1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' docs/changelog.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "See [docs/changelog.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/changelog.md) for release notes." > release-notes.md
+          fi
+          echo "----- notes for ${{ github.event.inputs.tag }} -----"
+          cat release-notes.md
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ github.event.inputs.tag }}
+          body_path: release-notes.md
+          files: dist/*

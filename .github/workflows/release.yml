@@ -45,3 +45,40 @@ jobs:
           path: dist/
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    # Create a GitHub Release for the tag, only after PyPI publish succeeds, with
+    # notes pulled from docs/changelog.md and the built sdist/wheel attached.
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to create the Release
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download built artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Extract changelog section for this tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ ("^## \\[" ver "\\]") { grab = 1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' docs/changelog.md > release-notes.md
+          # Fallback if the version section is missing.
+          if [ ! -s release-notes.md ]; then
+            echo "See [docs/changelog.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/changelog.md) for release notes." > release-notes.md
+          fi
+          echo "----- notes for ${GITHUB_REF_NAME} -----"
+          cat release-notes.md
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: dist/*
+          draft: false
+          prerelease: false
