@@ -65,6 +65,9 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
 - **MCP-aware.** Tools loaded from MCP servers are attributed by source, so you can
   see which tools came from which server vs. which are hardcoded. See [docs/mcp.md](docs/mcp.md).
+- **OpenTelemetry export.** Optionally ship every trace as OTel spans to your collector /
+  Tempo / Jaeger / Datadog / Honeycomb — the bridge from the local dev view to your
+  production stack (config-driven; see [docs/configuration.md](docs/configuration.md#opentelemetry-export)).
 - **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned (see [`production_roadmap.md`](production_roadmap.md)).
 - **MIT licensed.** Free forever.
 
@@ -228,7 +231,9 @@ topology piece by piece.
 - **SVG graph** showing agents, tools, and execution paths — pulses as events arrive
 - **MCP attribution** — `mcp:` server nodes with per-server colors, agent→server and
   server→tool edges, and a draggable "Tools by source" panel grouping tools by origin
-- **Timeline** with click-to-expand step cards, lazy-loaded full payloads
+- **Timeline** with click-to-expand step cards — each step shows its full **request and
+  response** payloads (inputs/prompt + outputs/result) paired together, plus tokens,
+  duration, and errors; MCP-backed tools are tagged with their server
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
 - **Dark / light themes**, persisted in `localStorage`
 - **Keyboard shortcuts:** `j`/`k` next/prev run, `/` focus search, `t` toggle theme, `Esc`, `?`
@@ -244,6 +249,37 @@ topology piece by piece.
 - **Kill switch:** `TRACESAGE_ENABLED=false` makes it a complete no-op (no server, no
   DB/worker, no-op handler) — integrate once, disable per-environment. See
   [docs/production.md](docs/production.md).
+
+### OpenTelemetry export (bridge to production)
+
+tracesage's own UI/CLI is the **local developer-loop** view. To get agent traces into a
+**production observability stack**, point `otlp_endpoint` at any OTLP/HTTP collector —
+every trace is *also* emitted as OpenTelemetry spans (the local SQLite store stays too):
+
+```bash
+pip install "tracesage[otel]"
+export TRACESAGE_OTLP_ENDPOINT=http://localhost:4318      # or set in TraceSageConfig
+```
+
+```python
+from tracesage import TraceSageConfig
+# pass to TraceSage.create() / .session() / tracesage.trace():
+cfg = TraceSageConfig(otlp_endpoint="http://localhost:4318", otlp_service_name="my-agent")
+```
+
+**Where it helps:** the spans land in whatever OTLP-compatible backend you already run —
+**Grafana Tempo, Jaeger, Datadog, Honeycomb, Arize/Phoenix, an OTel Collector** — so agent
+traces sit alongside the rest of your services (correlated with HTTP/DB spans, long-term
+retention, alerting, multi-service/multi-process views) with **no vendor lock-in**. Mapping:
+`root_run_id`→trace, `run_id`→span, `parent_run_id`→parent; tokens/errors/MCP server become
+span attributes. Best-effort — if the collector is down, tracing continues and your app is
+never affected.
+
+> **Note — it's config-driven, not a UI toggle.** There's no button in tracesage's UI to
+> turn this on. You enable it via config/env *before* tracing starts, and the exported
+> traces appear in **your OTel backend's** UI (Grafana/Jaeger/Datadog/…), not in
+> tracesage's own UI. tracesage's UI always shows the local SQLite view. See
+> [docs/configuration.md](docs/configuration.md#opentelemetry-export).
 
 ### CLI
 
@@ -311,7 +347,7 @@ When to use `tracesage` vs alternatives:
 | Live UI | ✓ | ✓ | ✓ | ✓ |
 | MIT licensed | ✓ | proprietary | MIT | Elastic v2 |
 | Eval framework | non-goal | ✓ | ✓ | ✓ |
-| OpenTelemetry export | v0.3+ | partial | ✓ | ✓ |
+| OpenTelemetry export | ✓ (0.2+) | partial | ✓ | ✓ |
 
 See [`docs/comparison.md`](docs/comparison.md) for the full breakdown.
 

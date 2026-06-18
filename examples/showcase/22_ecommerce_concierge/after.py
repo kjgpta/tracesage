@@ -21,7 +21,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.tools import tool
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 CATALOG = [
     {"sku": "TS-01", "name": "Cotton T-Shirt", "price": 19.0, "tags": "shirt top casual"},
@@ -92,7 +98,7 @@ def main() -> None:
     request = "Find a casual shirt and a cap, add one of each to my cart, then show the cart."
     print(f"Shopper: {request}\n")
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures every call
         result = executor.invoke({"input": request})
         print("Concierge:", result["output"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

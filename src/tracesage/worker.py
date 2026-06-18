@@ -87,6 +87,7 @@ class StorageWorker:
         ws_manager: Any,
         config: TraceSageConfig,
         stats: Stats,
+        otel_exporter: Any = None,
     ) -> None:
         self._queue = queue
         self._db = db
@@ -94,6 +95,8 @@ class StorageWorker:
         self._ws = ws_manager
         self._config = config
         self._stats = stats
+        # Optional OpenTelemetry span exporter (best-effort; never breaks ingestion).
+        self._otel = otel_exporter
         self._shutdown = False
         # {run_id: {prefix: timestamp}} for duration calculation. Both outer and inner
         # dicts are bounded so runs that start without ever ending (process kill,
@@ -297,6 +300,15 @@ class StorageWorker:
                 )
             except Exception as e:
                 log.error("increment_run_counters failed for %s: %s", run_id, e, exc_info=True)
+
+        # Export to OpenTelemetry (if configured), in event order so a span's start
+        # is seen before its end. Best-effort: failures must not affect ingestion.
+        if self._otel is not None:
+            for _raw, stored in ws_pairs:
+                try:
+                    self._otel.handle(stored)
+                except Exception as e:  # pragma: no cover - defensive
+                    log.warning("otel export failed: %s", e)
 
         # Broadcast events to per-run subscribers (/ws/trace/{run_id}) after DB commit.
         for raw_event, stored in ws_pairs:

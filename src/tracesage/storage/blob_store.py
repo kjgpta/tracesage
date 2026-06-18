@@ -18,8 +18,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-import aiofiles
-
 
 def _safe_serialize(payload: Any) -> str:
     """Serialize to JSON, falling back to str() for non-serializable objects.
@@ -77,6 +75,22 @@ def _write_blob_sync(base_dir: Path, run_id: str, event_id: str, payload: dict) 
     return f"{run_id}/{event_id}.json.gz"
 
 
+def _read_blob_sync(base_dir: Path, blob_path: str) -> dict:
+    # Path-traversal guard: resolve() the caller-supplied blob_path and confirm it
+    # stays under base_dir (defends against `../` and symlink escapes).
+    base_resolved = base_dir.resolve()
+    full = (base_dir / blob_path).resolve()
+    if not full.is_relative_to(base_resolved):
+        raise ValueError("blob path escapes base_dir")
+    if not full.exists():
+        raise FileNotFoundError(f"Blob not found: {blob_path}")
+
+    with open(full, "rb") as f:
+        compressed = f.read()
+    json_bytes = gzip.decompress(compressed)
+    return json.loads(json_bytes.decode("utf-8"))
+
+
 def _dir_size_bytes(base: Path) -> int:
     total = 0
     for p in base.rglob("*"):
@@ -106,19 +120,13 @@ class BlobStore:
         )
 
     async def read(self, blob_path: str) -> dict:
-        base_resolved = self.base_dir.resolve()
-        full = (self.base_dir / blob_path).resolve()
-        if not full.is_relative_to(base_resolved):
-            raise ValueError("blob path escapes base_dir")
-
-        if not full.exists():
-            raise FileNotFoundError(f"Blob not found: {blob_path}")
-
-        async with aiofiles.open(full, "rb") as f:
-            compressed = await f.read()
-
-        json_bytes = gzip.decompress(compressed)
-        return json.loads(json_bytes.decode("utf-8"))
+        # The file read, gzip decompress, and JSON parse are all blocking work;
+        # offload the whole path to a thread so a large blob can't stall the event
+        # loop (mirrors how write() offloads via run_in_executor).
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, _read_blob_sync, self.base_dir, blob_path
+        )
 
     async def delete_run(self, run_id: str) -> int:
         run_dir = self.base_dir / run_id

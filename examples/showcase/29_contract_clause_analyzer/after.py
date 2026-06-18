@@ -25,7 +25,13 @@ from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from tracesage import TraceSage  # ← tracesage
+from pathlib import Path  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 CLAUSES: list[str] = [
     "The Provider may terminate this agreement at any time without notice or cause.",
@@ -98,7 +104,7 @@ def build_graph() -> Runnable:
 
 async def main() -> None:
     graph = build_graph()
-    async with TraceSage.session(install=True) as tl:  # ← tracesage
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"clauses": CLAUSES, "findings": [], "memo": ""})
         await tl.flush()  # ← tracesage: ensure events persist
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

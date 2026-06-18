@@ -211,8 +211,17 @@ def show(
     color: bool | None = typer.Option(
         None, "--color/--no-color", help="Force ANSI colour on/off (default: auto)."
     ),
+    reverse: bool = typer.Option(
+        False, "--reverse", "-r",
+        help="Order siblings newest-first (default follows execution flow: oldest-first).",
+    ),
 ) -> None:
-    """Print a run's trace as an indented tree in the terminal (no server needed)."""
+    """Print a run's trace as an indented tree in the terminal (no server needed).
+
+    Each element kind (chain, agent, tool, llm, retriever, …) is shown in its own
+    colour, and tools backed by an MCP server are tagged with `mcp:<server>`.
+    Siblings follow execution flow (oldest-first); pass --reverse for newest-first.
+    """
 
     async def _show() -> int:
         _cfg, db, _blob = _make_backend(data_dir)
@@ -225,7 +234,9 @@ def show(
                 typer.echo(f"run not found: {run_id}", err=True)
                 return 1
             events = await db.get_journey(run_id)
-            typer.echo(render_run_tree(run, events, use_color=color))
+            typer.echo(
+                render_run_tree(run, events, use_color=color, reverse=reverse)
+            )
             return 0
         finally:
             await db.close()
@@ -457,6 +468,10 @@ async def _seed_demo(db) -> str:
 
 @app.command()
 def export(
+    run_id_arg: str | None = typer.Argument(
+        None, metavar="[RUN_ID]",
+        help="Run to export (positional alternative to --run-id).",
+    ),
     data_dir: Path = typer.Option(
         Path.home() / ".tracesage", "--data-dir", "-d"
     ),
@@ -467,14 +482,17 @@ def export(
 ) -> None:
     """Dump runs to JSONL: first line is the Run row; subsequent lines are events.
 
-    Only structured event fields are exported — the gzipped raw-payload blobs
-    are NOT included, so `import` will land events with no blob_path.
+    The run id may be given positionally (`tracesage export RUN_ID`) or via
+    `--run-id RUN_ID`. Only structured event fields are exported — the gzipped
+    raw-payload blobs are NOT included, so `import` will land events with no
+    blob_path.
     """
+    run_id = run_id or run_id_arg
     if format != "jsonl":
         typer.echo(f"Only 'jsonl' is supported; got {format!r}", err=True)
         raise typer.Exit(2)
     if not run_id and not all_runs:
-        typer.echo("Specify --run-id <id> or --all", err=True)
+        typer.echo("Specify a run id (positionally or via --run-id) or --all", err=True)
         raise typer.Exit(2)
 
     async def _export() -> int:
@@ -590,9 +608,8 @@ def runs(
                 status=None if status == "all" else status,
                 limit=limit,
                 offset=offset,
+                tag=tag,
             )
-            if tag:
-                rows = [r for r in rows if any(tag in t for t in (r.tags or []))]
 
             if as_json:
                 for r in rows:
@@ -616,7 +633,7 @@ def runs(
                     )
                 typer.echo(
                     f"# {len(rows)} of {total} (status={status}, "
-                    f"limit={limit}, offset={offset})"
+                    f"limit={limit}, offset={offset}, tag={tag!r})"
                 )
         finally:
             await db.close()
@@ -721,6 +738,10 @@ def gc(
 
 @app.command("import")
 def import_(
+    input_arg: Path | None = typer.Argument(
+        None, metavar="[INPUT]",
+        help='JSONL file (positional alternative to --input).',
+    ),
     data_dir: Path = typer.Option(
         Path.home() / ".tracesage", "--data-dir", "-d"
     ),
@@ -730,14 +751,18 @@ def import_(
 ) -> None:
     """Import a JSONL export back into a data dir (inverse of `export`).
 
-    Reads lines produced by `tracesage export` (each tagged with
-    "_kind": "run" or "_kind": "event") and upserts them into the target
-    data dir, creating/initializing it if needed. One malformed line is
-    skipped with a warning rather than aborting the whole import.
+    The file may be given positionally (`tracesage import trace.jsonl`) or via
+    `--input`/`-i`; default is stdin. Reads lines produced by `tracesage export`
+    (each tagged with "_kind": "run" or "_kind": "event") and upserts them into
+    the target data dir, creating/initializing it if needed. One malformed line
+    is skipped with a warning rather than aborting the whole import.
 
     Raw-payload blobs are not part of the export, so imported events have
     their blob_path cleared; structured fields are restored in full.
     """
+    # Positional arg wins when given; otherwise fall back to --input (stdin default).
+    if input_arg is not None:
+        input = input_arg
 
     async def _import() -> None:
         # read_only=False so an import into a fresh target dir initializes it.

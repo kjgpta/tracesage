@@ -39,7 +39,11 @@ try:
 except ImportError:
     from langchain_core.language_models import FakeListChatModel  # type: ignore[attr-defined]
 
-from tracesage import TraceSage  # noqa: E402
+from tracesage import TraceSage, TraceSageConfig  # noqa: E402
+
+# Dedicated data dir so this app's runs, topology, and "Tools by source" stay
+# isolated from other applications (each app = its own data dir).
+DATA_DIR = Path.home() / ".tracesage" / "smart-search"
 
 
 # ---- The four tools the agent can choose from ----------------------------- #
@@ -88,8 +92,10 @@ ROUTING_RESPONSES = ["database", "web", "docs", "cache"]
 
 
 async def main() -> None:
-    tracer = await TraceSage.create()
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
     print("tracesage at http://localhost:7842/ui")
+    print(f"Data dir:     {DATA_DIR}")
+    print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
 
     router_llm = FakeListChatModel(responses=ROUTING_RESPONSES)
     answer_llm = FakeListChatModel(

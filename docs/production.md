@@ -97,9 +97,24 @@ single-node today; centralized multi-process collection is on the roadmap (see
 | < 100 runs/day | 1.0 (capture everything) |
 | 100–10,000 runs/day | 0.5 to 1.0 |
 | 10,000–100,000 runs/day | 0.1 to 0.5 |
-| > 100,000 runs/day | 0.01 to 0.1, plus consider a centralized collector (roadmap) |
+| > 100,000 runs/day | 0.01 to 0.1, plus export to a central backend via OTLP (below) |
 
 Sampling is per-root-run, so partial traces never happen.
+
+## Exporting to a central observability stack (OpenTelemetry)
+
+For multi-process or production deployments, set `otlp_endpoint` to also stream every
+trace as OpenTelemetry spans to your collector / Tempo / Jaeger / Datadog / Honeycomb —
+the local SQLite store remains for the dev view, while the OTLP backend handles
+centralization, retention, and cross-service correlation:
+
+```bash
+pip install "tracesage[otel]"
+export TRACESAGE_OTLP_ENDPOINT=http://otel-collector:4318
+```
+
+Export is best-effort and never blocks or breaks the app if the collector is down.
+See [Configuration → OpenTelemetry export](configuration.md) for the full mapping.
 
 ## Authentication
 

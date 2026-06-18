@@ -25,7 +25,13 @@ from langchain_core.runnables import Runnable
 from langchain_openai import OpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 
-from tracesage import TraceSage  # ← tracesage
+from pathlib import Path  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 DOCS = [
     "TraceSage binds to 127.0.0.1:7842 by default; pass host/port to change it.",
@@ -127,7 +133,7 @@ async def main() -> None:
     graph = build_graph()
     question = "What port does TraceSage bind to by default?"
     print(f"Q: {question}\n")
-    async with TraceSage.session(install=True) as tl:  # ← tracesage
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage
         result = await graph.ainvoke({"question": question, "query": question, "tries": 0})
         await tl.flush()  # ← tracesage: ensure events persist
         print("A:", result["answer"])

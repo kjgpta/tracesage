@@ -33,6 +33,9 @@ All settings live on `TraceSageConfig` (Pydantic Settings). Override via:
 | `redact_patterns` | `TRACESAGE_REDACT_PATTERNS` | `[]` | Opt-in: regex patterns scrubbed from summaries + payloads before storage. Empty = off. |
 | `redact_replacement` | `TRACESAGE_REDACT_REPLACEMENT` | `[REDACTED]` | String that matched redaction patterns are replaced with. |
 | `log_level` | `TRACESAGE_LOG_LEVEL` | `WARNING` | Python logging level. |
+| `otlp_endpoint` | `TRACESAGE_OTLP_ENDPOINT` | `None` | OTLP/HTTP endpoint for OpenTelemetry export (e.g. `http://localhost:4318`). When set, events are also exported as OTel spans. Requires the `tracesage[otel]` extra. |
+| `otlp_service_name` | `TRACESAGE_OTLP_SERVICE_NAME` | `tracesage` | `service.name` resource attribute on exported spans. |
+| `otlp_headers` | `TRACESAGE_OTLP_HEADERS` | `{}` | Extra OTLP headers (e.g. a SaaS API key like `x-honeycomb-team`). |
 
 ## Disabling (kill switch)
 
@@ -47,6 +50,112 @@ when disabled.
 ```bash
 export TRACESAGE_ENABLED=false      # complete no-op
 ```
+
+## Isolating multiple applications
+
+`data_dir` is the isolation boundary. All cross-run views — the **topology map**
+and the **"Tools by source"** panel — are computed *per data dir*, aggregating
+every run stored there. So if two different applications write to the **same**
+`data_dir` (e.g. both use the default `~/.tracesage`), their graphs and tool
+inventories **merge** and appear to interfere.
+
+To keep applications separate, give each its own `data_dir`:
+
+```python
+# Application A
+await TraceSage.create(TraceSageConfig(data_dir="~/.tracesage/app-a"))
+# Application B
+await TraceSage.create(TraceSageConfig(data_dir="~/.tracesage/app-b"))
+```
+
+```bash
+# inspect each independently — topology/tools are scoped to that app's dir
+tracesage runs    -d ~/.tracesage/app-a
+tracesage serve   -d ~/.tracesage/app-b
+```
+
+The same applies to the env var (`TRACESAGE_DATA_DIR=~/.tracesage/app-a`). Runs in
+different data dirs never appear in each other's lists, topology, or tool inventory.
+
+## OpenTelemetry export
+
+tracesage's local UI/CLI is the developer-loop view. To also feed agent traces into
+a production observability stack, enable **OpenTelemetry (OTLP) export** — every event
+is emitted as an OTel span *in addition to* the local SQLite store, so the data lands
+in any OTLP-compatible backend (OTel Collector, Grafana Tempo, Jaeger, Datadog,
+Honeycomb, Arize/Phoenix, …) with no vendor lock-in.
+
+```bash
+pip install "tracesage[otel]"
+```
+
+```python
+from tracesage import TraceSage, TraceSageConfig
+
+await TraceSage.create(TraceSageConfig(
+    otlp_endpoint="http://localhost:4318",     # "/v1/traces" is appended if absent
+    otlp_service_name="my-agent",
+    otlp_headers={"x-honeycomb-team": "..."},  # optional, for SaaS backends
+))
+```
+
+Or purely via env vars (no code change):
+
+```bash
+export TRACESAGE_OTLP_ENDPOINT=http://localhost:4318
+```
+
+Span mapping: `root_run_id` → trace, `run_id` → span, `parent_run_id` → parent span;
+start/end timestamps become the span's duration; tokens (`gen_ai.usage.*`), the tool/
+agent name, MCP server, and errors become span attributes/status. Export is
+**best-effort** — if the `[otel]` extra is missing or the collector is unreachable,
+tracing continues and your application is unaffected.
+
+### Viewing the exported spans
+
+OTel export is **config-driven, not a UI toggle** — there is no button in tracesage's
+own UI. tracesage's UI keeps showing the local SQLite view; the exported spans show up
+in **your OTel backend's** UI. You need a listener on the OTLP port (`4318` for HTTP):
+
+=== "Jaeger (web UI, needs Docker)"
+
+    ```bash
+    # 1. Start Jaeger (OTLP receiver on 4318, UI on 16686)
+    docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
+
+    # 2. In another terminal, run your app with export on
+    pip install "tracesage[otel]"
+    export TRACESAGE_OTLP_ENDPOINT=http://localhost:4318
+    export TRACESAGE_OTLP_SERVICE_NAME=my-agent
+    python examples/mcp/main.py
+
+    # 3. Open http://localhost:16686 → pick service "my-agent" → Find Traces
+    ```
+
+=== "otel-tui (terminal, no Docker)"
+
+    ```bash
+    brew install ymtdzzz/tap/otel-tui   # or grab a release binary
+    otel-tui                            # listens on :4318 and shows traces live
+
+    # then, in another terminal:
+    pip install "tracesage[otel]"
+    export TRACESAGE_OTLP_ENDPOINT=http://localhost:4318
+    python examples/mcp/main.py
+    ```
+
+The MCP example also accepts an `--otlp` convenience flag instead of the env var
+(`TRACESAGE_OTLP_ENDPOINT` works for every example since config reads env vars):
+
+```bash
+python examples/mcp/main.py --otlp http://localhost:4318
+```
+
+You'll see the run as a trace tree — `chain LangGraph` → `chain weather_agent` →
+`tool get_weather` (with `tracesage.mcp_server=weather`), etc. — with durations,
+token counts, and any errors as span attributes. Without a listener on `:4318`, spans
+are emitted but go nowhere (you'll just see connection-refused warnings) — tracing
+and the local UI still work.
 
 ## Production safety rails
 

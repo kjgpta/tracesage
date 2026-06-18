@@ -31,7 +31,12 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit("This example needs MCP support. Install: pip install mcp langchain-mcp-adapters")
 
-from tracesage import TraceSage  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 from tracesage.adapters.mcp import register_mcp_client  # ← tracesage
 
 HERE = Path(__file__).resolve().parent
@@ -81,7 +86,7 @@ async def main() -> None:
     )
     print(f"Q: {request}\n")
 
-    async with TraceSage.session(install=True) as tl:  # ← tracesage
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage
         mcp_tools = await register_mcp_client(tl, client)  # ← tracesage: attribute tools to their server
         tools = [current_time, *mcp_tools]
         agent = build_agent(tools)

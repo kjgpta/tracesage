@@ -51,8 +51,14 @@ class StorageBackend(Protocol):
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        tag: str | None = None,
     ) -> tuple[list[Run], int]:
-        """Return (runs, total_count). Sorted by started_at descending."""
+        """Return (runs, total_count). Sorted by started_at descending.
+
+        If ``tag`` is given, only runs whose tags contain it (substring match) are
+        returned, and ``total_count`` reflects the filtered set. The filter is
+        applied in SQL so it composes correctly with ``limit``/``offset``.
+        """
         ...
 
     async def update_run_status(

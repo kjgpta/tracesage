@@ -311,6 +311,33 @@ async def test_auth_wrong_token_fails(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_auth_non_ascii_token_fails_closed(app_with_auth):
+    # A non-ASCII Authorization header (uvicorn decodes raw header bytes as
+    # latin-1, so a hostile client can produce a non-ASCII str) used to crash
+    # hmac.compare_digest with a TypeError -> unhandled 500. It must now fail
+    # closed with a clean 401. Exercised against auth_middleware directly because
+    # the httpx test client refuses to *send* non-ASCII header values.
+    from starlette.requests import Request
+
+    from tracesage.server.auth import auth_middleware
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/runs",
+        "headers": [(b"authorization", "Bearer café-\xe9".encode("latin-1"))],
+        "app": app_with_auth,
+    }
+    request = Request(scope)
+
+    async def _should_not_be_called(_req):  # pragma: no cover - must not run
+        raise AssertionError("call_next must not run for an invalid token")
+
+    resp = await auth_middleware(request, _should_not_be_called)
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_ui_static_paths_skip_auth(auth_client):
     """B11: UI shell must load without auth so the user can enter the token."""
     # The UI mount may or may not exist depending on test fixture setup; what

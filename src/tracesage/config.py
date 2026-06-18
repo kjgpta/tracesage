@@ -71,6 +71,15 @@ class TraceSageConfig(BaseSettings):
     redact_patterns: list[str] = Field(default_factory=list)
     redact_replacement: str = "[REDACTED]"
 
+    # --- OpenTelemetry export (optional) ---
+    # When otlp_endpoint is set, every event is ALSO exported as an OTel span to that
+    # OTLP/HTTP endpoint (e.g. "http://localhost:4318" — "/v1/traces" is appended if
+    # absent), in addition to tracesage's own SQLite store. Best-effort: requires the
+    # `tracesage[otel]` extra and never breaks the app if the collector is down.
+    otlp_endpoint: str | None = None
+    otlp_service_name: str = "tracesage"
+    otlp_headers: dict[str, str] = Field(default_factory=dict)
+
     # --- Logging ---
     log_level: str = "WARNING"
 

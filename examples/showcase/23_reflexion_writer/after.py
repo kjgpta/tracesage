@@ -24,7 +24,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
-from tracesage import TraceSage  # ← tracesage
+from pathlib import Path  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 MAX_ITERS = 3
 TARGET_SCORE = 8
@@ -100,7 +106,7 @@ async def main() -> None:
     task = "Explain why code review matters, for a junior engineer."
     print(f"Task: {task}\n")
 
-    async with TraceSage.session(install=True) as tl:  # ← tracesage: starts UI + captures every call
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage: starts UI + captures every call
         result = await graph.ainvoke(
             {"task": task, "draft": "", "feedback": "", "score": 0, "iters": 0}
         )

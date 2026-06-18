@@ -104,6 +104,7 @@ class TraceSage:
         self._handler: TraceSageCallbackHandler | None = None
         self._server: Any = None
         self._server_task: asyncio.Task | None = None
+        self._otel: Any = None  # optional OpenTelemetry span exporter
         self._stopped = False
         self.bound_port: int | None = None
 
@@ -146,7 +147,26 @@ class TraceSage:
         except Exception:
             ws_manager = _NullWebSocketManager()
 
-        worker = StorageWorker(queue, db, blob_store, ws_manager, cfg, stats)
+        # Optional OpenTelemetry export. Best-effort: a missing extra or a bad
+        # endpoint must never stop tracing from starting.
+        otel_exporter: Any = None
+        if cfg.otlp_endpoint:
+            try:
+                from tracesage.exporters.otel import OTelSpanExporter
+
+                otel_exporter = OTelSpanExporter(
+                    endpoint=cfg.otlp_endpoint,
+                    service_name=cfg.otlp_service_name,
+                    headers=cfg.otlp_headers,
+                )
+            except Exception as e:
+                log.warning(
+                    "OpenTelemetry export disabled — could not initialize exporter "
+                    "(is the `tracesage[otel]` extra installed?): %s",
+                    e,
+                )
+
+        worker = StorageWorker(queue, db, blob_store, ws_manager, cfg, stats, otel_exporter)
         loop = asyncio.get_running_loop()
         worker_task = asyncio.create_task(worker.run(), name="tracesage.worker")
 
@@ -161,6 +181,7 @@ class TraceSage:
             worker_task=worker_task,
             loop=loop,
         )
+        instance._otel = otel_exporter
 
         # Lazy import of handler so importing tracesage doesn't require langchain-core.
         from tracesage.adapters.langchain import TraceSageCallbackHandler
@@ -504,27 +525,55 @@ class TraceSage:
                 lifespan="on",
             )
             self._server = uvicorn.Server(uv_config)
+
+            async def _serve_guarded() -> None:
+                # The embedded UI is best-effort and MUST NEVER crash the host
+                # application. uvicorn calls sys.exit(1) when it can't bind the
+                # port (e.g. another tracesage/serve is already on it) — that is
+                # a SystemExit (BaseException), which would otherwise escape this
+                # background task and tear down the caller's asyncio.run(). Contain
+                # it here; let CancelledError through for clean shutdown.
+                try:
+                    await self._server.serve()  # type: ignore[union-attr]
+                except asyncio.CancelledError:
+                    raise
+                except SystemExit:
+                    log.warning(
+                        "tracesage embedded UI did not start — port %s is likely "
+                        "already in use. Tracing continues normally without the "
+                        "local UI (free the port or set a different one to enable it).",
+                        self._config.port,
+                    )
+                except Exception as e:  # pragma: no cover - defensive
+                    log.warning("tracesage embedded UI server stopped: %s", e)
+
             self._server_task = asyncio.create_task(
-                self._server.serve(), name="tracesage.server"
+                _serve_guarded(), name="tracesage.server"
             )
 
-            # Poll for startup completion within budget.
+            # Poll for startup completion within budget — stop early if the task
+            # already finished (i.e. the server failed to bind and exited).
             deadline = self._loop.time() + self._config.startup_health_timeout_s
             while self._loop.time() < deadline:
-                if getattr(self._server, "started", False):
+                if getattr(self._server, "started", False) or self._server_task.done():
                     break
                 await asyncio.sleep(0.05)
 
-            # Capture ephemeral port if requested.
-            if self._config.port == 0:
-                with contextlib.suppress(Exception):  # pragma: no cover
-                    servers = getattr(self._server, "servers", None) or []
-                    if servers:
-                        socks = getattr(servers[0], "sockets", None) or []
-                        if socks:
-                            self.bound_port = socks[0].getsockname()[1]
+            if getattr(self._server, "started", False):
+                # Capture ephemeral port if requested.
+                if self._config.port == 0:
+                    with contextlib.suppress(Exception):  # pragma: no cover
+                        servers = getattr(self._server, "servers", None) or []
+                        if servers:
+                            socks = getattr(servers[0], "sockets", None) or []
+                            if socks:
+                                self.bound_port = socks[0].getsockname()[1]
+                else:
+                    self.bound_port = self._config.port
             else:
-                self.bound_port = self._config.port
+                # Server never came up (bind failure / timeout). Leave bound_port
+                # as None so callers don't advertise a UI URL that isn't serving.
+                self.bound_port = None
         except Exception as e:
             log.warning("Failed to start embedded server: %s", e)
 
@@ -550,6 +599,15 @@ class TraceSage:
         if not self._worker_task.done():
             self._worker_task.cancel()
         await asyncio.gather(self._worker_task, return_exceptions=True)
+
+        # 3b. Flush + shut down the OTel exporter (after the worker has drained, so
+        # all spans are created first). Offloaded — provider.shutdown() may block on
+        # a final network flush.
+        if self._otel is not None:
+            try:
+                await self._loop.run_in_executor(None, self._otel.shutdown)
+            except Exception as e:  # pragma: no cover
+                log.warning("OTel exporter shutdown error: %s", e)
 
         # 4. Stop server.
         if self._server is not None and self._server_task is not None:

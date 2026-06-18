@@ -29,6 +29,22 @@ if TYPE_CHECKING:
 _LOG = logging.getLogger("tracesage.server")
 
 
+class _NoCacheStaticFiles(StaticFiles):
+    """StaticFiles that asks browsers to revalidate the UI bundle on every load.
+
+    Default StaticFiles sends only ETag/Last-Modified and NO Cache-Control, so
+    browsers apply *heuristic* freshness and can serve a stale app.js/styles.css
+    from cache after the package is updated (the UI looks "not fixed" until a hard
+    reload). `Cache-Control: no-cache` forces a conditional request each load — the
+    server still answers 304 when nothing changed, so this stays cheap.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app(
     db: StorageBackend,
     blob_store: BlobStore,
@@ -82,7 +98,7 @@ def create_app(
     ui_dir = Path(__file__).resolve().parent.parent / "ui"
     if ui_dir.exists() and any(ui_dir.iterdir()):
         try:
-            app.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
+            app.mount("/ui", _NoCacheStaticFiles(directory=ui_dir, html=True), name="ui")
         except Exception as e:
             _LOG.warning("Failed to mount UI from %s: %s", ui_dir, e)
     else:

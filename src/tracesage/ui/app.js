@@ -572,6 +572,14 @@ function formatTs(iso) {
  * Drawer (step details / node details)
  * ============================================================ */
 
+/** Which half of a logical step an event represents: the request (inputs) or the
+ *  response (outputs / error). Used to pair a step's two events by run_id. */
+function stepPhase(eventType) {
+  if (/_(end|finish|error)$/.test(eventType)) return 'response';
+  if (/_start$/.test(eventType) || eventType === 'agent_action' || eventType === 'run_start') return 'request';
+  return null;
+}
+
 function openStepDrawer(ev) {
   const drawer = document.getElementById('drawer');
   const body = document.getElementById('drawer-body');
@@ -595,6 +603,23 @@ function openStepDrawer(ev) {
     ['error', ev.error_message],
   ].filter(([, v]) => v != null && v !== '');
 
+  // A logical step is a request (*_start) + a response (*_end/_error) sharing the
+  // same run_id. Find both halves so the drawer can show the full REQUEST and
+  // RESPONSE payloads together, no matter which card was clicked.
+  const siblings = (state.journey || []).filter((e) => e.run_id === ev.run_id);
+  const pickWithBlob = (phase) =>
+    siblings.find((e) => stepPhase(e.event_type) === phase && e.blob_path)
+    || (stepPhase(ev.event_type) === phase && ev.blob_path ? ev : null);
+  const reqEv = pickWithBlob('request');
+  const resEv = pickWithBlob('response');
+
+  const payloadSection = (id, title, sourceEv) => sourceEv ? `
+    <section class="drawer-section">
+      <h4>${title}</h4>
+      <div id="${id}-status" class="dim">Loading…</div>
+      <pre id="${id}" class="json-pre hidden"></pre>
+    </section>` : '';
+
   body.innerHTML = `
     <section class="drawer-section">
       <h4>Metadata</h4>
@@ -605,38 +630,42 @@ function openStepDrawer(ev) {
         </div>`).join('')}
     </section>
     <section class="drawer-section" id="drawer-summary-section">
-      <h4>Summary</h4>
+      <h4>Summary <span style="font-weight:400;font-size:11px;color:var(--text-dim);">— short one-line preview; full request/response below</span></h4>
       <div style="white-space:pre-wrap; word-break:break-word; color:var(--text);">${escapeHtml(ev.summary || '(none)')}</div>
     </section>
-    ${ev.blob_path ? `
+    ${payloadSection('drawer-request', 'Request payload', reqEv)}
+    ${payloadSection('drawer-response', 'Response payload', resEv)}
+    ${(!reqEv && !resEv) ? `
       <section class="drawer-section">
-        <h4>Full payload</h4>
-        <div id="drawer-blob-status" class="dim">Loading…</div>
-        <pre id="drawer-blob" class="json-pre hidden"></pre>
+        <div class="dim">No full payload captured for this step. (Request/response payloads
+        are recorded for runs traced after this feature was enabled — re-run to see them.)</div>
       </section>` : ''}
   `;
 
   showDrawer();
 
-  if (ev.blob_path) {
-    const fetchedEventId = ev.event_id;
-    apiGet(`/runs/${encodeURIComponent(ev.run_id)}/steps/${encodeURIComponent(ev.event_id)}/full`)
+  const token = ev.event_id;
+  const loadInto = (sourceEv, preId) => {
+    if (!sourceEv) return;
+    apiGet(`/runs/${encodeURIComponent(sourceEv.run_id)}/steps/${encodeURIComponent(sourceEv.event_id)}/full`)
       .then((data) => {
         // Drawer moved on (or closed) while we were fetching — drop the result.
-        if (state.currentDrawerEventId !== fetchedEventId) return;
-        const status = document.getElementById('drawer-blob-status');
-        const pre = document.getElementById('drawer-blob');
+        if (state.currentDrawerEventId !== token) return;
+        const status = document.getElementById(`${preId}-status`);
+        const pre = document.getElementById(preId);
         if (!status || !pre) return;
         status.classList.add('hidden');
         pre.classList.remove('hidden');
         pre.innerHTML = highlightJson(data.full_payload);
       })
       .catch((err) => {
-        if (state.currentDrawerEventId !== fetchedEventId) return;
-        const status = document.getElementById('drawer-blob-status');
+        if (state.currentDrawerEventId !== token) return;
+        const status = document.getElementById(`${preId}-status`);
         if (status) status.textContent = `Failed: ${err.message}`;
       });
-  }
+  };
+  loadInto(reqEv, 'drawer-request');
+  loadInto(resEv, 'drawer-response');
 }
 
 /** Inline icons + labels for each topology node kind. Used in the drawer's
@@ -1287,6 +1316,30 @@ function applyToolsCollapsed() {
     toggle.setAttribute('aria-expanded', state.toolsCollapsed ? 'false' : 'true');
     toggle.innerHTML = state.toolsCollapsed ? '&#x2b;' : '&#x2212;';
   }
+  // Expanding grows the panel height; if it was parked near the bottom edge the
+  // body could spill out of the clipped pane. Re-clamp when a position is set.
+  if (panel.style.left) clampToolsPanel(panel);
+}
+
+/** Clamp the panel so the WHOLE of it stays inside the graph pane's visible
+ *  box. The pane has overflow:hidden, so any part pushed past an edge would be
+ *  clipped ("hidden in the sidebar"); keeping the full width AND height in view
+ *  prevents that. Safe to call any time the panel has an explicit left/top. */
+function clampToolsPanel(panel) {
+  const pane = panel.parentElement;
+  if (!pane) return;
+  const pb = pane.getBoundingClientRect();
+  const pr = panel.getBoundingClientRect();
+  // Current offset of the panel within the pane.
+  let left = pr.left - pb.left;
+  let top = pr.top - pb.top;
+  const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
+  const maxTop = Math.max(4, pb.height - panel.offsetHeight - 4);
+  left = Math.max(4, Math.min(left, maxLeft));
+  top = Math.max(4, Math.min(top, maxTop));
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.right = 'auto';
 }
 
 function wireToolsPanel() {
@@ -1295,15 +1348,36 @@ function wireToolsPanel() {
   if (!panel || !header) return;
 
   // Restore a saved position so the panel stays where the user parked it (out of
-  // the way of the llm/retriever columns on the right).
+  // the way of the llm/retriever columns on the right). Clamp it afterwards: the
+  // pane may now be narrower (window resize, expanded side pane) than when saved,
+  // and an un-clamped position would leave the panel clipped/off-screen.
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_TOOLS_POS) || 'null');
     if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
       panel.style.left = `${saved.left}px`;
       panel.style.top = `${saved.top}px`;
       panel.style.right = 'auto';
+      clampToolsPanel(panel);
     }
   } catch { /* ignore bad saved value */ }
+
+  // Keep the panel on-screen whenever the graph pane changes size — window
+  // resize AND (crucially) a side pane being expanded/collapsed, which shrinks
+  // the graph pane via a grid-column change rather than a window resize. A
+  // ResizeObserver catches all of these (and fires during the 240ms pane
+  // transition) so a panel parked at the right edge slides left to stay visible
+  // instead of being covered by the opening sidebar.
+  const pane = panel.parentElement;
+  if (pane && 'ResizeObserver' in window) {
+    const ro = new ResizeObserver(() => {
+      if (panel.style.left) clampToolsPanel(panel);
+    });
+    ro.observe(pane);
+  } else {
+    window.addEventListener('resize', () => {
+      if (panel.style.left) clampToolsPanel(panel);
+    });
+  }
 
   // Drag the header to MOVE the panel; a plain click (no drag) toggles collapse.
   let startX = 0, startY = 0, origLeft = 0, origTop = 0, pressed = false, dragging = false;
@@ -1316,8 +1390,12 @@ function wireToolsPanel() {
     dragging = true;
     const pane = panel.parentElement;
     const pb = pane.getBoundingClientRect();
-    const left = Math.max(4, Math.min(origLeft + dx, pb.width - panel.offsetWidth - 4));
-    const top = Math.max(4, Math.min(origTop + dy, pb.height - 40));
+    // Clamp the WHOLE panel (width and height) inside the pane so it can never be
+    // dragged partially under the clipped edge.
+    const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
+    const maxTop = Math.max(4, pb.height - panel.offsetHeight - 4);
+    const left = Math.max(4, Math.min(origLeft + dx, maxLeft));
+    const top = Math.max(4, Math.min(origTop + dy, maxTop));
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
     panel.style.right = 'auto';

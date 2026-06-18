@@ -33,8 +33,22 @@ _ANSI = {
     "red": "\033[31m",
     "green": "\033[32m",
     "yellow": "\033[33m",
+    "blue": "\033[34m",
+    "magenta": "\033[35m",
     "cyan": "\033[36m",
     "bold": "\033[1m",
+}
+
+# One distinct colour per node kind so element types are visually separable in the
+# terminal (mirrors the intent of the UI's per-kind node colours).
+_KIND_COLOR = {
+    "chain": "blue",
+    "agent": "magenta",
+    "tool": "green",
+    "llm": "cyan",
+    "retriever": "yellow",
+    "run": "dim",
+    "retry": "magenta",
 }
 
 
@@ -93,6 +107,7 @@ def _build_nodes(events: list[StoredEvent]) -> dict[str, dict[str, Any]]:
                 "tokens_in": None,
                 "tokens_out": None,
                 "error": None,
+                "mcp_server": None,
                 "first_ts": ev.timestamp,
                 "order": len(nodes),
             }
@@ -100,6 +115,8 @@ def _build_nodes(events: list[StoredEvent]) -> dict[str, dict[str, Any]]:
         name = ev.agent_name or ev.tool_name
         if name and not n["name"]:
             n["name"] = name
+        if getattr(ev, "mcp_server", None) and not n["mcp_server"]:
+            n["mcp_server"] = ev.mcp_server
         if et.endswith("_start") or et in ("run_start",):
             n["kind"] = _kind_of(et)
         if et.endswith("_error"):
@@ -126,8 +143,14 @@ def render_run_tree(
     *,
     use_color: bool | None = None,
     max_name: int = 48,
+    reverse: bool = False,
 ) -> str:
-    """Render a run's events as an indented tree string."""
+    """Render a run's events as an indented tree string.
+
+    Siblings (and roots) are ordered by first-seen timestamp — ascending by
+    default, or newest-first when ``reverse`` is True (the tree hierarchy is
+    preserved either way; only sibling order flips).
+    """
     if use_color is None:
         use_color = sys.stdout.isatty()
     paint = _Painter(use_color)
@@ -147,7 +170,9 @@ def render_run_tree(
             children.setdefault(parent, []).append(rid)
 
     def _sort(rids: list[str]) -> list[str]:
-        return sorted(rids, key=lambda r: (nodes[r]["first_ts"], nodes[r]["order"]))
+        return sorted(
+            rids, key=lambda r: (nodes[r]["first_ts"], nodes[r]["order"]), reverse=reverse
+        )
 
     lines: list[str] = []
 
@@ -177,7 +202,13 @@ def render_run_tree(
         name = n["name"] or n["kind"]
         if len(name) > max_name:
             name = name[: max_name - 1] + "…"
-        label = f"{icon} {paint(n['kind'], 'cyan')} {name}"
+        kind_color = _KIND_COLOR.get(n["kind"], "cyan")
+        # Colour the icon + kind in that kind's colour so element types are
+        # immediately distinguishable; the name stays default for readability.
+        label = f"{paint(icon, kind_color)} {paint(n['kind'], kind_color, 'bold')} {name}"
+        # Attribute tools (and anything else) that came from an MCP server.
+        if n["mcp_server"]:
+            label += paint(f"  mcp:{n['mcp_server']}", "magenta")
         meta_bits = []
         dur = _fmt_ms(n["duration_ms"])
         if dur:

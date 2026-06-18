@@ -113,6 +113,35 @@ async def test_upsert_run_idempotent(backend: SQLiteBackend) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_runs_tag_filter_applies_before_pagination(
+    backend: SQLiteBackend,
+) -> None:
+    # 3 "prod" runs, 2 "dev" runs. The tag filter must run in SQL so that
+    # limit/offset and the total count reflect the *filtered* set — not be
+    # applied after a page has already been truncated.
+    for i in range(5):
+        await backend.upsert_run(
+            _make_run(f"r{i}", tags=["prod"] if i % 2 == 0 else ["dev"])
+        )
+
+    rows, total = await backend.list_runs(tag="prod", limit=2, offset=0)
+    assert total == 3
+    assert len(rows) == 2
+    assert all("prod" in r.tags for r in rows)
+
+    rows, total = await backend.list_runs(tag="prod", limit=2, offset=2)
+    assert total == 3
+    assert len(rows) == 1
+
+    # Substring match, and a non-matching tag yields nothing.
+    rows, total = await backend.list_runs(tag="pro")
+    assert total == 3
+    rows, total = await backend.list_runs(tag="nope")
+    assert total == 0
+    assert rows == []
+
+
+@pytest.mark.asyncio
 async def test_upsert_event_idempotent(backend: SQLiteBackend) -> None:
     await backend.upsert_run(_make_run("r1"))
     e1 = _make_event("e1", "r1", agent_name="A1")

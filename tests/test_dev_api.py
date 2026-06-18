@@ -159,6 +159,103 @@ def test_render_run_tree_empty() -> None:
     assert "no events" in render_run_tree(None, [], use_color=False)
 
 
+def test_render_run_tree_reverse_orders_siblings_newest_first() -> None:
+    from datetime import timedelta
+
+    from tracesage.models import EventType, Run, RunStatus, StoredEvent
+
+    t0 = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+    def ev(eid, rid, et, secs, name):
+        return StoredEvent(
+            event_id=eid, run_id=rid, parent_run_id="root", root_run_id="root",
+            event_type=et, timestamp=t0 + timedelta(seconds=secs),
+            agent_name=name, summary=name,
+        )
+
+    events = [
+        StoredEvent(
+            event_id="r", run_id="root", parent_run_id=None, root_run_id="root",
+            event_type=EventType.CHAIN_START, timestamp=t0, agent_name="root", summary="root",
+        ),
+        ev("a", "a", EventType.LLM_START, 1, "first"),
+        ev("b", "b", EventType.LLM_START, 2, "second"),
+        ev("c", "c", EventType.LLM_START, 3, "third"),
+    ]
+    run = Run(
+        run_id="root", root_run_id="root", tags=[], status=RunStatus.COMPLETED,
+        started_at=t0, total_steps=4,
+    )
+    asc = render_run_tree(run, events, use_color=False, reverse=False)
+    desc = render_run_tree(run, events, use_color=False, reverse=True)
+    # ascending: first appears before third; descending: third before first.
+    assert asc.index("first") < asc.index("third")
+    assert desc.index("third") < desc.index("first")
+
+
+def test_render_run_tree_tags_mcp_tools_with_server() -> None:
+    from tracesage.models import EventType, Run, RunStatus, StoredEvent
+
+    t0 = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+    events = [
+        StoredEvent(
+            event_id="r", run_id="root", parent_run_id=None, root_run_id="root",
+            event_type=EventType.CHAIN_START, timestamp=t0, agent_name="root", summary="x",
+        ),
+        StoredEvent(
+            event_id="t1", run_id="t1", parent_run_id="root", root_run_id="root",
+            event_type=EventType.TOOL_START, timestamp=t0, tool_name="get_weather",
+            mcp_server="weather", summary="x",
+        ),
+        StoredEvent(
+            event_id="t2", run_id="t2", parent_run_id="root", root_run_id="root",
+            event_type=EventType.TOOL_START, timestamp=t0, tool_name="uppercase",
+            mcp_server=None, summary="x",
+        ),
+    ]
+    run = Run(
+        run_id="root", root_run_id="root", tags=[], status=RunStatus.COMPLETED,
+        started_at=t0, total_steps=3,
+    )
+    out = render_run_tree(run, events, use_color=False)
+    assert "get_weather  mcp:weather" in out  # MCP tool tagged with its server
+    # local tool (no server) must NOT get an mcp tag
+    upline = next(line for line in out.splitlines() if "uppercase" in line)
+    assert "mcp:" not in upline
+
+
+def test_render_run_tree_colors_distinct_per_kind() -> None:
+    from tracesage.models import EventType, Run, RunStatus, StoredEvent
+    from tracesage.render import _ANSI
+
+    t0 = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+    def ev(eid, rid, et, tool=None, name=None):
+        return StoredEvent(
+            event_id=eid, run_id=rid, parent_run_id="root", root_run_id="root",
+            event_type=et, timestamp=t0, agent_name=name, tool_name=tool, summary="x",
+        )
+
+    events = [
+        StoredEvent(
+            event_id="r", run_id="root", parent_run_id=None, root_run_id="root",
+            event_type=EventType.CHAIN_START, timestamp=t0, agent_name="root", summary="x",
+        ),
+        ev("l", "l", EventType.LLM_START, name="llm"),
+        ev("t", "t", EventType.TOOL_START, tool="tool"),
+    ]
+    run = Run(
+        run_id="root", root_run_id="root", tags=[], status=RunStatus.COMPLETED,
+        started_at=t0, total_steps=3,
+    )
+    colored = render_run_tree(run, events, use_color=True)
+    # chain (blue), llm (cyan), tool (green) must each emit their colour code.
+    for code in ("blue", "cyan", "green"):
+        assert _ANSI[code] in colored
+    # and no ANSI escapes leak when colour is disabled.
+    assert "\033[" not in render_run_tree(run, events, use_color=False)
+
+
 def test_traceview_repr_html() -> None:
     tv = TraceView("r1", "http://127.0.0.1:7842/ui/#run=r1")
     html = tv._repr_html_()
@@ -191,6 +288,40 @@ def test_embedded_server_serves_ui_and_api(tmp_path: Path) -> None:
                 assert "timeline-search" in ui.text
 
     asyncio.run(_go())
+
+
+def test_embedded_server_port_conflict_does_not_crash(tmp_path: Path) -> None:
+    """If the configured port is already taken, the embedded UI must fail soft —
+    uvicorn calls sys.exit(1) (SystemExit) on bind failure, which must NOT escape
+    and tear down the host application. Tracing must continue and capture runs."""
+    import socket
+
+    from langchain_core.language_models.fake import FakeListLLM
+
+    # Occupy a port, then point a tracer at it with the server enabled.
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    busy_port = sock.getsockname()[1]
+
+    async def _go() -> None:
+        # create() must return cleanly despite the port being in use.
+        tl = await TraceSage.create(_cfg(tmp_path, port=busy_port), start_server=True)
+        try:
+            assert tl.bound_port is None, "server should not report a port it never bound"
+            # Tracing still works end-to-end.
+            await FakeListLLM(responses=["hi"]).ainvoke("hello", config={"callbacks": [tl.handler]})
+            await tl.flush()
+            runs, _ = await tl.db.list_runs(limit=10, offset=0)
+            assert runs, "tracing must still capture runs when the UI port is busy"
+        finally:
+            await tl.stop()
+
+    try:
+        asyncio.run(_go())
+    finally:
+        sock.close()
 
 
 # ----------------------------------------------------------- sync BackgroundTracer

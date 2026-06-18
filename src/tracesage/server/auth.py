@@ -41,6 +41,18 @@ if TYPE_CHECKING:
 _HEALTH_PATH = "/api/health"
 
 
+def _tokens_equal(supplied: str, expected: str) -> bool:
+    """Constant-time string equality that never raises.
+
+    `hmac.compare_digest` raises `TypeError` when given `str` operands containing
+    non-ASCII characters, so a client sending a non-ASCII token would crash the
+    auth path (HTTP 500 / unhandled WS handshake error) instead of failing closed.
+    Comparing the UTF-8 byte encodings sidesteps that restriction while remaining
+    timing-safe.
+    """
+    return hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+
+
 def _is_public_path(path: str) -> bool:
     """Paths that bypass auth even when a token is configured.
 
@@ -81,7 +93,7 @@ async def auth_middleware(
 
     auth_header = request.headers.get("authorization", "")
     expected = f"Bearer {config.auth_token}"
-    if not hmac.compare_digest(auth_header, expected):
+    if not _tokens_equal(auth_header, expected):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     return await call_next(request)
@@ -105,7 +117,7 @@ async def check_ws_auth(websocket: WebSocket, config: TraceSageConfig) -> bool:
         if subprotocols:
             supplied = subprotocols.split(",")[-1].strip()
 
-    if supplied is not None and hmac.compare_digest(supplied, config.auth_token):
+    if supplied is not None and _tokens_equal(supplied, config.auth_token):
         return True
 
     await websocket.close(code=4401)

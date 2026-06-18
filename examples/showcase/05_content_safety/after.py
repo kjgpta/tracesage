@@ -19,7 +19,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableParallel
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 
 def make_llm(temperature: float = 0.0) -> Runnable:
@@ -60,7 +66,7 @@ def main() -> None:
     chain = build_chain()
     content = "Hey, email me at jane.doe@example.com and I'll send the spreadsheet."
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures the parallel checks
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures the parallel checks
         result = chain.invoke({"content": content})
         print("DECISION:", result["decision"], "| flagged by:", result["flagged_by"])
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)

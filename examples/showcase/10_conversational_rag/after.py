@@ -26,7 +26,13 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
-from tracesage import TraceSage  # ← tracesage
+from pathlib import Path  # ← tracesage
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 DOCS = [
     "TraceSage is an observability tool for LangChain and LangGraph apps.",
@@ -107,7 +113,7 @@ async def main() -> None:
         "How much does it cost?",
         "And how do I install it?",
     ]
-    async with TraceSage.session(install=True) as tl:  # ← tracesage
+    async with TraceSage.session(TraceSageConfig(data_dir=DATA_DIR), install=True) as tl:  # ← tracesage
         for turn in turns:
             print(f"\nQ: {turn}")
             result = await graph.ainvoke({"messages": [("user", turn)]}, config)

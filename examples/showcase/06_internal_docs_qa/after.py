@@ -24,7 +24,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnablePassthrough
 from langchain_openai import OpenAIEmbeddings
 
+from pathlib import Path  # ← tracesage
 import tracesage  # ← tracesage
+
+# tracesage: dedicated per-demo data dir so this app's runs, topology, and
+# "Tools by source" stay isolated from other demos (each app = its own dir).
+DATA_DIR = Path.home() / ".tracesage" / Path(__file__).resolve().parent.name
+
 
 FAQ: list[Document] = [
     Document(page_content="Acme Cloud has three plans: Free, Pro, and Enterprise. "
@@ -79,7 +85,7 @@ def main() -> None:
     question = "How much does the Pro plan cost and how much storage does it include?"
     print(f"Q: {question}\n")
 
-    with tracesage.trace():  # ← tracesage: starts the UI + captures every call
+    with tracesage.trace(tracesage.TraceSageConfig(data_dir=DATA_DIR)):  # ← tracesage: starts the UI + captures every call
         print("A:", chain.invoke({"question": question}))
         if sys.stdin.isatty():  # ← keep the UI up so you can explore (demo only)
             input("\n🔍 Open the printed trace link, then press Enter to exit.")

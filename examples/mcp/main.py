@@ -17,11 +17,14 @@ Run:
     pip install 'tracesage[mcp]'
     python examples/mcp/main.py            # then open http://localhost:7842/ui
     python examples/mcp/main.py --check     # run once, print inventory, exit
+
+    # Also export OpenTelemetry spans to a collector (needs `tracesage[otel]` and a
+    # listener on :4318 — e.g. Jaeger or otel-tui; see docs/configuration.md):
+    python examples/mcp/main.py --otlp http://localhost:4318
 """
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sys
 from pathlib import Path
 from typing import TypedDict
@@ -41,9 +44,9 @@ from tracesage import TraceSage, TraceSageConfig  # noqa: E402
 from tracesage.adapters.mcp import register_mcp_client  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-# Dedicated, fresh data dir so the demo inventory shows exactly this run's tools
-# (not data accumulated from other examples in the default ~/.tracesage).
-DATA_DIR = HERE / "mcp_demo_data"
+# Each example uses its OWN data dir, so separate applications never interfere:
+# topology and "Tools by source" are computed per data dir (i.e. per application).
+DATA_DIR = Path.home() / ".tracesage" / "mcp-mixed"
 
 
 # ---- Two hardcoded ("local") tools — NOT from any MCP server ----------------- #
@@ -69,10 +72,18 @@ class State(TypedDict):
     notes: list[str]
 
 
-async def main(check: bool = False) -> None:
-    shutil.rmtree(DATA_DIR, ignore_errors=True)  # fresh slate for a reproducible demo
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+async def main(check: bool = False, otlp: str | None = None) -> None:
+    # Only set otlp_endpoint when --otlp is passed, so the TRACESAGE_OTLP_ENDPOINT
+    # env var still works when the flag is omitted.
+    cfg_kwargs: dict = {"data_dir": DATA_DIR}
+    if otlp:
+        cfg_kwargs["otlp_endpoint"] = otlp
+    tracer = await TraceSage.create(TraceSageConfig(**cfg_kwargs))
     print("tracesage UI: http://localhost:7842/ui")
+    print(f"Data dir:     {DATA_DIR}")
+    print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
+    if tracer._config.otlp_endpoint:
+        print(f"OTel export:  -> {tracer._config.otlp_endpoint}  (install: pip install 'tracesage[otel]')")
 
     # Two local MCP servers over stdio (started as subprocesses by the client).
     client = MultiServerMCPClient(
@@ -159,8 +170,18 @@ async def main(check: bool = False) -> None:
     await asyncio.Event().wait()
 
 
+def _flag_value(flag: str) -> str | None:
+    """Read `--flag value` from argv (None if absent)."""
+    if flag in sys.argv:
+        i = sys.argv.index(flag)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+
 if __name__ == "__main__":
+    # --otlp <endpoint> turns on OpenTelemetry export (or set TRACESAGE_OTLP_ENDPOINT).
     try:
-        asyncio.run(main(check="--check" in sys.argv))
+        asyncio.run(main(check="--check" in sys.argv, otlp=_flag_value("--otlp")))
     except KeyboardInterrupt:
         print("\nstopped.")

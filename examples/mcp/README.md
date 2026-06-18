@@ -52,6 +52,30 @@ Add `--check` to any of them to run once, print the inventory, and exit (no serv
 python examples/mcp/main.py --check
 ```
 
+## Exporting to OpenTelemetry (optional)
+
+Besides the local UI, these traces can be shipped to any OTLP backend as OpenTelemetry
+spans. Start a listener on `:4318`, then enable export — `main.py` takes an `--otlp`
+flag, and every example also honours the `TRACESAGE_OTLP_ENDPOINT` env var:
+
+```bash
+pip install "tracesage[otel]"
+
+# 1. a backend that receives + shows spans (pick one):
+docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest   # UI: :16686
+#   or, no Docker (macOS):  brew install ymtdzzz/tap/otel-tui && otel-tui
+
+# 2. run with export on:
+python examples/mcp/main.py --otlp http://localhost:4318
+#   or:  TRACESAGE_OTLP_ENDPOINT=http://localhost:4318 python examples/mcp/mcp_only.py
+```
+
+You'll see the run as a span tree (`run LangGraph` → `chain weather_agent` →
+`tool get_weather` with `tracesage.mcp_server=weather`, …) in the backend's UI — the
+exported spans show up **there**, not in tracesage's own UI. Best-effort: with no
+listener on `:4318`, spans go nowhere but tracing and the local UI still work. See
+[docs/configuration.md](../../docs/configuration.md#opentelemetry-export).
+
 ## What you'll see
 
 In the UI's **"Tools by source"** panel (top-right of the graph pane):
