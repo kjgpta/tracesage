@@ -92,7 +92,7 @@ ROUTING_RESPONSES = ["database", "web", "docs", "cache"]
 
 
 async def main() -> None:
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR, project_name="Smart search agent"))
     print(f"tracesage at {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")

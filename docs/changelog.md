@@ -16,7 +16,7 @@ Multi-app quality-of-life, plus honest positioning.
 ### Added
 - **Project name in the UI.** Set `TRACESAGE_PROJECT_NAME` (config `project_name`) to
   label an app; it shows in the UI header and browser-tab title. Unset = nothing shown.
-  Surfaced via `/api/health`.
+  Surfaced via `/api/health`. The bundled examples each set one so it's visible in their UI.
 - **Auto-port.** If the configured port (default 7842) is busy, the embedded UI now
   auto-binds the next free port (scanning upward, then an OS-ephemeral port), so multiple
   apps run at once without a clash. Config `port_auto` (`TRACESAGE_PORT_AUTO`, default on);

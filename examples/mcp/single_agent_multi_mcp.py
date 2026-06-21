@@ -44,7 +44,7 @@ class State(TypedDict):
 
 
 async def main(check: bool = False) -> None:
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR, project_name="Multi-MCP researcher"))
     print(f"tracesage UI: {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")

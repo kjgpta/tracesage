@@ -73,7 +73,7 @@ class ResearchState(TypedDict):
 
 
 async def main() -> None:
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR, project_name="Research supervisor"))
     print(f"tracesage at {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")

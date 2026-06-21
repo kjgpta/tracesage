@@ -75,7 +75,7 @@ class State(TypedDict):
 async def main(check: bool = False, otlp: str | None = None) -> None:
     # Only set otlp_endpoint when --otlp is passed, so the TRACESAGE_OTLP_ENDPOINT
     # env var still works when the flag is omitted.
-    cfg_kwargs: dict = {"data_dir": DATA_DIR}
+    cfg_kwargs: dict = {"data_dir": DATA_DIR, "project_name": "MCP demo (mixed)"}
     if otlp:
         cfg_kwargs["otlp_endpoint"] = otlp
     tracer = await TraceSage.create(TraceSageConfig(**cfg_kwargs))
