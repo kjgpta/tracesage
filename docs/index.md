@@ -33,6 +33,7 @@ changing your workflow logic, persists it locally (SQLite + gzipped blobs),
 and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
+  The UI is fully self-contained (assets vendored, no CDN) and works offline.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
 - **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
