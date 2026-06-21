@@ -174,10 +174,18 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
 <table>
   <tr>
     <td width="50%"><img src="assets/ui-topology.png" alt="Live topology graph"></td>
-    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+    <td width="50%"><img src="assets/ui-run-trace.png" alt="Run trace and timeline"></td>
   </tr>
   <tr>
     <td align="center"><em>Live topology — agents, tools, LLMs and MCP servers across a run.</em></td>
+    <td align="center"><em>Run trace — the path a run took, with a step-by-step timeline you can replay.</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-step-payload.png" alt="Step request and response payloads"></td>
+    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Click any step for its full <strong>request and response</strong> payloads, duration and errors.</em></td>
     <td align="center"><em>“Tools by source” — every tool grouped by origin (MCP servers vs. local).</em></td>
   </tr>
   <tr>
@@ -185,8 +193,8 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
     <td width="50%"><img src="assets/ui-agent-drawer.png" alt="Agent inspector"></td>
   </tr>
   <tr>
-    <td align="center"><em>MCP server inspector — invocations, errors, provided tools and callers.</em></td>
-    <td align="center"><em>Agent inspector — a node’s in-code tools and what called it.</em></td>
+    <td align="center"><em>Click any node to inspect it — MCP server: invocations, errors, provided tools, callers.</em></td>
+    <td align="center"><em>…or an agent: its in-code tools, the MCP servers it uses, and what called it.</em></td>
   </tr>
 </table>
 
