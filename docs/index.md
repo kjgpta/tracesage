@@ -62,9 +62,9 @@ and renders it in an interactive graph + timeline UI in real time.
 
     Every `TRACESAGE_*` env var explained.
 
--   :material-shield-check: **[Production](production.md)**
+-   :material-shield-check: **[Deploying & hardening](production.md)**
 
-    Auth, sampling, retention, monitoring, multi-tenant deployments.
+    Auth, sampling, retention, the safety rails, and the OTel bridge to your stack.
 
 -   :material-book-open-variant: **[Examples](examples.md)**
 

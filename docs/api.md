@@ -42,7 +42,7 @@ A failed WebSocket handshake is closed with code `4401`.
 Liveness probe. Public — never requires auth.
 
 ```json
-{ "status": "ok", "version": "0.2.0", "project_name": "my-app" }
+{ "status": "ok", "version": "0.2.1", "project_name": "my-app" }
 ```
 
 `project_name` is the optional `TRACESAGE_PROJECT_NAME` label (`null` when unset); the
@@ -60,6 +60,7 @@ List root runs, newest first.
 | `status` | `running` \| `completed` \| `failed` \| `all` | (all) | Filter by run status. |
 | `limit` | int, 1–200 | 50 | Page size. |
 | `offset` | int, ≥ 0 | 0 | Pagination offset. |
+| `tag` | string, 1–200 chars | (none) | Only runs whose tags contain this substring. Filtered in SQL, so it composes with `limit`/`offset` and the reported `total`. |
 
 ```json
 {
@@ -69,9 +70,6 @@ List root runs, newest first.
   "offset": 0
 }
 ```
-
-There is no server-side `tag` filter. Filter by tag client-side or with the
-`tracesage runs --tag` CLI command.
 
 ### `GET /api/runs/{run_id}`
 
