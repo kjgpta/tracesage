@@ -237,6 +237,8 @@ topology piece by piece.
   response** payloads (inputs/prompt + outputs/result) paired together, plus tokens,
   duration, and errors; MCP-backed tools are tagged with their server
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
+- **Header stats** — `ev/s` (1-min rolling event rate), `running` (in-progress runs),
+  `dropped` (events lost to backpressure; red if non-zero), and the live connection dot
 - **Dark / light themes**, persisted in `localStorage`
 - **Keyboard shortcuts:** `j`/`k` next/prev run, `/` focus search, `t` toggle theme, `Esc`, `?`
 

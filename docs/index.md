@@ -95,6 +95,21 @@ Once a run lands, the UI shows:
 
 Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?` help.
 
+### Header stats
+
+The top bar shows live health at a glance (plus the optional
+[project name](configuration.md) next to the brand):
+
+| Chip | Meaning |
+|---|---|
+| **ev/s** | Trace events received per second, as a **1-minute rolling average** (events in the last 60 s ÷ 60). A quick pulse that capture is flowing — it rises while a run is active and decays to 0 when idle. |
+| **running** | How many **root runs are currently in progress** (`runs_active` from `/api/stats`; falls back to counting `running` rows in the list). |
+| **dropped** | Events **dropped because the ingestion queue was full** (backpressure). Should stay **0**; the chip turns red if not. If it climbs, lower `sample_rate` or raise `queue_maxsize` — see [Deploying & hardening → what to monitor](production.md). |
+| **connection dot** | The live **WebSocket link** to the server: *connected* (updates streaming in real time), *connecting*, or *disconnected* (it auto-reconnects with backoff). |
+
+`ev/s` is computed in the browser from the event stream; `running` and `dropped`
+come from [`GET /api/stats`](api.md), polled periodically.
+
 ### Watch a trace stream in
 
 <video controls muted playsinline width="100%" poster="assets/ui-topology.png">
