@@ -74,7 +74,7 @@ and renders it in an interactive graph + timeline UI in real time.
 ## Install
 
 ```bash
-pip install tracesage[langchain]
+pip "install tracesage[langchain]"
 ```
 
 Requires **Python 3.11+**. The `[langchain]` extra pulls `langchain-core`;
