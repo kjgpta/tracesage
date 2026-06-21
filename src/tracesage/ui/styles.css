@@ -373,6 +373,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pane-header select {
   font-size: 11.5px; padding: 3px 24px 3px 8px;
 }
+/* The runs panel has an absolutely-positioned collapse button at its top-right
+   (.pane-collapse-left: right 8px, 34px wide, out of flow). Reserve that space
+   in the header so the status-filter dropdown sits to the LEFT of the collapse
+   button instead of being hidden underneath it. */
+.pane-runs .pane-header { padding-right: 50px; }
 .pane-footer {
   flex: 0 0 auto;
   padding: 8px 14px;
