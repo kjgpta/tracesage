@@ -4,7 +4,7 @@
 
 # tracesage
 
-**Production observability for LangChain & LangGraph multi-agent systems.**
+**Local-first observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
 ```python
@@ -34,7 +34,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
-- **Production-grade safety.** The handler never raises. The tracer never crashes
+- **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
 - **MCP-aware.** Tools loaded from MCP servers are attributed by source — see which tools
@@ -123,6 +123,6 @@ or uses, and (for MCP) its server of origin.
 
 **Beta.** API may still shift before v1.0. The PyPI badge shows the published version,
 stamped by the release workflow when a version actually ships (so it matches PyPI).
-Production-monitoring-ready for single-Python-process deployments, with OpenTelemetry
-export to bridge into a central stack; native multi-process / remote-collector storage is
-on the roadmap. See the [changelog](changelog.md) for release notes.
+Built for local development and single-process tracing, with OpenTelemetry export to
+bridge into a central stack; native multi-process / remote-collector storage is on the
+roadmap. See the [changelog](changelog.md) for release notes.

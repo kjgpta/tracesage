@@ -1,5 +1,5 @@
 site_name: tracesage
-site_description: Production observability for LangChain & LangGraph multi-agent systems.
+site_description: Local-first observability for LangChain & LangGraph multi-agent systems.
 site_url: https://kjgpta.github.io/tracesage/
 site_author: tracesage contributors
 

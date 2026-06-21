@@ -4,7 +4,7 @@
 
 # tracesage
 
-**Production observability for LangChain & LangGraph multi-agent systems.**
+**Local-first observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
 [![PyPI](https://img.shields.io/badge/pypi-v0.2.0-3775A9)](https://pypi.org/project/tracesage/)
@@ -60,7 +60,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
-- **Production-grade safety.** The handler never raises. The tracer never crashes
+- **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
 - **MCP-aware.** Tools loaded from MCP servers are attributed by source, so you can
@@ -370,8 +370,8 @@ throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
 
 **Beta.** API may still shift before v1.0. The PyPI badge at the top shows the published
 version; it's stamped by the release workflow **when a version actually ships** (so it
-matches PyPI and never gets ahead of a release). Production-monitoring-ready for
-single-Python-process deployments; centralized multi-process / remote-collector mode is
+matches PyPI and never gets ahead of a release). Built for local development and
+single-process tracing; centralized multi-process / remote-collector mode is
 on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
 
 See [the changelog](docs/changelog.md) for release notes.

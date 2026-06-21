@@ -42,8 +42,11 @@ A failed WebSocket handshake is closed with code `4401`.
 Liveness probe. Public — never requires auth.
 
 ```json
-{ "status": "ok", "version": "0.2.0" }
+{ "status": "ok", "version": "0.2.0", "project_name": "my-app" }
 ```
+
+`project_name` is the optional `TRACESAGE_PROJECT_NAME` label (`null` when unset); the
+UI reads it here to show the app's name in its header.
 
 `version` echoes the installed tracesage package version, so it always matches
 whatever you have running (the example just shows the shape).
