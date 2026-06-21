@@ -55,7 +55,8 @@ const state = {
   newEventCount: 0,
   autoScrollTimeline: true,
   graphMode: 'topology',       // 'topology' | 'trace'
-  topologyScope: 'run',        // 'run' (selected/latest) | 'last10' | 'all'
+  topologyScope: 'run',        // 'run' (selected/latest) | 'lastn' | 'all'
+  topologyScopeN: 5,           // N for the 'lastn' scope
   toolsCollapsed: true,        // "Tools by source" panel starts minimized
   layoutDir: 'LR',
   evRateWindow: [],            // sliding window of timestamps for ev/s
@@ -1246,7 +1247,7 @@ function applyProjectName(name) {
 function topologyScopeParam() {
   const s = state.topologyScope || 'run';
   if (s === 'all') return 'all';
-  if (s === 'last10') return 'last_n:10';
+  if (s === 'lastn') return `last_n:${Math.max(1, state.topologyScopeN || 5)}`;
   return state.selectedRunId ? `run:${state.selectedRunId}` : 'last_n:1';
 }
 
@@ -1469,6 +1470,9 @@ function wireToolsPanel() {
 
 function setGraphMode(mode) {
   state.graphMode = mode;
+  // The topology-scope selector only applies to the Topology view.
+  const scopeWrap = document.getElementById('topology-scope-wrap');
+  if (scopeWrap) scopeWrap.classList.toggle('hidden', mode !== 'topology');
   document.querySelectorAll('.seg-btn').forEach((b) => {
     const isActive = b.dataset.mode === mode;
     b.classList.toggle('active', isActive);
@@ -1924,11 +1928,25 @@ function wireUI() {
   document.getElementById('zoom-out').addEventListener('click', () => graph?.zoomOut());
   document.getElementById('zoom-fit').addEventListener('click', () => graph?.fit());
   const scopeSel = document.getElementById('topology-scope');
+  const scopeN = document.getElementById('topology-scope-n');
   if (scopeSel) {
     scopeSel.value = state.topologyScope;
+    if (scopeN) {
+      scopeN.value = String(state.topologyScopeN);
+      scopeN.classList.toggle('hidden', state.topologyScope !== 'lastn');
+    }
     scopeSel.addEventListener('change', (e) => {
       state.topologyScope = e.target.value;
+      if (scopeN) scopeN.classList.toggle('hidden', state.topologyScope !== 'lastn');
       loadTopology();   // re-fetch topology + tools at the new scope
+    });
+  }
+  if (scopeN) {
+    scopeN.addEventListener('change', (e) => {
+      const n = parseInt(e.target.value, 10);
+      state.topologyScopeN = Number.isFinite(n) && n > 0 ? n : 5;
+      e.target.value = String(state.topologyScopeN);
+      if (state.topologyScope === 'lastn') loadTopology();
     });
   }
   document.getElementById('layout-toggle').addEventListener('click', () => {
