@@ -93,7 +93,7 @@ ROUTING_RESPONSES = ["database", "web", "docs", "cache"]
 
 async def main() -> None:
     tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
-    print("tracesage at http://localhost:7842/ui")
+    print(f"tracesage at {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
 
@@ -145,7 +145,7 @@ async def main() -> None:
         )
         print(f"  query={q!r:<30s} tool={result['tool_used']:<10s} result={result['result']}")
 
-    print("\nLeaving server up. Open http://localhost:7842/ui to see the topology")
+    print(f"\nLeaving server up. Open {tracer.ui_url} to see the topology")
     print("and click each run to see which tool was actually used.")
     print("Ctrl+C to stop.")
     try:

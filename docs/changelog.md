@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Project name in the UI.** Set `TRACESAGE_PROJECT_NAME` (config `project_name`) to
+  label an app; it shows in the UI header and browser-tab title. Unset = nothing shown.
+  Surfaced via `/api/health`.
+- **Auto-port.** If the configured port (default 7842) is busy, the embedded UI now
+  auto-binds the next free port (scanning upward, then an OS-ephemeral port), so multiple
+  apps run at once without a clash. Config `port_auto` (`TRACESAGE_PORT_AUTO`, default on);
+  set `False` to pin exactly `port`. New `tracer.ui_url` property exposes the live URL;
+  examples print the actual bound port.
 
 ## [0.2.0] — 2026-06-18
 

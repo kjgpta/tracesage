@@ -66,6 +66,18 @@ def app(db, blob_store, ws_manager, config):
     return create_app(db=db, blob_store=blob_store, ws_manager=ws_manager, config=config, stats=Stats())
 
 
+@pytest.mark.asyncio
+async def test_health_includes_project_name(db, blob_store, ws_manager, tmp_data_dir):
+    """/api/health surfaces project_name (None by default, the configured value when set)."""
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, project_name="billing-svc")
+    app = create_app(db=db, blob_store=blob_store, ws_manager=ws_manager, config=cfg, stats=Stats())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        body = (await ac.get("/api/health")).json()
+    assert body["status"] == "ok"
+    assert body["project_name"] == "billing-svc"
+
+
 @pytest.fixture
 def app_with_auth(db, blob_store, ws_manager, config_with_token):
     return create_app(
@@ -139,7 +151,7 @@ async def test_health_no_auth_required_no_token(client):
     r = await client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
-    assert body == {"status": "ok", "version": __version__}
+    assert body == {"status": "ok", "version": __version__, "project_name": None}
 
 
 @pytest.mark.asyncio

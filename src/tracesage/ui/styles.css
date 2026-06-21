@@ -137,6 +137,17 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .brand-accent { color: var(--success); }
 
+/* Optional per-app project label (TRACESAGE_PROJECT_NAME). Hidden when unset. */
+.project-name {
+  display: inline-flex; align-items: center;
+  margin-left: 4px; padding: 2px 9px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text); font-size: 12px; font-weight: 600;
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-name.hidden { display: none; }
+
 .stats-ribbon { display: flex; gap: 6px; }
 .stat-chip {
   display: inline-flex; align-items: center; gap: 5px;

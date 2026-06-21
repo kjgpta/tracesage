@@ -63,6 +63,7 @@ def get_stats(request: Request) -> Stats:
 class HealthResponse(BaseModel):
     status: str
     version: str
+    project_name: str | None = None
 
 
 class RunListResponse(BaseModel):
@@ -93,10 +94,14 @@ class DeleteResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+async def health(
+    config: Annotated[TraceSageConfig, Depends(get_config)],
+) -> HealthResponse:
     from tracesage import __version__
 
-    return HealthResponse(status="ok", version=__version__)
+    return HealthResponse(
+        status="ok", version=__version__, project_name=config.project_name
+    )
 
 
 @router.get("/runs", response_model=RunListResponse)

@@ -11,8 +11,18 @@ def test_defaults_are_valid(tmp_path) -> None:
     cfg = TraceSageConfig(data_dir=tmp_path)
     assert cfg.host == "127.0.0.1"
     assert cfg.port == 7842
+    assert cfg.port_auto is True
+    assert cfg.project_name is None
     assert cfg.db_path == tmp_path / "traces.db"
     assert cfg.blob_dir == tmp_path / "blobs"
+
+
+def test_project_name_and_port_auto_from_env(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("TRACESAGE_PROJECT_NAME", "billing-svc")
+    monkeypatch.setenv("TRACESAGE_PORT_AUTO", "false")
+    cfg = TraceSageConfig(data_dir=tmp_path)
+    assert cfg.project_name == "billing-svc"
+    assert cfg.port_auto is False
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "example.com"])  # noqa: S104

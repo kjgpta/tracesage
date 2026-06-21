@@ -79,7 +79,7 @@ async def main(check: bool = False, otlp: str | None = None) -> None:
     if otlp:
         cfg_kwargs["otlp_endpoint"] = otlp
     tracer = await TraceSage.create(TraceSageConfig(**cfg_kwargs))
-    print("tracesage UI: http://localhost:7842/ui")
+    print(f"tracesage UI: {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
     if tracer._config.otlp_endpoint:
@@ -165,7 +165,7 @@ async def main(check: bool = False, otlp: str | None = None) -> None:
         await tracer.stop()
         return
 
-    print("\nOpen http://localhost:7842/ui and look at the 'Tools by source' panel.")
+    print(f"\nOpen {tracer.ui_url} and look at the 'Tools by source' panel.")
     print("Ctrl+C to stop.")
     await asyncio.Event().wait()
 

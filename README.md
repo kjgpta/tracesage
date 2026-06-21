@@ -68,6 +68,8 @@ and renders it in an interactive graph + timeline UI in real time.
 - **OpenTelemetry export.** Optionally ship every trace as OTel spans to your collector /
   Tempo / Jaeger / Datadog / Honeycomb — the bridge from the local dev view to your
   production stack (config-driven; see [docs/configuration.md](docs/configuration.md#opentelemetry-export)).
+- **Multi-app friendly.** Run several apps at once: each auto-binds a free port (7842, 7843, …),
+  shows its `TRACESAGE_PROJECT_NAME` in the UI header, and keeps its own data dir — no clashes.
 - **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned (see [`production_roadmap.md`](production_roadmap.md)).
 - **MIT licensed.** Free forever.
 

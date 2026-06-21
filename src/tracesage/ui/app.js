@@ -1215,9 +1215,22 @@ async function pollHealth() {
     state.serverVersion = h.version || '?';
     document.getElementById('diag-version').textContent = h.version || '?';
     document.getElementById('diag-rest').textContent = 'ok';
+    applyProjectName(h.project_name);
   } catch (e) {
     document.getElementById('diag-rest').textContent = 'unreachable';
   }
+}
+
+/** Show the optional project label (TRACESAGE_PROJECT_NAME) in the header + tab
+ *  title so multiple apps' UIs are distinguishable. Hidden when unset. */
+function applyProjectName(name) {
+  const el = document.getElementById('project-name');
+  const clean = (name || '').trim();
+  if (el) {
+    el.textContent = clean;
+    el.classList.toggle('hidden', !clean);
+  }
+  document.title = clean ? `${clean} · tracesage` : 'tracesage';
 }
 
 /* ============================================================
