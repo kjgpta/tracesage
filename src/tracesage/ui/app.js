@@ -55,6 +55,8 @@ const state = {
   newEventCount: 0,
   autoScrollTimeline: true,
   graphMode: 'topology',       // 'topology' | 'trace'
+  topologyScope: 'run',        // 'run' (selected/latest) | 'lastn' | 'all'
+  topologyScopeN: 5,           // N for the 'lastn' scope
   toolsCollapsed: true,        // "Tools by source" panel starts minimized
   layoutDir: 'LR',
   evRateWindow: [],            // sliding window of timestamps for ev/s
@@ -341,7 +343,9 @@ async function selectRun(runId) {
   state.selectedRunId = runId;
   state.journey = [];
   state.newEventCount = 0;
-  state.autoScrollTimeline = true;
+  // Open at the FIRST step (top), not the latest. Live tailing re-enables itself
+  // when the user scrolls to the bottom (see the timeline scroll listener).
+  state.autoScrollTimeline = false;
   state.knownEventIds = new Set();
   setHash(runId);
   renderRunList();
@@ -361,7 +365,12 @@ async function selectRun(runId) {
     state.journey = [];
   }
   renderTimeline();
+  // Point the timeline at the first entry on open.
+  const tlEl = document.getElementById('timeline');
+  if (tlEl) tlEl.scrollTop = 0;
   applyRunTraceToGraph();
+  // When the topology is scoped to "this run", refresh it for the new selection.
+  if (state.topologyScope === 'run') loadTopology();
 
   // Reset manual replay state for the new run; if user is in manual mode,
   // refresh the step list against the new journey.
@@ -1215,18 +1224,42 @@ async function pollHealth() {
     state.serverVersion = h.version || '?';
     document.getElementById('diag-version').textContent = h.version || '?';
     document.getElementById('diag-rest').textContent = 'ok';
+    applyProjectName(h.project_name);
   } catch (e) {
     document.getElementById('diag-rest').textContent = 'unreachable';
   }
+}
+
+/** Show the optional project label (TRACESAGE_PROJECT_NAME) in the header + tab
+ *  title so multiple apps' UIs are distinguishable. Hidden when unset. */
+function applyProjectName(name) {
+  const el = document.getElementById('project-name');
+  const clean = (name || '').trim();
+  if (el) {
+    el.textContent = clean;
+    el.classList.toggle('hidden', !clean);
+  }
+  document.title = clean ? `${clean} · tracesage` : 'tracesage';
 }
 
 /* ============================================================
  * Graph wiring
  * ============================================================ */
 
+/** The `?scope=` value for topology/tools. Default 'run' scopes to the selected run
+ *  (exact current structure — no stale nodes); with no run selected it falls back to
+ *  the latest run. 'last10'/'all' are explicit opt-in aggregates. */
+function topologyScopeParam() {
+  const s = state.topologyScope || 'run';
+  if (s === 'all') return 'all';
+  if (s === 'lastn') return `last_n:${Math.max(1, state.topologyScopeN || 5)}`;
+  return state.selectedRunId ? `run:${state.selectedRunId}` : 'last_n:1';
+}
+
 async function loadTopology() {
   try {
-    state.topology = await apiGet('/topology');
+    const scope = encodeURIComponent(topologyScopeParam());
+    state.topology = await apiGet(`/topology?scope=${scope}`);
     if (graph?.isReady()) graph.setTopology(state.topology);
     renderMcpLegend();
   } catch (e) {
@@ -1238,7 +1271,8 @@ async function loadTopology() {
 
 async function loadTools() {
   try {
-    renderToolsPanel(await apiGet('/tools'));
+    const scope = encodeURIComponent(topologyScopeParam());
+    renderToolsPanel(await apiGet(`/tools?scope=${scope}`));
   } catch {
     /* non-fatal: leave the panel showing its last state */
   }
@@ -1441,6 +1475,12 @@ function wireToolsPanel() {
 
 function setGraphMode(mode) {
   state.graphMode = mode;
+  // The topology-scope selector and the "Tools by source" panel only apply to
+  // the Topology view — hide both in Run trace mode.
+  const scopeWrap = document.getElementById('topology-scope-wrap');
+  if (scopeWrap) scopeWrap.classList.toggle('hidden', mode !== 'topology');
+  const toolsPanel = document.getElementById('tools-panel');
+  if (toolsPanel) toolsPanel.classList.toggle('hidden', mode !== 'topology');
   document.querySelectorAll('.seg-btn').forEach((b) => {
     const isActive = b.dataset.mode === mode;
     b.classList.toggle('active', isActive);
@@ -1895,6 +1935,28 @@ function wireUI() {
   document.getElementById('zoom-in').addEventListener('click', () => graph?.zoomIn());
   document.getElementById('zoom-out').addEventListener('click', () => graph?.zoomOut());
   document.getElementById('zoom-fit').addEventListener('click', () => graph?.fit());
+  const scopeSel = document.getElementById('topology-scope');
+  const scopeN = document.getElementById('topology-scope-n');
+  if (scopeSel) {
+    scopeSel.value = state.topologyScope;
+    if (scopeN) {
+      scopeN.value = String(state.topologyScopeN);
+      scopeN.classList.toggle('hidden', state.topologyScope !== 'lastn');
+    }
+    scopeSel.addEventListener('change', (e) => {
+      state.topologyScope = e.target.value;
+      if (scopeN) scopeN.classList.toggle('hidden', state.topologyScope !== 'lastn');
+      loadTopology();   // re-fetch topology + tools at the new scope
+    });
+  }
+  if (scopeN) {
+    scopeN.addEventListener('change', (e) => {
+      const n = parseInt(e.target.value, 10);
+      state.topologyScopeN = Number.isFinite(n) && n > 0 ? n : 5;
+      e.target.value = String(state.topologyScopeN);
+      if (state.topologyScope === 'lastn') loadTopology();
+    });
+  }
   document.getElementById('layout-toggle').addEventListener('click', () => {
     graph?.toggleLayoutDir();
     state.layoutDir = state.layoutDir === 'LR' ? 'TD' : 'LR';

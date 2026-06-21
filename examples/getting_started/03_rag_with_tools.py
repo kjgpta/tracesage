@@ -87,8 +87,8 @@ class RAGState(TypedDict):
 
 
 async def main() -> None:
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
-    print("tracesage at http://localhost:7842/ui")
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR, project_name="RAG with tools"))
+    print(f"tracesage at {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
 
@@ -181,7 +181,7 @@ async def main() -> None:
     print("\nLeaving server up. The topology should now show:")
     print("  retriever:FakeRetriever -> llm:FakeListChatModel -> tool:summarize_documents")
     print("  -> llm:FakeListChatModel -> tool:cite_sources")
-    print("Open http://localhost:7842/ui to inspect. Ctrl+C to stop.")
+    print(f"Open {tracer.ui_url} to inspect. Ctrl+C to stop.")
     try:
         await asyncio.Event().wait()
     except KeyboardInterrupt:

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracesage"
-version = "0.2.0"
-description = "Production observability adapter for LangChain/LangGraph multi-agent systems"
+version = "0.2.1"
+description = "Local-first observability for LangChain/LangGraph multi-agent systems"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"

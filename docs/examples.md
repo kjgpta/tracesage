@@ -14,7 +14,7 @@ in three tiers — from a 30-second first taste to a 30-app before/after gallery
 
 ```bash
 pip install "tracesage[langchain]"
-python examples/getting_started/01_smart_search_agent.py   # then open http://localhost:7842/ui
+python examples/getting_started/01_smart_search_agent.py   # then open the URL it prints (default http://localhost:7842/ui)
 ```
 
 `01_smart_search_agent` (one agent, four tools), `02_research_supervisor`
@@ -25,7 +25,7 @@ These use `FakeListChatModel`, so they run with **no API key**.
 
 ```bash
 pip install "tracesage[mcp]"
-python examples/mcp/main.py            # then open http://localhost:7842/ui
+python examples/mcp/main.py            # then open the URL it prints (default http://localhost:7842/ui)
 ```
 
 Two local stdio MCP servers (`weather`, `math`) plus two hardcoded tools, all

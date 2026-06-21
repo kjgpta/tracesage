@@ -4,10 +4,10 @@
 
 # tracesage
 
-**Production observability for LangChain & LangGraph multi-agent systems.**
+**Local-first observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
-[![PyPI](https://img.shields.io/badge/pypi-v0.2.0-3775A9)](https://pypi.org/project/tracesage/)
+[![PyPI](https://img.shields.io/badge/pypi-v0.2.1-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
 [![License: MIT](https://img.shields.io/pypi/l/tracesage)](LICENSE)
 [![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
@@ -59,8 +59,9 @@ changing your workflow logic, persists it locally (SQLite + gzipped blobs),
 and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
+  The UI is fully self-contained (assets vendored, no CDN) and works offline.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
-- **Production-grade safety.** The handler never raises. The tracer never crashes
+- **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
 - **MCP-aware.** Tools loaded from MCP servers are attributed by source, so you can
@@ -68,19 +69,22 @@ and renders it in an interactive graph + timeline UI in real time.
 - **OpenTelemetry export.** Optionally ship every trace as OTel spans to your collector /
   Tempo / Jaeger / Datadog / Honeycomb — the bridge from the local dev view to your
   production stack (config-driven; see [docs/configuration.md](docs/configuration.md#opentelemetry-export)).
+- **Multi-app friendly.** Run several apps at once: each auto-binds a free port (7842, 7843, …),
+  shows its `TRACESAGE_PROJECT_NAME` in the UI header, and keeps its own data dir — no clashes.
 - **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned (see [`production_roadmap.md`](production_roadmap.md)).
 - **MIT licensed.** Free forever.
 
 ## Install
 
 ```bash
-pip install tracesage[langchain]
+pip install "tracesage[langchain]"
 ```
 
-Requires **Python 3.11+**. The `[langchain]` extra pulls `langchain-core`;
-that's the only mandatory third-party dep beyond the standard FastAPI /
-aiosqlite / pydantic stack. If your app uses **LangGraph**, also `pip install
-langgraph` (tracesage doesn't pull it).
+Requires **Python 3.11+**. Quote the extra (`"tracesage[langchain]"`) so zsh —
+the default macOS shell — doesn't glob the brackets and fail with `no matches
+found`. The `[langchain]` extra pulls `langchain-core`; that's the only mandatory
+third-party dep beyond the standard FastAPI / aiosqlite / pydantic stack. If your
+app uses **LangGraph**, also `pip install langgraph` (tracesage doesn't pull it).
 
 tracesage is **provider-agnostic** — it traces LangChain's callback stream, so
 OpenAI / Anthropic / local models are all captured automatically; there's no
@@ -137,7 +141,9 @@ asyncio.run(main())
 
 Prefer explicit wiring? Pass `config={"callbacks": [tl.handler]}` instead of `install=True`.
 
-That's it. Open **http://localhost:7842/ui** and explore.
+That's it. Open the URL tracesage prints on startup (`🔍 tracesage: http://…/ui/#run=…`)
+and explore — it's **http://localhost:7842/ui** by default, but auto-port picks the next
+free port (`7843`, …) if `7842` is taken, so trust the printed link (`tracer.ui_url`).
 
 ### Developer workflow
 
@@ -229,12 +235,17 @@ topology piece by piece.
 
 - **Run list** with status badges (running / completed / failed), search, status filter
 - **SVG graph** showing agents, tools, and execution paths — pulses as events arrive
+- **Scoped topology** — the graph + "Tools by source" default to the *selected run*
+  (a toolbar selector switches to last-N-runs / all-time), so removed tools, agents, or
+  MCP servers don't linger across app versions as you iterate
 - **MCP attribution** — `mcp:` server nodes with per-server colors, agent→server and
   server→tool edges, and a draggable "Tools by source" panel grouping tools by origin
 - **Timeline** with click-to-expand step cards — each step shows its full **request and
   response** payloads (inputs/prompt + outputs/result) paired together, plus tokens,
   duration, and errors; MCP-backed tools are tagged with their server
 - **Replay** mode that re-animates a run at 1x / 2x / 5x speed
+- **Header stats** — `ev/s` (1-min rolling event rate), `running` (in-progress runs),
+  `dropped` (events lost to backpressure; red if non-zero), and the live connection dot
 - **Dark / light themes**, persisted in `localStorage`
 - **Keyboard shortcuts:** `j`/`k` next/prev run, `/` focus search, `t` toggle theme, `Esc`, `?`
 
@@ -332,6 +343,7 @@ writer-critic loops, map-reduce, MCP, self-correction, and finance/legal/insuran
 | [Configuration](docs/configuration.md) | Every `TRACESAGE_*` env var explained |
 | [CLI reference](docs/cli.md) | All `tracesage` subcommands |
 | [Production guide](docs/production.md) | Sampling, auth, retention, deployment |
+| [Troubleshooting](docs/troubleshooting.md) | "Where are my runs?", install/port issues, FAQ |
 | [Comparison](docs/comparison.md) | tracesage vs LangSmith / LangFuse / Phoenix |
 | [Extending tracesage](docs/extending.md) | Adding framework adapters and storage backends |
 | **[Examples](examples/showcase/)** | **30 before/after apps with tracesage added** |
@@ -368,9 +380,11 @@ throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
 
 **Beta.** API may still shift before v1.0. The PyPI badge at the top shows the published
 version; it's stamped by the release workflow **when a version actually ships** (so it
-matches PyPI and never gets ahead of a release). Production-monitoring-ready for
-single-Python-process deployments; centralized multi-process / remote-collector mode is
-on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
+matches PyPI and never gets ahead of a release). Built for local development and
+single-process tracing; centralized multi-process / remote-collector mode is
+on the roadmap (see [`production_roadmap.md`](production_roadmap.md)). Today the **only
+shipped adapter is LangChain / LangGraph** — the core is framework-neutral and
+CrewAI / AutoGen / LlamaIndex adapters are planned, not yet available.
 
 See [the changelog](docs/changelog.md) for release notes.
 

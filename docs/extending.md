@@ -64,10 +64,13 @@ Optional but improves the experience:
 
 ### Adapters on the roadmap
 
-- v0.4: CrewAI
-- v0.5: AutoGen
-- v0.6: LlamaIndex
-- v0.7: Semantic Kernel
+Planned, in rough priority order (no fixed version pins — see the
+[changelog](changelog.md) for what's actually shipped):
+
+- CrewAI
+- AutoGen
+- LlamaIndex
+- Semantic Kernel
 - Community PRs welcome
 
 ## Adding a storage backend

@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import logging
 import re
+import socket
 import sys
 import threading
 from collections import OrderedDict
@@ -25,6 +26,30 @@ if TYPE_CHECKING:
     from tracesage.storage.backend import StorageBackend
 
 log = logging.getLogger("tracesage.tracer")
+
+
+def _resolve_bind_port(host: str, port: int, *, auto: bool, scan: int = 20) -> int:
+    """Pick the port the embedded UI server should bind.
+
+    - port 0 -> 0 (let the OS assign an ephemeral port).
+    - auto=False -> the configured port verbatim (caller's fixed-port intent).
+    - auto=True -> the first free port scanning upward from `port` (so a second
+      app on the same machine lands on port+1, port+2, …); if the whole window is
+      busy, 0 (ephemeral) as a last resort so the UI still comes up.
+
+    Probing is best-effort (a tiny TOCTOU window remains, covered by the caller's
+    fail-soft serve guard).
+    """
+    if port == 0 or not auto:
+        return port
+    for candidate in range(port, port + scan + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind((host, candidate))
+                return candidate
+            except OSError:
+                continue
+    return 0
 
 
 class _NullWebSocketManager:
@@ -241,6 +266,21 @@ class TraceSage:
         return self._stats
 
     # ----------------------------------------------------------- dev ergonomics
+
+    @property
+    def ui_url(self) -> str | None:
+        """Base URL of the embedded UI (e.g. ``http://127.0.0.1:7843/ui``), or None
+        if no server is running. Reflects the actual bound port, which may differ
+        from the configured one when auto-port picks a free port."""
+        base = self._config.public_url
+        if not base:
+            if self.bound_port is None:
+                return None
+            host = self._config.host
+            if host in ("0.0.0.0", "::"):  # noqa: S104 - display only, not a bind
+                host = "127.0.0.1"
+            base = f"http://{host}:{self.bound_port}"
+        return f"{base.rstrip('/')}/ui"
 
     def run_url(self, run_id: str) -> str | None:
         """Deep link to a run in the UI, or None if no UI URL is known.
@@ -517,10 +557,13 @@ class TraceSage:
                 stats=self._stats,
                 config=self._config,
             )
+            bind_port = _resolve_bind_port(
+                self._config.host, self._config.port, auto=self._config.port_auto
+            )
             uv_config = uvicorn.Config(
                 app,
                 host=self._config.host,
-                port=self._config.port,
+                port=bind_port,
                 log_level="warning",
                 lifespan="on",
             )
@@ -560,8 +603,9 @@ class TraceSage:
                 await asyncio.sleep(0.05)
 
             if getattr(self._server, "started", False):
-                # Capture ephemeral port if requested.
-                if self._config.port == 0:
+                # Capture the actual port. When bind_port is 0 (ephemeral — either
+                # configured or the scan-exhausted fallback) read it off the socket.
+                if bind_port == 0:
                     with contextlib.suppress(Exception):  # pragma: no cover
                         servers = getattr(self._server, "servers", None) or []
                         if servers:
@@ -569,7 +613,7 @@ class TraceSage:
                             if socks:
                                 self.bound_port = socks[0].getsockname()[1]
                 else:
-                    self.bound_port = self._config.port
+                    self.bound_port = bind_port
             else:
                 # Server never came up (bind failure / timeout). Leave bound_port
                 # as None so callers don't advertise a UI URL that isn't serving.
