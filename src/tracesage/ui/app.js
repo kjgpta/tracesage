@@ -55,6 +55,7 @@ const state = {
   newEventCount: 0,
   autoScrollTimeline: true,
   graphMode: 'topology',       // 'topology' | 'trace'
+  topologyScope: 'run',        // 'run' (selected/latest) | 'last10' | 'all'
   toolsCollapsed: true,        // "Tools by source" panel starts minimized
   layoutDir: 'LR',
   evRateWindow: [],            // sliding window of timestamps for ev/s
@@ -362,6 +363,8 @@ async function selectRun(runId) {
   }
   renderTimeline();
   applyRunTraceToGraph();
+  // When the topology is scoped to "this run", refresh it for the new selection.
+  if (state.topologyScope === 'run') loadTopology();
 
   // Reset manual replay state for the new run; if user is in manual mode,
   // refresh the step list against the new journey.
@@ -1237,9 +1240,20 @@ function applyProjectName(name) {
  * Graph wiring
  * ============================================================ */
 
+/** The `?scope=` value for topology/tools. Default 'run' scopes to the selected run
+ *  (exact current structure — no stale nodes); with no run selected it falls back to
+ *  the latest run. 'last10'/'all' are explicit opt-in aggregates. */
+function topologyScopeParam() {
+  const s = state.topologyScope || 'run';
+  if (s === 'all') return 'all';
+  if (s === 'last10') return 'last_n:10';
+  return state.selectedRunId ? `run:${state.selectedRunId}` : 'last_n:1';
+}
+
 async function loadTopology() {
   try {
-    state.topology = await apiGet('/topology');
+    const scope = encodeURIComponent(topologyScopeParam());
+    state.topology = await apiGet(`/topology?scope=${scope}`);
     if (graph?.isReady()) graph.setTopology(state.topology);
     renderMcpLegend();
   } catch (e) {
@@ -1251,7 +1265,8 @@ async function loadTopology() {
 
 async function loadTools() {
   try {
-    renderToolsPanel(await apiGet('/tools'));
+    const scope = encodeURIComponent(topologyScopeParam());
+    renderToolsPanel(await apiGet(`/tools?scope=${scope}`));
   } catch {
     /* non-fatal: leave the panel showing its last state */
   }
@@ -1908,6 +1923,14 @@ function wireUI() {
   document.getElementById('zoom-in').addEventListener('click', () => graph?.zoomIn());
   document.getElementById('zoom-out').addEventListener('click', () => graph?.zoomOut());
   document.getElementById('zoom-fit').addEventListener('click', () => graph?.fit());
+  const scopeSel = document.getElementById('topology-scope');
+  if (scopeSel) {
+    scopeSel.value = state.topologyScope;
+    scopeSel.addEventListener('change', (e) => {
+      state.topologyScope = e.target.value;
+      loadTopology();   // re-fetch topology + tools at the new scope
+    });
+  }
   document.getElementById('layout-toggle').addEventListener('click', () => {
     graph?.toggleLayoutDir();
     state.layoutDir = state.layoutDir === 'LR' ? 'TD' : 'LR';

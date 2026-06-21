@@ -476,6 +476,21 @@ async def test_topology_endpoint(client, db):
     )
 
 
+@pytest.mark.asyncio
+async def test_topology_scope_param(client, db):
+    """/api/topology accepts ?scope= and rejects malformed values."""
+    # Valid scopes pass through (empty DB → empty/valid topology, status 200).
+    for scope in ("all", "last_n:5", "run:abc"):
+        r = await client.get("/api/topology", params={"scope": scope})
+        assert r.status_code == 200, scope
+    # Malformed scope is rejected by the query-pattern validator.
+    r = await client.get("/api/topology", params={"scope": "garbage"})
+    assert r.status_code == 422
+    # Same param on /api/tools.
+    r = await client.get("/api/tools", params={"scope": "last_n:3"})
+    assert r.status_code == 200
+
+
 # ---------- Tools by source (MCP attribution) ----------
 
 

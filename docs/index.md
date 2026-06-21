@@ -88,7 +88,8 @@ and renders it in an interactive graph + timeline UI in real time.
 Once a run lands, the UI shows:
 
 - **Run list** — every run with status, tags, started-at, total steps, total tokens
-- **Topology graph** — agent / tool / chain / retriever relationships across runs
+- **Topology graph** — agent / tool / chain / retriever relationships, scoped to the
+  selected run by default (a toolbar selector switches to last-N-runs / all-time)
 - **Timeline** — chronological steps; click any step to expand its full **request and
   response** payloads (MCP-backed tools are tagged with their server)
 - **Replay** — animate any completed run at 1x / 2x / 5x

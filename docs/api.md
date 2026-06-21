@@ -111,14 +111,22 @@ runtime value is zero. Returns a flat JSON object.
 
 ### `GET /api/topology`
 
-The cross-run topology graph (nodes + edges). Returns a `Topology` object. Each
-tool node carries a `source` field: the MCP server name it came from, or `null`
-for local/hardcoded tools (see [MCP support](mcp.md)).
+The topology graph (nodes + edges). Returns a `Topology` object. Each tool node
+carries a `source` field: the MCP server name it came from, or `null` for
+local/hardcoded tools (see [MCP support](mcp.md)).
+
+| Query param | Type | Default | Notes |
+|---|---|---|---|
+| `scope` | `run:<id>` \| `last_n:<N>` \| `all` | all-time | Which runs to aggregate. `run:<id>` = a single run's structure (the UI default — no stale nodes from older runs); `last_n:<N>` = the N most-recent runs; `all` = every run ever. A removed component (tool, agent, MCP server) only lingers under `all`. |
+
+Scoping also drops a removed MCP server's *registered-but-uncalled* tools: a
+server's tools are only shown if it was active within the scoped run(s).
 
 ### `GET /api/tools`
 
 Tools grouped by source — each MCP server plus a `local` bucket for hardcoded
-tools. Powers the UI's "Tools by source" panel.
+tools. Powers the UI's "Tools by source" panel. Takes the same `scope` query param
+as `/api/topology` (so the panel matches the graph).
 
 ```json
 {

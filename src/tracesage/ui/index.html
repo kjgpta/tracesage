@@ -126,6 +126,12 @@
             <button class="seg-btn active" data-mode="topology" role="tab" aria-selected="true">Topology</button>
             <button class="seg-btn" data-mode="trace" role="tab" aria-selected="false" disabled>Run trace</button>
           </div>
+          <select id="topology-scope" class="topology-scope" aria-label="Topology scope"
+                  title="Which runs the topology aggregates. 'This run' = the selected run only (no stale structure).">
+            <option value="run" selected>This run</option>
+            <option value="last10">Last 10 runs</option>
+            <option value="all">All time</option>
+          </select>
           <div class="replay-controls hidden" id="replay-controls" role="group" aria-label="Replay controls">
             <div class="replay-mode-toggle" role="tablist" aria-label="Replay mode">
               <button class="replay-mode-btn active" data-replay-mode="auto" role="tab" aria-selected="true" type="button">Auto</button>

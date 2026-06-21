@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Scoped topology.** The topology map and "Tools by source" panel now default to the
+  **selected run** (latest when none) instead of an all-time union — so a removed tool,
+  agent, or MCP server no longer lingers across app versions as you iterate. A toolbar
+  selector offers *This run · Last N runs · All time*; `/api/topology` and `/api/tools`
+  take a matching `?scope=run:<id>|last_n:<N>|all` param. Scoping also drops a removed
+  MCP server's registered-but-uncalled tools (shown only if the server was active).
 
 ## [0.2.1] — 2026-06-21
 
