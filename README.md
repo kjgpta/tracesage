@@ -76,13 +76,14 @@ and renders it in an interactive graph + timeline UI in real time.
 ## Install
 
 ```bash
-pip install tracesage[langchain]
+pip install "tracesage[langchain]"
 ```
 
-Requires **Python 3.11+**. The `[langchain]` extra pulls `langchain-core`;
-that's the only mandatory third-party dep beyond the standard FastAPI /
-aiosqlite / pydantic stack. If your app uses **LangGraph**, also `pip install
-langgraph` (tracesage doesn't pull it).
+Requires **Python 3.11+**. Quote the extra (`"tracesage[langchain]"`) so zsh —
+the default macOS shell — doesn't glob the brackets and fail with `no matches
+found`. The `[langchain]` extra pulls `langchain-core`; that's the only mandatory
+third-party dep beyond the standard FastAPI / aiosqlite / pydantic stack. If your
+app uses **LangGraph**, also `pip install langgraph` (tracesage doesn't pull it).
 
 tracesage is **provider-agnostic** — it traces LangChain's callback stream, so
 OpenAI / Anthropic / local models are all captured automatically; there's no
@@ -139,7 +140,9 @@ asyncio.run(main())
 
 Prefer explicit wiring? Pass `config={"callbacks": [tl.handler]}` instead of `install=True`.
 
-That's it. Open **http://localhost:7842/ui** and explore.
+That's it. Open the URL tracesage prints on startup (`🔍 tracesage: http://…/ui/#run=…`)
+and explore — it's **http://localhost:7842/ui** by default, but auto-port picks the next
+free port (`7843`, …) if `7842` is taken, so trust the printed link (`tracer.ui_url`).
 
 ### Developer workflow
 
@@ -336,6 +339,7 @@ writer-critic loops, map-reduce, MCP, self-correction, and finance/legal/insuran
 | [Configuration](docs/configuration.md) | Every `TRACESAGE_*` env var explained |
 | [CLI reference](docs/cli.md) | All `tracesage` subcommands |
 | [Production guide](docs/production.md) | Sampling, auth, retention, deployment |
+| [Troubleshooting](docs/troubleshooting.md) | "Where are my runs?", install/port issues, FAQ |
 | [Comparison](docs/comparison.md) | tracesage vs LangSmith / LangFuse / Phoenix |
 | [Extending tracesage](docs/extending.md) | Adding framework adapters and storage backends |
 | **[Examples](examples/showcase/)** | **30 before/after apps with tracesage added** |
@@ -374,7 +378,9 @@ throughput on Windows, raise `TRACESAGE_WORKER_BATCH_SIZE` to 200 and
 version; it's stamped by the release workflow **when a version actually ships** (so it
 matches PyPI and never gets ahead of a release). Built for local development and
 single-process tracing; centralized multi-process / remote-collector mode is
-on the roadmap (see [`production_roadmap.md`](production_roadmap.md)).
+on the roadmap (see [`production_roadmap.md`](production_roadmap.md)). Today the **only
+shipped adapter is LangChain / LangGraph** — the core is framework-neutral and
+CrewAI / AutoGen / LlamaIndex adapters are planned, not yet available.
 
 See [the changelog](docs/changelog.md) for release notes.
 

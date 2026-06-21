@@ -17,7 +17,7 @@ result = await graph.ainvoke(
     config={"callbacks": [tracer.handler]},                # only line you add
 )
 
-# Open http://localhost:7842/ui to see the trace live
+# Open the URL tracesage prints (default http://localhost:7842/ui) to see it live
 ```
 
 [Get started in 5 minutes →](quickstart.md){ .md-button .md-button--primary }
@@ -141,4 +141,7 @@ or uses, and (for MCP) its server of origin.
 stamped by the release workflow when a version actually ships (so it matches PyPI).
 Built for local development and single-process tracing, with OpenTelemetry export to
 bridge into a central stack; native multi-process / remote-collector storage is on the
-roadmap. See the [changelog](changelog.md) for release notes.
+roadmap. Today the **only shipped adapter is LangChain / LangGraph** — the core is
+framework-neutral and CrewAI / AutoGen / LlamaIndex adapters are
+[planned](extending.md#adapters-on-the-roadmap), not yet available. See the
+[changelog](changelog.md) for release notes.

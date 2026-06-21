@@ -26,12 +26,12 @@ sweet spot. Here's when to pick which.
 | Live UI (WebSocket) | ✓ | ✓ | ✓ | ✓ |
 | Interactive graph view | ✓ | ✓ | ✓ | ✓ |
 | MCP tool attribution | ✓ | ✗ | ✗ | ✗ |
-| Multi-user / RBAC | v0.4+ | ✓ | ✓ | ✓ |
+| Multi-user / RBAC | planned | ✓ | ✓ | ✓ |
 | Eval framework | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Dataset management | ✗ (non-goal) | ✓ | ✓ | ✓ |
 | Prompt versioning | ✗ (non-goal) | ✓ | ✓ | ✗ |
 | OpenTelemetry export | ✓ (0.2+) | partial | ✓ | ✓ |
-| Cost tracking | v0.3+ | ✓ | ✓ | ✓ |
+| Cost tracking | planned | ✓ | ✓ | ✓ |
 | PII redaction | ✓ | ✓ | ✓ | partial |
 | MIT licensed | ✓ | proprietary | MIT | Elastic v2 |
 

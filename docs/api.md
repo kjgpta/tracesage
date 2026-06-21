@@ -4,7 +4,13 @@ tracesage exposes a REST API under `/api` and two WebSocket endpoints under
 `/ws`. This is the same surface the bundled UI consumes; you can use it
 directly for programmatic queries, exports, and live tailing.
 
-Base URL defaults to `http://127.0.0.1:7842`.
+Base URL defaults to `http://127.0.0.1:7842` (or the actual bound port under
+auto-port — see `tracer.ui_url`).
+
+**Interactive docs.** FastAPI's auto-generated Swagger UI is at `/docs` and the
+raw schema at `/openapi.json`. Like the static UI shell, these sit outside the
+bearer-token gate (which covers only `/api/*` and `/ws/*`) — they describe the
+endpoint structure, not trace data.
 
 ---
 
@@ -192,7 +198,69 @@ runs start and complete.
 
 ## Object shapes
 
-The `Run`, `StoredEvent`, `Stats`, and `Topology` shapes are defined as
-Pydantic models in `src/tracesage/models.py`. Export output and the journey /
-full-step responses serialize those models directly, so the model definitions
-are the authoritative schema.
+These are the Pydantic models in `src/tracesage/models.py` (the authoritative
+schema — endpoints serialize them directly). Timestamps are ISO-8601 UTC strings.
+
+### `Run`
+
+| Field | Type | Notes |
+|---|---|---|
+| `run_id` | string | The root run's ID (UUIDv7, time-ordered). |
+| `root_run_id` | string | Same as `run_id` for a root run. |
+| `tags` | string[] | Tags propagated from `config={"tags": [...]}`. |
+| `status` | `running` \| `completed` \| `failed` | Run lifecycle state. |
+| `started_at` | datetime | When the root run began. |
+| `completed_at` | datetime \| null | Null while still running. |
+| `total_steps` | int | Event count for the run. |
+| `total_tokens_input` / `total_tokens_output` | int | Summed token usage the models reported (0 if none). |
+| `graph_definition` | string \| null | Serialized graph structure, when available. |
+| `error_message` | string \| null | Set when `status = failed`. |
+
+### `StoredEvent`
+
+A single step in a run's journey (`/journey`, `/export`, WS `catchup`).
+
+| Field | Type | Notes |
+|---|---|---|
+| `event_id` | string | Unique per event; used in the `/full` path. |
+| `run_id` / `parent_run_id` / `root_run_id` | string / string\|null / string | Nesting links. |
+| `event_type` | `EventType` | e.g. `chain_start`, `llm_end`, `tool_end`, `*_error` (see `EventType` enum). |
+| `timestamp` | datetime | Event time. |
+| `agent_name` / `tool_name` | string \| null | Populated by kind. |
+| `mcp_server` | string \| null | Provenance — the MCP server a tool came from; `null` = local/hardcoded. |
+| `summary` | string | Truncated to `summary_max_chars`. |
+| `blob_path` | string \| null | Relative path to the gzipped full payload (fetch via `/full`); `null` if not blob-eligible. |
+| `duration_ms` | int \| null | For `*_end` events. |
+| `token_input` / `token_output` | int \| null | Per-event token usage (LLM events). |
+| `error_message` | string \| null | For `*_error` events. |
+
+### `Stats`
+
+Returned (merged with DB-derived counts) by `GET /api/stats`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `queue_depth` / `queue_max` | int | Current vs max ingestion queue size. |
+| `events_processed` | int | Total events written to the DB. |
+| `events_dropped` | int | Events lost to a full queue (backpressure) — should stay 0. |
+| `events_sampled_out` | int | Events skipped by `sample_rate`. |
+| `runs_throttled` | int | Runs that hit `per_run_event_cap`. |
+| `last_write_latency_ms` / `p99_write_latency_ms` | float \| null | Most-recent and rolling-p99 batch-write latency. |
+| `db_size_bytes` / `blob_size_bytes` | int | On-disk sizes. |
+
+### `Topology`
+
+`{ "nodes": TopologyNode[], "edges": TopologyEdge[] }`.
+
+**`TopologyNode`:** `id` (`"<kind>:<name>"`, e.g. `tool:search_web`), `name`,
+`type` (`agent`\|`tool`\|`llm`\|`retriever`\|`chain`\|`mcp`), `source` (MCP server
+for tool/mcp nodes; `null` = local), `invocation_count`, `error_count`,
+`total_duration_ms`, `avg_duration_ms`, `last_seen`.
+
+**`TopologyEdge`:** `source`, `target` (node IDs), `count`, `last_seen`.
+
+### `WSMessage`
+
+WebSocket frame: `msg_type` (`event`\|`run_update`\|`catchup`\|`topology_update`\|`error`),
+`run_id`, and a `payload` object whose shape depends on `msg_type` (a `StoredEvent`
+for `event`, a `Run` for `run_update`, a list of `StoredEvent`s for `catchup`).

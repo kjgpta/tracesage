@@ -89,6 +89,7 @@ nav:
   - API reference: api.md
   - MCP support: mcp.md
   - Production: production.md
+  - Troubleshooting: troubleshooting.md
   - Extending: extending.md
   - Comparison: comparison.md
   - Examples: examples.md

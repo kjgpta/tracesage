@@ -120,7 +120,8 @@ First public release.
 - Endpoints: `/api/runs`, `/api/runs/{id}/journey`, `/api/runs/{id}/steps/{event_id}/full`,
   `/api/stats`, `/api/topology`, `/api/tools`, `/api/runs/{id}/export?format=jsonl`,
   `DELETE /api/runs/{id}`, `/ws/trace/{run_id}`, `/ws/runs`
-- Single-page interactive dashboard with Cytoscape.js + dagre graph view
+- Single-page interactive dashboard with a custom, hand-written SVG graph view
+  (no JS framework, no build step) — auto-laid-out, hover/click/replay
 - Run list, timeline, step drawer, dark/light themes, keyboard shortcuts
 - Within-run search/filter of the timeline
 - WebSocket reconnect with exponential backoff (1s → 30s)
