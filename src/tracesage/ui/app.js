@@ -343,7 +343,9 @@ async function selectRun(runId) {
   state.selectedRunId = runId;
   state.journey = [];
   state.newEventCount = 0;
-  state.autoScrollTimeline = true;
+  // Open at the FIRST step (top), not the latest. Live tailing re-enables itself
+  // when the user scrolls to the bottom (see the timeline scroll listener).
+  state.autoScrollTimeline = false;
   state.knownEventIds = new Set();
   setHash(runId);
   renderRunList();
@@ -363,6 +365,9 @@ async function selectRun(runId) {
     state.journey = [];
   }
   renderTimeline();
+  // Point the timeline at the first entry on open.
+  const tlEl = document.getElementById('timeline');
+  if (tlEl) tlEl.scrollTop = 0;
   applyRunTraceToGraph();
   // When the topology is scoped to "this run", refresh it for the new selection.
   if (state.topologyScope === 'run') loadTopology();
@@ -1470,9 +1475,12 @@ function wireToolsPanel() {
 
 function setGraphMode(mode) {
   state.graphMode = mode;
-  // The topology-scope selector only applies to the Topology view.
+  // The topology-scope selector and the "Tools by source" panel only apply to
+  // the Topology view — hide both in Run trace mode.
   const scopeWrap = document.getElementById('topology-scope-wrap');
   if (scopeWrap) scopeWrap.classList.toggle('hidden', mode !== 'topology');
+  const toolsPanel = document.getElementById('tools-panel');
+  if (toolsPanel) toolsPanel.classList.toggle('hidden', mode !== 'topology');
   document.querySelectorAll('.seg-btn').forEach((b) => {
     const isActive = b.dataset.mode === mode;
     b.classList.toggle('active', isActive);
