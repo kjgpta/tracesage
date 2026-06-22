@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -64,7 +64,7 @@ jobs:
     permissions:
       contents: write  # required to create the Release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Download built artifacts
         uses: actions/download-artifact@v8
         with:
@@ -104,7 +104,7 @@ jobs:
     permissions:
       contents: write  # required to push the badge update to main
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
