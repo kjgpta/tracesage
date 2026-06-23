@@ -504,10 +504,16 @@ function buildStepCard(ev) {
   if (ev.blob_path) {
     card.querySelector('.open-btn').addEventListener('click', (e) => {
       e.stopPropagation();
+      seekReplayToEvent(ev.event_id);
       openStepDrawer(ev);
     });
   }
-  card.addEventListener('click', () => openStepDrawer(ev));
+  card.addEventListener('click', () => {
+    // While replaying, clicking a timeline step stops the run there and jumps the
+    // graph trace to that step — no matter where playback currently is.
+    seekReplayToEvent(ev.event_id);
+    openStepDrawer(ev);
+  });
   return card;
 }
 
@@ -1787,6 +1793,32 @@ function stepReplay(delta) {
   showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
   if (info.eventId) highlightTimelineEvent(info.eventId);
   updatePlaybackUI();
+}
+
+/** Clicking a timeline step while a replay is running/paused stops it there and
+ *  jumps the graph trace to that step — regardless of where playback currently
+ *  is. No-op when not replaying (the click just opens the step drawer). */
+function seekReplayToEvent(eventId) {
+  if (state.playback !== 'playing' && state.playback !== 'paused') return;
+  if (!graph?.isReady()) return;
+  const steps = (state.replaySteps && state.replaySteps.length) ? state.replaySteps : buildReplaySteps();
+  if (!steps.length) return;
+  // A step's eventId is its target event; fall back to the first step landing on
+  // the clicked event's node (covers start/non-target events).
+  let idx = steps.findIndex((s) => s.eventId === eventId);
+  if (idx < 0) {
+    const ev = state.journey.find((e) => e.event_id === eventId);
+    const nodeId = ev ? nodeIdForEvent(ev) : null;
+    if (nodeId) idx = steps.findIndex((s) => s.target === nodeId);
+  }
+  if (idx < 0) return;
+  if (graph.replayTotal === 0) graph.primeReplay(steps);
+  if (state.playback === 'playing') pauseReplay();   // stop the run where clicked
+  const info = graph.stepTo(idx);                     // jump to the clicked element
+  if (info) {
+    showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
+    updatePlaybackUI();
+  }
 }
 
 /** Reflect playback state in the controls. All three buttons (Start/Pause/Resume)
