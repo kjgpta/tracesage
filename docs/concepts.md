@@ -41,6 +41,12 @@ concurrent (`asyncio.gather`) branches are attributed correctly to their own run
 even though they share one tracer — LangChain's `run_id`/`parent_run_id` drives the
 grouping, and the handler is safe under concurrency.
 
+Select a run and the graph switches to the **run-trace** view — that one run laid out
+as a left → right call tree in execution order, with a step timeline you can step
+through or replay:
+
+![tracesage run-trace view with the step timeline and replay controls](assets/ui-run-trace.png)
+
 ### Scope: the topology reflects one version of your app
 
 Because a data dir accumulates many runs, and your app's *structure* changes as you
@@ -321,9 +327,11 @@ Each step in the timeline has two levels of detail:
   timeline quickly without opening anything.
 - **Request / Response payloads** — the *full* data, stored as gzipped blobs.
   A step pairs its `*_start` event (the **request**: inputs / prompt / query)
-  with its `*_end` event (the **response**: outputs / result). Click any step
-  in the UI and the drawer shows both, side by side, plus tokens, duration, and
-  any error.
+  with its `*_end` event (the **response**: outputs / result). Opening a `*_start`
+  shows just the request; opening a `*_end` shows the full request **and** response,
+  plus tokens, duration, and any error.
+
+![step drawer showing the full request and response payloads with token usage](assets/ui-step-payload.png)
 
 ---
 
