@@ -378,6 +378,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
    in the header so the status-filter dropdown sits to the LEFT of the collapse
    button instead of being hidden underneath it. */
 .pane-runs .pane-header { padding-right: 50px; }
+/* The timeline panel's collapse arrow is at its top-LEFT (.pane-collapse-right:
+   left 8px, 34px wide, out of flow) — reserve that space so it doesn't sit over
+   the "Timeline" heading. */
+.pane-timeline .pane-header { padding-left: 50px; }
 .pane-footer {
   flex: 0 0 auto;
   padding: 8px 14px;
@@ -602,9 +606,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   white-space: nowrap;
   transition: background 180ms, color 180ms, border-color 180ms;
 }
-.replay-text-btn:hover { background: var(--accent); color: #0d1117; border-color: var(--accent); }
+.replay-text-btn:hover:not(:disabled) { background: var(--accent); color: #0d1117; border-color: var(--accent); }
 .replay-text-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .replay-text-btn.hidden { display: none; }
+.replay-text-btn:disabled { opacity: 0.4; cursor: not-allowed; background: var(--surface-2); color: var(--text-dim); border-color: var(--border-subtle); }
 
 .replay-step-controls { display: inline-flex; align-items: center; gap: 4px; }
 #replay-prev:disabled, #replay-next:disabled {

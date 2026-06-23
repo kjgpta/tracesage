@@ -1790,14 +1790,15 @@ function stepReplay(delta) {
   updatePlaybackUI();
 }
 
-/** Reflect the playback state in the controls: which of Start/Pause/Continue is
- *  shown, and whether step-back/forward are enabled (only while paused). */
+/** Reflect playback state in the controls. All three buttons (Start/Pause/Resume)
+ *  are always visible; enable them per state so the user can navigate freely.
+ *  Resume is enabled ONLY when paused — you can't resume unless you've paused. */
 function updatePlaybackUI() {
   const pb = state.playback;
-  const show = (id, on) => { const e = document.getElementById(id); if (e) e.classList.toggle('hidden', !on); };
-  show('replay-start', pb === 'idle');
-  show('replay-pause', pb === 'playing');
-  show('replay-continue', pb === 'paused');
+  const dis = (id, d) => { const e = document.getElementById(id); if (e) e.disabled = d; };
+  dis('replay-start', pb === 'playing');    // Start/restart unless already playing
+  dis('replay-pause', pb !== 'playing');    // Pause only while playing
+  dis('replay-continue', pb !== 'paused');  // Resume only while paused
   const total = graph?.isReady() ? graph.replayTotal : 0;
   const cur = graph?.isReady() ? graph.replayCursor : 0;
   const prev = document.getElementById('replay-prev');
