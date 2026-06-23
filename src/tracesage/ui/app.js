@@ -911,6 +911,16 @@ function openNodeDrawer(nodeData) {
   const matching = (state.journey || []).filter((ev) => eventMatchesNode(ev, nodeData));
   matching.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
   const visible = matching.slice(-12).reverse();
+
+  // Aggregate token usage across this node's invocations (carried on llm_end
+  // events). Shown in the hero for LLM nodes so usage is visible without
+  // expanding the invocations list.
+  const tokenEvents = matching.filter(
+    (ev) => ev.token_input != null || ev.token_output != null,
+  );
+  const tokenIn = tokenEvents.reduce((s, ev) => s + (ev.token_input || 0), 0);
+  const tokenOut = tokenEvents.reduce((s, ev) => s + (ev.token_output || 0), 0);
+  const showTokens = nodeData.type === 'llm' && tokenEvents.length > 0;
   const ctxLabel = state.selectedRunId
     ? `Invocations in selected run (${matching.length})`
     : 'Select a run to see invocations';
@@ -955,8 +965,17 @@ function openNodeDrawer(nodeData) {
           <span class="stat-label">P99 duration</span>
           <span class="stat-value">${formatMs(nodeData.p99Ms)}</span>
         </div>
+        ${showTokens ? `
+        <div class="stat">
+          <span class="stat-label">Tokens in</span>
+          <span class="stat-value">${tokenIn.toLocaleString()}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Tokens out</span>
+          <span class="stat-value">${tokenOut.toLocaleString()}</span>
+        </div>` : ''}
       </div>
-      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}</div>
+      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}${showTokens ? ` · Total tokens: <strong>${(tokenIn + tokenOut).toLocaleString()}</strong> across ${tokenEvents.length} call${tokenEvents.length === 1 ? '' : 's'}` : ''}</div>
     </section>
 
     ${renderCallsSection(nodeData, calls)}
