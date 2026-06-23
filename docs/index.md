@@ -4,7 +4,7 @@
 
 # tracesage
 
-**Production observability for LangChain & LangGraph multi-agent systems.**
+**Local-first observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
 ```python
@@ -17,7 +17,7 @@ result = await graph.ainvoke(
     config={"callbacks": [tracer.handler]},                # only line you add
 )
 
-# Open http://localhost:7842/ui to see the trace live
+# Open the URL tracesage prints (default http://localhost:7842/ui) to see it live
 ```
 
 [Get started in 5 minutes →](quickstart.md){ .md-button .md-button--primary }
@@ -33,8 +33,9 @@ changing your workflow logic, persists it locally (SQLite + gzipped blobs),
 and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
+  The UI is fully self-contained (assets vendored, no CDN) and works offline.
 - **Two-line integration.** One callback added to your existing `ainvoke`.
-- **Production-grade safety.** The handler never raises. The tracer never crashes
+- **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
 - **MCP-aware.** Tools loaded from MCP servers are attributed by source — see which tools
@@ -62,9 +63,9 @@ and renders it in an interactive graph + timeline UI in real time.
 
     Every `TRACESAGE_*` env var explained.
 
--   :material-shield-check: **[Production](production.md)**
+-   :material-shield-check: **[Deploying & hardening](production.md)**
 
-    Auth, sampling, retention, monitoring, multi-tenant deployments.
+    Auth, sampling, retention, the safety rails, and the OTel bridge to your stack.
 
 -   :material-book-open-variant: **[Examples](examples.md)**
 
@@ -88,12 +89,28 @@ and renders it in an interactive graph + timeline UI in real time.
 Once a run lands, the UI shows:
 
 - **Run list** — every run with status, tags, started-at, total steps, total tokens
-- **Topology graph** — agent / tool / chain / retriever relationships across runs
+- **Topology graph** — agent / tool / chain / retriever relationships, scoped to the
+  selected run by default (a toolbar selector switches to last-N-runs / all-time)
 - **Timeline** — chronological steps; click any step to expand its full **request and
   response** payloads (MCP-backed tools are tagged with their server)
 - **Replay** — animate any completed run at 1x / 2x / 5x
 
 Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?` help.
+
+### Header stats
+
+The top bar shows live health at a glance (plus the optional
+[project name](configuration.md) next to the brand):
+
+| Chip | Meaning |
+|---|---|
+| **ev/s** | Trace events received per second, as a **1-minute rolling average** (events in the last 60 s ÷ 60). A quick pulse that capture is flowing — it rises while a run is active and decays to 0 when idle. |
+| **running** | How many **root runs are currently in progress** (`runs_active` from `/api/stats`; falls back to counting `running` rows in the list). |
+| **dropped** | Events **dropped because the ingestion queue was full** (backpressure). Should stay **0**; the chip turns red if not. If it climbs, lower `sample_rate` or raise `queue_maxsize` — see [Deploying & hardening → what to monitor](production.md). |
+| **connection dot** | The live **WebSocket link** to the server: *connected* (updates streaming in real time), *connecting*, or *disconnected* (it auto-reconnects with backoff). |
+
+`ev/s` is computed in the browser from the event stream; `running` and `dropped`
+come from [`GET /api/stats`](api.md), polled periodically.
 
 ### Watch a trace stream in
 
@@ -123,6 +140,9 @@ or uses, and (for MCP) its server of origin.
 
 **Beta.** API may still shift before v1.0. The PyPI badge shows the published version,
 stamped by the release workflow when a version actually ships (so it matches PyPI).
-Production-monitoring-ready for single-Python-process deployments, with OpenTelemetry
-export to bridge into a central stack; native multi-process / remote-collector storage is
-on the roadmap. See the [changelog](changelog.md) for release notes.
+Built for local development and single-process tracing, with OpenTelemetry export to
+bridge into a central stack; native multi-process / remote-collector storage is on the
+roadmap. Today the **only shipped adapter is LangChain / LangGraph** — the core is
+framework-neutral and CrewAI / AutoGen / LlamaIndex adapters are
+[planned](extending.md#adapters-on-the-roadmap), not yet available. See the
+[changelog](changelog.md) for release notes.

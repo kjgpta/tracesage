@@ -1,9 +1,10 @@
 # Running tracesage in production
 
-`tracesage` is a single-process embedded library. It is suitable for
-production monitoring of a single Python application, and architected so future
-versions can split the producer (your app) from the consumer (a centralized
-trace server).
+`tracesage` is a single-process embedded library — **local-first**, not a hosted
+production-monitoring service. This guide covers the knobs and safety rails for running
+it beyond your laptop (auth, sampling, retention) plus exporting to a real production
+observability stack via OpenTelemetry. It's architected so future versions can split the
+producer (your app) from the consumer (a centralized trace server).
 
 ## Defaults that matter
 

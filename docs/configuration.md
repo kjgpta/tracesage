@@ -11,7 +11,9 @@ All settings live on `TraceSageConfig` (Pydantic Settings). Override via:
 |---|---|---|---|
 | `enabled` | `TRACESAGE_ENABLED` | `True` | **Kill switch.** `False` returns an inert tracer — no server, no DB/worker, a no-op handler, near-zero overhead. See [Disabling](#disabling-kill-switch). |
 | `host` | `TRACESAGE_HOST` | `127.0.0.1` | Bind address. Refuses non-loopback without `auth_token`. |
-| `port` | `TRACESAGE_PORT` | `7842` | `0` = ephemeral; bound port readable via `tracer.bound_port`. |
+| `port` | `TRACESAGE_PORT` | `7842` | `0` = ephemeral; actual bound port readable via `tracer.bound_port` / `tracer.ui_url`. |
+| `port_auto` | `TRACESAGE_PORT_AUTO` | `True` | If `port` is busy, auto-bind the next free port (scan up from `port`, then ephemeral). Set `False` to use exactly `port`. |
+| `project_name` | `TRACESAGE_PROJECT_NAME` | `None` | Optional label for this app, shown in the UI header + browser tab so you can tell apart multiple apps' UIs. Unset = nothing shown. |
 | `auth_token` | `TRACESAGE_AUTH_TOKEN` | `None` | Bearer token for HTTP + WebSocket auth. |
 | `public_url` | `TRACESAGE_PUBLIC_URL` | `None` | Base URL used for run deep-links (e.g. behind a reverse proxy). Falls back to the bound host/port. |
 | `print_run_url` | `TRACESAGE_PRINT_RUN_URL` | `True` | Print a `🔍 tracesage: <url>` link to stderr on each new root run. Set `False` in noisy/prod environments. |
@@ -76,6 +78,25 @@ tracesage serve   -d ~/.tracesage/app-b
 
 The same applies to the env var (`TRACESAGE_DATA_DIR=~/.tracesage/app-a`). Runs in
 different data dirs never appear in each other's lists, topology, or tool inventory.
+
+### Running several apps at once
+
+When you run two apps simultaneously, three things keep their UIs separate without
+manual fiddling:
+
+- **Auto-port** (`port_auto`, default on): the first app takes `7842`, the second
+  auto-binds `7843`, etc. The real URL is printed on startup (`tracer.ui_url`); no
+  more "port already in use".
+- **Project name** (`TRACESAGE_PROJECT_NAME`): label each app so its UI header + tab
+  title say which one it is.
+- **Data dir** (`data_dir`, above): keeps each app's runs/topology/tools separate.
+
+```bash
+# terminal 1
+TRACESAGE_PROJECT_NAME=app-a TRACESAGE_DATA_DIR=~/.tracesage/app-a python app_a.py
+# terminal 2 — auto-lands on 7843, header reads "app-b"
+TRACESAGE_PROJECT_NAME=app-b TRACESAGE_DATA_DIR=~/.tracesage/app-b python app_b.py
+```
 
 ## OpenTelemetry export
 

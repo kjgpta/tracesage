@@ -41,6 +41,25 @@ concurrent (`asyncio.gather`) branches are attributed correctly to their own run
 even though they share one tracer — LangChain's `run_id`/`parent_run_id` drives the
 grouping, and the handler is safe under concurrency.
 
+### Scope: the topology reflects one version of your app
+
+Because a data dir accumulates many runs, and your app's *structure* changes as you
+develop (you add/remove a tool, swap an MCP server, rename a node), a naive all-time
+union would show stale nodes forever. So the topology is **scoped**, via the selector
+in the graph toolbar:
+
+- **This run** *(default)* — exactly the selected run's structure (the latest run when
+  none is selected). One run = one coherent version, so nothing stale ever appears.
+- **Last N runs** — union of the N most-recent runs; opt in when you know the structure
+  was stable and want to merge runs that took different conditional branches.
+- **All time** — every run ever (the historical union).
+
+Removing a tool/server and re-running makes it disappear immediately under "This run".
+This applies to the **"Tools by source"** panel too, and even drops a removed MCP
+server's registered-but-uncalled tools (a server's tools show only if it was active in
+the scoped run). Trade-off: a single run may not exercise every conditional branch —
+switch to "Last N" / "All time" when you want broader coverage.
+
 ---
 
 ## How tracesage decides which kind a node is

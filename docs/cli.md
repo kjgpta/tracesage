@@ -16,9 +16,14 @@ Options:
 
 - `--data-dir, -d PATH` — path to existing data dir (default: `~/.tracesage`)
 - `--host, -h HOST` — bind address (default `127.0.0.1`)
-- `--port, -p PORT` — bind port (default `7842`)
+- `--port, -p PORT` — bind port (default `7842`). If it's busy, the next free port is
+  bound automatically (the real URL is printed on startup). Set `TRACESAGE_PORT_AUTO=false`
+  to use exactly this port instead, or `--port 0` for an OS-assigned ephemeral port.
 - `--auth-token TOKEN` — bearer token (env: `TRACESAGE_AUTH_TOKEN`)
 - `--open, -o` — open the viewer in your browser once it's up
+
+So you can run a viewer for several data dirs at once — each lands on `7842`, `7843`, …
+without clashing.
 
 Use cases:
 
@@ -209,5 +214,5 @@ Print version.
 
 ```bash
 tracesage version
-# tracesage 0.2.0   (prints your installed version)
+# tracesage 0.2.1   (prints your installed version)
 ```

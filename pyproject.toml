@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracesage"
-version = "0.2.0"
-description = "Production observability adapter for LangChain/LangGraph multi-agent systems"
+version = "0.2.1"
+description = "Local-first observability for LangChain/LangGraph multi-agent systems"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -45,7 +45,7 @@ Issues = "https://github.com/kjgpta/tracesage/issues"
 
 [project.optional-dependencies]
 langchain = [
-    "langchain-core>=0.2.0,<1.4.0",
+    "langchain-core>=0.2.0,<1.5.0",
 ]
 # MCP tool-source attribution + the examples/mcp scenario. Optional: the
 # core package and `import tracesage` never require these (imported lazily).

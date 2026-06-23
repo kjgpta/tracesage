@@ -1,4 +1,4 @@
-"""tracesage: production observability for LangChain/LangGraph multi-agent systems."""
+"""tracesage: local-first observability for LangChain/LangGraph multi-agent systems."""
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version

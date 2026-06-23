@@ -375,7 +375,7 @@ First public release of tracesage.
 ## Install
 
 ```bash
-pip install tracesage[langchain]
+pip install "tracesage[langchain]"
 ```
 
 See the [docs](https://kjgpta.github.io/tracesage/) for the full quickstart.

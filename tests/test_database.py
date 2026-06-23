@@ -757,6 +757,49 @@ async def test_get_topology_adds_mcp_nodes_and_edges(backend: SQLiteBackend) -> 
                    for src, tgt in edge_pairs)
 
 
+async def test_topology_scope_excludes_stale_runs(backend: SQLiteBackend) -> None:
+    """Scoping keeps a removed component (here an MCP server) from lingering: an
+    older run used 'weather'; the newer run uses 'news'. 'all' shows both; the newer
+    run / last_n:1 show only 'news' — even though 'weather' is still registered."""
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2026, 6, 21, 12, 0, 0, tzinfo=timezone.utc)
+
+    async def seed(rid: str, secs: int, server: str, tool: str) -> None:
+        await backend.upsert_run(_make_run(rid, started_at=t0 + timedelta(seconds=secs)))
+        await backend.upsert_run(_make_run(rid + "t", root_run_id=rid,
+                                           started_at=t0 + timedelta(seconds=secs)))
+        await backend.upsert_event(_make_event(rid + "a", rid, event_type=EventType.CHAIN_START,
+                                               agent_name="agent", timestamp=t0 + timedelta(seconds=secs)))
+        await backend.upsert_event(_make_event(rid + "b", rid + "t", root_run_id=rid,
+                                               parent_run_id=rid, event_type=EventType.TOOL_START,
+                                               tool_name=tool, mcp_server=server,
+                                               timestamp=t0 + timedelta(seconds=secs)))
+
+    await seed("run1", 0, "weather", "get_weather")
+    await seed("run2", 100, "news", "fetch_news")
+    # 'weather' stays in the registry even though the app no longer uses it.
+    await backend.upsert_mcp_tools("weather", ["get_weather", "air_quality"])
+    await backend.upsert_mcp_tools("news", ["fetch_news"])
+
+    def servers(topo) -> set[str]:
+        return {n.name for n in topo.nodes if n.type == "mcp"}
+
+    assert servers(await backend.get_topology()) == {"weather", "news"}          # all-time
+    assert servers(await backend.get_topology(scope="last_n:1")) == {"news"}     # latest run
+    assert servers(await backend.get_topology(scope="run:run1")) == {"weather"}  # that run
+    assert servers(await backend.get_topology(scope="run:run2")) == {"news"}     # stale gone
+
+    # Tools-by-source scopes the same way.
+    inv = await backend.get_tool_inventory(scope="run:run2")
+    assert {s["source"] for s in inv["sources"]} == {"news"}
+    inv_all = await backend.get_tool_inventory()
+    assert {s["source"] for s in inv_all["sources"]} == {"weather", "news"}
+
+    # A scope that matches no run returns empty, not all-time.
+    assert (await backend.get_topology(scope="run:nope")).nodes == []
+
+
 async def test_topology_shows_registered_tools_and_agent_mcp_link(backend: SQLiteBackend) -> None:
     """Registered MCP tools appear (even uncalled), and an agent that calls an
     MCP tool is linked to that MCP server (agent -> mcp edge)."""

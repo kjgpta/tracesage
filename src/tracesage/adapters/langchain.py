@@ -26,7 +26,7 @@ try:
 except ImportError as _ie:  # pragma: no cover
     raise ImportError(
         "tracesage requires langchain-core for the LangChain adapter. "
-        "Install with: pip install tracesage[langchain]"
+        'Install with: pip install "tracesage[langchain]"'
     ) from _ie
 
 if TYPE_CHECKING:

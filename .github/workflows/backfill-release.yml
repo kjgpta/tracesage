@@ -17,7 +17,7 @@ jobs:
   backfill:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag }}
       - uses: actions/setup-python@v5
@@ -42,7 +42,7 @@ jobs:
           echo "----- notes for ${{ github.event.inputs.tag }} -----"
           cat release-notes.md
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag }}
           name: ${{ github.event.inputs.tag }}

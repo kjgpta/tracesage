@@ -32,7 +32,7 @@ from tracesage.models import Stats
 
 app = typer.Typer(
     name="tracesage",
-    help="tracesage: production observability for LangChain multi-agent systems.",
+    help="tracesage: local-first observability for LangChain multi-agent systems.",
     no_args_is_help=True,
 )
 
@@ -135,8 +135,13 @@ async def _serve_async(cfg: TraceSageConfig, *, label: str, open_browser: bool) 
         typer.echo(f"uvicorn not installed: {e}", err=True)
         raise typer.Exit(2) from e
 
+    # Same auto-port behavior as the embedded server: if cfg.port is busy and
+    # port_auto is on, bind the next free port instead of failing.
+    from tracesage.tracer import _resolve_bind_port
+
+    bind_port = _resolve_bind_port(cfg.host, cfg.port, auto=cfg.port_auto)
     uv_config = uvicorn.Config(
-        app, host=cfg.host, port=cfg.port, log_level="info", lifespan="on"
+        app, host=cfg.host, port=bind_port, log_level="info", lifespan="on"
     )
     server = uvicorn.Server(uv_config)
 
@@ -145,7 +150,7 @@ async def _serve_async(cfg: TraceSageConfig, *, label: str, open_browser: bool) 
             if getattr(server, "started", False):
                 break
             await asyncio.sleep(0.05)
-        bound_port = cfg.port
+        bound_port = bind_port
         with suppress(Exception):
             servers = getattr(server, "servers", None) or []
             if servers:
@@ -179,7 +184,10 @@ def serve(
         help="Path to an existing tracesage data directory.",
     ),
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address."),
-    port: int = typer.Option(7842, "--port", "-p", help="Bind port."),
+    port: int = typer.Option(
+        7842, "--port", "-p",
+        help="Bind port. If busy, the next free port is used (set TRACESAGE_PORT_AUTO=false to disable).",
+    ),
     auth_token: str | None = typer.Option(
         None,
         "--auth-token",

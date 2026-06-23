@@ -41,8 +41,8 @@ class State(TypedDict):
 
 
 async def main(check: bool = False) -> None:
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
-    print("tracesage UI: http://localhost:7842/ui")
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR, project_name="MCP only (weather + math)"))
+    print(f"tracesage UI: {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
 
@@ -98,7 +98,7 @@ async def main(check: bool = False) -> None:
     if check:
         await tracer.stop()
         return
-    print("\nOpen http://localhost:7842/ui — every tool node is ringed/chipped by MCP server. Ctrl+C to stop.")
+    print(f"\nOpen {tracer.ui_url} — every tool node is ringed/chipped by MCP server. Ctrl+C to stop.")
     await asyncio.Event().wait()
 
 

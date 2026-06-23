@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.1] — 2026-06-21
+
+Multi-app quality-of-life, scoped topology, an offline-capable UI, and an
+onboarding/docs overhaul (honest positioning included).
+
+### Added
+- **Project name in the UI.** Set `TRACESAGE_PROJECT_NAME` (config `project_name`) to
+  label an app; it shows in the UI header and browser-tab title. Unset = nothing shown.
+  Surfaced via `/api/health`. The bundled examples each set one so it's visible in their UI.
+- **Auto-port.** If the configured port (default 7842) is busy, the embedded UI now
+  auto-binds the next free port (scanning upward, then an OS-ephemeral port), so multiple
+  apps run at once without a clash. Config `port_auto` (`TRACESAGE_PORT_AUTO`, default on);
+  set `False` to pin exactly `port`. New `tracer.ui_url` property exposes the live URL;
+  examples print the actual bound port. `tracesage serve` uses the same fallback.
+- **Scoped topology.** The topology map and "Tools by source" panel now default to the
+  **selected run** (latest when none) instead of an all-time union — so a removed tool,
+  agent, or MCP server no longer lingers across app versions as you iterate. A toolbar
+  selector offers *This run · Last N runs · All time* (with an editable **N**); selecting
+  an older run shows *that* run's structure. `/api/topology` and `/api/tools` take a
+  matching `?scope=run:<id>|last_n:<N>|all` param. Scoping also drops a removed MCP
+  server's registered-but-uncalled tools (shown only if the server was active).
+- **Troubleshooting / FAQ page** (`docs/troubleshooting.md`): "where are my runs?"
+  (data-dir isolation), UUIDv7 run-id prefixes, stale-topology scoping, and the
+  install/port gotchas — linked from the nav, quickstart, and README.
+- **A complete, no-API-key runnable example** in the quickstart (uses `FakeListChatModel`),
+  so first-time users aren't assumed to already have an agent/graph wired up.
+- **Documented API object shapes** (`Run` / `StoredEvent` / `Stats` / `Topology` /
+  `WSMessage`) field-by-field in the API reference, plus a note on the interactive
+  `/docs` + `/openapi.json` endpoints.
+
+### Changed
+- **Repositioned as "local-first observability"** (was "production observability") across
+  the README, docs, site description, package metadata, and CLI help — tracesage is a
+  local-first dev tool that *bridges* to your production stack via OpenTelemetry, not a
+  hosted production-monitoring service itself. Status messaging and the "Production" docs
+  nav updated to match.
+- **The UI now works fully offline.** PicoCSS is vendored into the package
+  (`ui/vendor/pico.min.css`) instead of being fetched from a CDN, so the dashboard loads
+  with zero network calls — matching the "no external services" promise.
+- **Install commands quote the extra** (`pip install "tracesage[langchain]"`) throughout
+  the docs and the adapter's `ImportError`, so the first command doesn't fail under zsh
+  (the macOS default shell) with `no matches found`.
+- **Onboarding points at the printed URL** rather than a hardcoded `:7842`, since
+  auto-port may land elsewhere; added a per-app `data_dir` tip to the quickstart.
+- **Roadmap items are no longer pinned to specific version numbers** in the docs (they
+  read as stale promises if dates slip); framework support now clearly states
+  LangChain/LangGraph is the only shipped adapter today.
+
+### Fixed
+- **Dropdown chevron restored on every `<select>`** (runs status filter, replay speed,
+  topology scope) — a global `background` shorthand had been wiping PicoCSS's native arrow.
+- **"Tools by source" is hidden in Run-trace mode** (it's a topology-level view) and
+  shown again in Topology.
+- **The timeline opens at the first step** of a selected run instead of jumping to the
+  last; live tailing still re-engages when you scroll to the bottom.
+- **The "Last N" scope input matches the scope `<select>`'s size**, and the runs status
+  filter no longer sits underneath the panel's collapse button.
+
 ## [0.2.0] — 2026-06-18
 
 The "full picture + production bridge" release: complete request/response capture,
@@ -93,7 +151,8 @@ First public release.
 - Endpoints: `/api/runs`, `/api/runs/{id}/journey`, `/api/runs/{id}/steps/{event_id}/full`,
   `/api/stats`, `/api/topology`, `/api/tools`, `/api/runs/{id}/export?format=jsonl`,
   `DELETE /api/runs/{id}`, `/ws/trace/{run_id}`, `/ws/runs`
-- Single-page interactive dashboard with Cytoscape.js + dagre graph view
+- Single-page interactive dashboard with a custom, hand-written SVG graph view
+  (no JS framework, no build step) — auto-laid-out, hover/click/replay
 - Run list, timeline, step drawer, dark/light themes, keyboard shortcuts
 - Within-run search/filter of the timeline
 - WebSocket reconnect with exponential backoff (1s → 30s)
@@ -172,6 +231,8 @@ First public release.
 - Cost tracking and PII redaction planned for a future release
 - CrewAI / AutoGen / LlamaIndex adapters planned for a future release
 
-[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/kjgpta/tracesage/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/kjgpta/tracesage/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.1
 [0.1.0]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.0
