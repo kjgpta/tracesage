@@ -75,3 +75,5 @@ tracesage-substack-article.md
 
 # Raw screen recordings (commit the web-friendly .mp4 under docs/assets/ instead)
 *.mov
+credentials.json
+token.json
