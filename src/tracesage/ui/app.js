@@ -352,7 +352,16 @@ function upsertRun(run) {
  * ============================================================ */
 
 async function selectRun(runId) {
-  if (state.selectedRunId === runId) return;
+  if (state.selectedRunId === runId) {
+    // Re-clicking the already-selected run: the user likely switched to Topology
+    // and wants its run-trace back. Re-apply the trace and switch the view —
+    // the journey is already loaded, so no re-fetch.
+    if (state.graphMode !== 'trace') {
+      applyRunTraceToGraph();
+      setGraphMode('trace');
+    }
+    return;
+  }
   state.selectedRunId = runId;
   state.journey = [];
   state.newEventCount = 0;

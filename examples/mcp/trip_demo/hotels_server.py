@@ -1,6 +1,7 @@
 """Hotels MCP server (stdio transport) for the trip-planner demo.
 
-Two tools: search_hotels and get_hotel_details.
+Seven tools: search_hotels, get_hotel_details, check_availability, get_room_rates,
+get_cancellation_policy, list_nearby_attractions, get_loyalty_benefits.
 Data is realistic-looking but fully hardcoded — no external API calls.
 Run indirectly by demo.py via MultiServerMCPClient.
 """
@@ -97,6 +98,68 @@ def get_hotel_details(hotel_name: str) -> str:
         f"{hotel_name}\n"
         "  Details not available in local cache.\n"
         "  Check the hotel's official website for current rates and amenities."
+    )
+
+
+@mcp.tool()
+def check_availability(hotel_name: str, nights: int = 2) -> str:
+    """Check room availability for a hotel over an upcoming stay."""
+    return (
+        f"{hotel_name} — availability for a {nights}-night stay:\n"
+        "  Deluxe King:     available (3 rooms left)\n"
+        "  Twin Room:       available (7 rooms left)\n"
+        "  Executive Suite: 1 room left — book soon\n"
+        "  Penthouse:       sold out\n"
+        "Recommend booking the Deluxe King to lock in the rate."
+    )
+
+
+@mcp.tool()
+def get_room_rates(hotel_name: str, nights: int = 2) -> str:
+    """Get nightly room rates and the all-in total (incl. tax) for a hotel stay."""
+    return (
+        f"{hotel_name} — rates for {nights} nights:\n"
+        "  Deluxe King:     $220/night\n"
+        "  Executive Suite: $410/night\n"
+        "  Taxes & fees:    13% (incl. Tokyo accommodation tax)\n"
+        f"  Total (Deluxe King, {nights} nights): ${int(220 * nights * 1.13)}"
+    )
+
+
+@mcp.tool()
+def get_cancellation_policy(hotel_name: str) -> str:
+    """Get the cancellation and refund policy for a hotel booking."""
+    return (
+        f"{hotel_name} — cancellation policy:\n"
+        "  Free cancellation:  up to 48h before check-in\n"
+        "  48h-24h before:     first night charged\n"
+        "  No-show:            full stay charged\n"
+        "  Flexible rate available for +$15/night (cancel up to 6pm day of arrival)."
+    )
+
+
+@mcp.tool()
+def list_nearby_attractions(hotel_name: str) -> str:
+    """List notable attractions and restaurants within walking distance of a hotel."""
+    return (
+        f"Near {hotel_name}:\n"
+        "  • Shibuya Crossing        4-min walk — iconic scramble intersection\n"
+        "  • Hachiko Statue          5-min walk — famous meeting point\n"
+        "  • Nonbei Yokocho          8-min walk — tiny historic bar alley\n"
+        "  • Miyashita Park          6-min walk — rooftop park + dining\n"
+        "  • Shibuya Sky observation 7-min walk — 360° city views at sunset"
+    )
+
+
+@mcp.tool()
+def get_loyalty_benefits(hotel_name: str) -> str:
+    """Get loyalty-programme perks and membership benefits for a hotel."""
+    return (
+        f"{hotel_name} — loyalty benefits:\n"
+        "  Free WiFi & late checkout (2pm) for members\n"
+        "  Welcome drink + room upgrade subject to availability\n"
+        "  Earn 10 points/$1; 5,000 points = 1 free night\n"
+        "  Members rate: ~8% below public rate"
     )
 
 

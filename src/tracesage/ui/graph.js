@@ -317,12 +317,37 @@ export class GraphView {
 
   /** Dispatch to the right layout function depending on mode. */
   _layout() {
+    // Re-anchor to the top-left only when the view actually switches
+    // (topology↔trace) — NOT on same-mode live refreshes, which would yank a
+    // user's pan back on every incoming event.
+    const modeChanged = this._lastLayoutMode !== undefined && this._lastLayoutMode !== this.mode;
+    this._lastLayoutMode = this.mode;
     if (this.mode === 'trace' && this.runJourney) {
       this._layoutTrace();
     } else {
       this._layoutColumns();
     }
     this._applyManualPositions();
+    if (modeChanged) { this.viewBox.x = 0; this.viewBox.y = 0; }
+    // A big layout (e.g. many tools) must pan, not shrink every node to a dot.
+    this._clampZoomOut();
+    this._applyViewBox();
+  }
+
+  /** Cap the viewBox so the graph never auto-renders below MIN_FIT_SCALE. Only
+   *  ever zooms IN (shrinks the viewBox); never grows it, and never moves x/y, so
+   *  a user's pan survives data refreshes. Overflow becomes pan/scroll instead of
+   *  everything zooming out into illegibility. The explicit fit() button bypasses
+   *  this (it sets the viewBox directly) so "fit all" can still show everything. */
+  _clampZoomOut() {
+    const cw = this.svg?.clientWidth || 0;
+    const ch = this.svg?.clientHeight || 0;
+    if (cw < 2 || ch < 2) return;            // pane not laid out / collapsed
+    const MIN_FIT_SCALE = 0.72;              // nodes never rendered below ~72%
+    const maxW = cw / MIN_FIT_SCALE;
+    const maxH = ch / MIN_FIT_SCALE;
+    if (this.viewBox.w > maxW) this.viewBox.w = maxW;
+    if (this.viewBox.h > maxH) this.viewBox.h = maxH;
   }
 
   /** Re-apply any user-dragged positions on top of the computed layout (so manual
@@ -541,9 +566,12 @@ export class GraphView {
     if (this._didFitOnce) return;
     if (this.nodes.length === 0) return;
     this._didFitOnce = true;
-    // Re-anchor viewBox to start at 0,0 so the whole layout is visible.
+    // Re-anchor viewBox to start at 0,0 so the layout opens at its top-left
+    // (agent/server columns), then cap the zoom so a wide/tall graph stays
+    // readable and pans instead of shrinking to fit.
     this.viewBox.x = 0;
     this.viewBox.y = 0;
+    this._clampZoomOut();
     this._applyViewBox();
   }
 

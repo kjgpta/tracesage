@@ -157,7 +157,7 @@ async def main(*, check: bool = False, open_browser: bool = False) -> None:
     url = tracer.ui_url or "http://localhost:7842/ui"
     print(f"\ntracesage UI → {url}")
     print("  Topology tab   — 1 agent node fanning out to 3 coloured MCP server nodes")
-    print("  Tools panel    — flights(2)  weather(2)  hotels(2)  Local(1)")
+    print("  Tools panel    — flights(7)  weather(7)  hotels(7)  Local(1)")
     print("  MCP server node — click any server to see its full tool list + call history")
 
     if open_browser:

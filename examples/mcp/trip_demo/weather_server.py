@@ -1,6 +1,7 @@
 """Weather MCP server (stdio transport) for the trip-planner demo.
 
-Two tools: get_weather and get_7day_forecast.
+Seven tools: get_weather, get_7day_forecast, get_hourly_forecast, get_air_quality,
+get_uv_index, get_sun_times, get_travel_advisory.
 Data is realistic-looking but fully hardcoded — no external API calls.
 Run indirectly by demo.py via MultiServerMCPClient.
 """
@@ -62,6 +63,66 @@ def get_7day_forecast(city: str) -> str:
             "  Fri-Sun  23-26°C  ☀   mostly clear\n"
             "Good travel weather overall."
         ),
+    )
+
+
+@mcp.tool()
+def get_hourly_forecast(city: str) -> str:
+    """Get an hour-by-hour forecast for the next 12 hours in a city."""
+    return (
+        f"{city} — next 12 hours:\n"
+        "  09:00  22°C  ☀   clear\n"
+        "  12:00  25°C  ☀   sunny, UV high\n"
+        "  15:00  26°C  ⛅  partly cloudy\n"
+        "  18:00  23°C  ⛅  cloudy\n"
+        "  21:00  20°C  🌙  clear night\n"
+        "Best window for outdoor plans: 09:00-15:00."
+    )
+
+
+@mcp.tool()
+def get_air_quality(city: str) -> str:
+    """Get the current air quality index (AQI) and pollutant breakdown for a city."""
+    return (
+        f"{city} — air quality:\n"
+        "  AQI:    42 (Good)\n"
+        "  PM2.5:  10 µg/m³   PM10: 18 µg/m³\n"
+        "  Ozone:  moderate\n"
+        "No health precautions needed for outdoor activity."
+    )
+
+
+@mcp.tool()
+def get_uv_index(city: str) -> str:
+    """Get the current and peak UV index for a city, with sun-protection advice."""
+    return (
+        f"{city} — UV index:\n"
+        "  Current:  6 (High)\n"
+        "  Peak:     8 (Very High) around 13:00\n"
+        "Advice: SPF 30+, sunglasses, and a hat midday. Seek shade 11:00-15:00."
+    )
+
+
+@mcp.tool()
+def get_sun_times(city: str) -> str:
+    """Get sunrise, sunset, and daylight-hours for a city today."""
+    return (
+        f"{city} — sun times today:\n"
+        "  Sunrise:  05:42\n"
+        "  Sunset:   18:31\n"
+        "  Daylight: 12h 49m\n"
+        "  Golden hour: 17:45-18:31 (great for photos)"
+    )
+
+
+@mcp.tool()
+def get_travel_advisory(city: str) -> str:
+    """Get weather-related travel advisories or alerts for a city."""
+    return (
+        f"{city} — travel advisory:\n"
+        "  No active severe-weather alerts.\n"
+        "  Seasonal note: light afternoon showers possible — pack a compact umbrella.\n"
+        "  Transport running normally."
     )
 
 
