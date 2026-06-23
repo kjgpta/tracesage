@@ -73,8 +73,8 @@ class ResearchState(TypedDict):
 
 
 async def main() -> None:
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
-    print("tracesage at http://localhost:7842/ui")
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR, project_name="Research supervisor"))
+    print(f"tracesage at {tracer.ui_url}")
     print(f"Data dir:     {DATA_DIR}")
     print(f"Inspect CLI:  tracesage runs -d {DATA_DIR}")
 
@@ -179,7 +179,7 @@ async def main() -> None:
         )
         print(f"  query={q!r:<32s} summary={result.get('summary', 'n/a')}")
 
-    print("\nLeaving server up. Open http://localhost:7842/ui — click each run to")
+    print(f"\nLeaving server up. Open {tracer.ui_url} — click each run to")
     print("see different worker subtrees light up. Ctrl+C to stop.")
     try:
         await asyncio.Event().wait()

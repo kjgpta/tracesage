@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>tracesage</title>
-  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.1.1/css/pico.min.css">
+  <!-- PicoCSS is vendored locally (vendor/pico.min.css) so the UI works fully
+       offline — no CDN fetch. See vendor/README.md for the version + license. -->
+  <link rel="stylesheet" href="vendor/pico.min.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="modulepreload" href="graph.js">
   <!-- Favicon mirrors the header brand mark (3 nodes + gradient connectors). -->
@@ -28,6 +30,7 @@
         </svg>
         <span class="brand-name">trace<span class="brand-accent">sage</span></span>
       </a>
+      <span class="project-name hidden" id="project-name" title="Project (TRACESAGE_PROJECT_NAME)"></span>
       <div class="stats-ribbon" id="stats-ribbon" aria-live="polite">
         <span class="stat-chip" id="stat-rate" title="events per second (1-minute rolling)">
           <span class="stat-dot"></span><span class="stat-value">0</span><span class="stat-label">ev/s</span>
@@ -125,6 +128,17 @@
             <button class="seg-btn active" data-mode="topology" role="tab" aria-selected="true">Topology</button>
             <button class="seg-btn" data-mode="trace" role="tab" aria-selected="false" disabled>Run trace</button>
           </div>
+          <span class="topology-scope-wrap" id="topology-scope-wrap">
+            <select id="topology-scope" class="topology-scope" aria-label="Topology scope"
+                    title="Which runs the topology aggregates. 'This run' = the selected run only (no stale structure).">
+              <option value="run" selected>This run</option>
+              <option value="lastn">Last N runs</option>
+              <option value="all">All time</option>
+            </select>
+            <input id="topology-scope-n" class="topology-scope-n hidden" type="number"
+                   min="1" max="1000" value="5" aria-label="Number of recent runs"
+                   title="How many of the most recent runs to aggregate">
+          </span>
           <div class="replay-controls hidden" id="replay-controls" role="group" aria-label="Replay controls">
             <div class="replay-mode-toggle" role="tablist" aria-label="Replay mode">
               <button class="replay-mode-btn active" data-replay-mode="auto" role="tab" aria-selected="true" type="button">Auto</button>
@@ -324,7 +338,8 @@ result = await graph.ainvoke(
 
   <div id="toast-host" class="toast-host" aria-live="polite" aria-atomic="false"></div>
 
-  <!-- Graph is rendered by our own SVG code in graph.js — no CDN deps. -->
+  <!-- Graph is rendered by our own SVG code in graph.js, and PicoCSS is vendored
+       under vendor/ — the whole UI loads with zero network calls (fully offline). -->
   <script type="module" src="app.js"></script>
 </body>
 </html>

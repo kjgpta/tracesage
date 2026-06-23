@@ -5,8 +5,11 @@ Run any LangChain or LangGraph workflow with full observability in under a minut
 ## Install
 
 ```bash
-pip install tracesage[langchain]
+pip install "tracesage[langchain]"
 ```
+
+(Quote the extra — `pip install "tracesage[langchain]"` — so zsh, the default macOS
+shell, doesn't try to glob the brackets and fail with `no matches found`.)
 
 `tracesage` requires Python 3.11+ and pulls `langchain-core` as the only mandatory
 external dependency for the LangChain adapter. If your app uses **LangGraph**, also
@@ -35,6 +38,37 @@ whichever you choose.
 ```bash
 tracesage demo      # seeds a sample trace, opens the UI
 ```
+
+## A complete runnable example (no API key)
+
+Copy this into `quickstart_demo.py` and run it with `python quickstart_demo.py`.
+It uses `FakeListChatModel`, so it needs **no API key or provider** — it traces a
+real LangChain chain end-to-end and opens a live trace:
+
+```python
+import asyncio
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from langchain_core.prompts import ChatPromptTemplate
+from tracesage import TraceSage
+
+async def main():
+    # A trivial LangChain chain: prompt | model (no API key needed).
+    model = FakeListChatModel(responses=["Paris is the capital of France."])
+    chain = ChatPromptTemplate.from_template("What is the capital of {country}?") | model
+
+    async with TraceSage.session(install=True) as tl:   # starts UI + global capture
+        result = await chain.ainvoke({"country": "France"})
+        await tl.flush()                                 # ensure events are persisted
+        print("answer:", result.content)
+        print("trace UI:", tl.ui_url)                    # open this
+        input("Trace ready — open the printed link, then press Enter to exit.")
+
+asyncio.run(main())
+```
+
+`install=True` captures every LangChain call globally, so you don't pass
+`callbacks=`. The `input(...)` keeps the one-shot process (and its embedded UI)
+alive while you look; the trace also persists for later `tracesage serve`.
 
 ## Integrate (the whole thing)
 
@@ -72,7 +106,25 @@ result = await graph.ainvoke(
 )
 ```
 
-Open `http://localhost:7842/ui` in your browser to see the trace live as it runs.
+Open the UI to see the trace live as it runs. tracesage prints the exact URL on
+startup — open **that** link:
+
+```
+🔍 tracesage: http://127.0.0.1:7842/ui/#run=...
+```
+
+It's `http://localhost:7842/ui` by default, but if `7842` is busy (e.g. you're
+running a second app) auto-port picks the next free one — `7843`, `7844`, … — so
+the printed URL is the source of truth. `tracer.ui_url` exposes it in code.
+
+!!! tip "One data dir per application"
+    Traces persist to a `data_dir` (default `~/.tracesage`), and the run list,
+    topology, and "Tools by source" are all scoped to that dir. If you run more
+    than one app, give each its own `data_dir` so their graphs don't merge — and
+    if a run "goes missing", it's almost always because the viewer points at a
+    different dir than the writer. See
+    [Isolating multiple applications](configuration.md#isolating-multiple-applications)
+    and [Troubleshooting → "Where are my runs?"](troubleshooting.md#where-are-my-runs).
 
 ## What you'll see
 
@@ -143,4 +195,5 @@ a different machine pointed at a synced data directory.
 - [production.md](production.md) — sampling, auth, retention, disabling, deployment patterns
 - [cli.md](cli.md) — `serve`, `demo`, `show`, `watch`, `diff`, `view`, `export`, `stats`, `gc`
 - [mcp.md](mcp.md) — attributing tools to their MCP server
+- [troubleshooting.md](troubleshooting.md) — "where are my runs?", install/port issues, FAQ
 - [comparison.md](comparison.md) — when to use tracesage vs LangSmith / Phoenix / LangFuse

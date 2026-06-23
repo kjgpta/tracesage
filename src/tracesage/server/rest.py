@@ -63,6 +63,7 @@ def get_stats(request: Request) -> Stats:
 class HealthResponse(BaseModel):
     status: str
     version: str
+    project_name: str | None = None
 
 
 class RunListResponse(BaseModel):
@@ -93,10 +94,14 @@ class DeleteResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+async def health(
+    config: Annotated[TraceSageConfig, Depends(get_config)],
+) -> HealthResponse:
     from tracesage import __version__
 
-    return HealthResponse(status="ok", version=__version__)
+    return HealthResponse(
+        status="ok", version=__version__, project_name=config.project_name
+    )
 
 
 @router.get("/runs", response_model=RunListResponse)
@@ -193,20 +198,26 @@ async def stats_endpoint(
     return merged
 
 
+# Scope for topology/tools: all-time, a single run, or the N most-recent runs.
+_SCOPE_PATTERN = r"^(all|run:.+|last_n:[0-9]+)$"
+
+
 @router.get("/topology", response_model=Topology)
 async def topology_endpoint(
     db: Annotated[StorageBackend, Depends(get_db)],
+    scope: Annotated[str | None, Query(pattern=_SCOPE_PATTERN, max_length=200)] = None,
 ) -> Topology:
-    return await db.get_topology()
+    return await db.get_topology(scope=scope)
 
 
 @router.get("/tools")
 async def tools_endpoint(
     db: Annotated[StorageBackend, Depends(get_db)],
+    scope: Annotated[str | None, Query(pattern=_SCOPE_PATTERN, max_length=200)] = None,
 ) -> dict[str, Any]:
     """Tools grouped by source: each MCP server plus a 'local' bucket for
     unattributed (hardcoded) tools."""
-    return await db.get_tool_inventory()
+    return await db.get_tool_inventory(scope=scope)
 
 
 @router.get("/runs/{run_id}/export")

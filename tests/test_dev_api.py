@@ -290,10 +290,52 @@ def test_embedded_server_serves_ui_and_api(tmp_path: Path) -> None:
     asyncio.run(_go())
 
 
+def test_resolve_bind_port_scans_and_falls_back() -> None:
+    """auto=True skips a busy port; auto=False keeps it; port 0 passes through."""
+    import socket
+
+    from tracesage.tracer import _resolve_bind_port
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen(1)
+    busy = s.getsockname()[1]
+    try:
+        assert _resolve_bind_port("127.0.0.1", busy, auto=True) != busy  # picks a free one
+        assert _resolve_bind_port("127.0.0.1", busy, auto=False) == busy  # verbatim
+        assert _resolve_bind_port("127.0.0.1", 0, auto=True) == 0  # ephemeral passthrough
+    finally:
+        s.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_port_binds_a_free_port_when_busy(tmp_path: Path) -> None:
+    """With the configured port occupied, auto-port must bind a *different* free
+    port and bring the UI up there (so a second app on the same machine works)."""
+    import socket
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen(1)
+    busy = s.getsockname()[1]
+    try:
+        tl = await TraceSage.create(_cfg(tmp_path, port=busy))  # default port_auto=True
+        try:
+            assert tl.bound_port is not None
+            assert tl.bound_port != busy
+            async with httpx.AsyncClient(timeout=5.0) as c:
+                r = await c.get(f"http://127.0.0.1:{tl.bound_port}/api/health")
+            assert r.status_code == 200
+        finally:
+            await tl.stop()
+    finally:
+        s.close()
+
+
 def test_embedded_server_port_conflict_does_not_crash(tmp_path: Path) -> None:
-    """If the configured port is already taken, the embedded UI must fail soft —
-    uvicorn calls sys.exit(1) (SystemExit) on bind failure, which must NOT escape
-    and tear down the host application. Tracing must continue and capture runs."""
+    """With port_auto disabled and the configured port taken, the embedded UI must
+    fail soft — uvicorn calls sys.exit(1) (SystemExit) on bind failure, which must
+    NOT escape and tear down the host application. Tracing must continue."""
     import socket
 
     from langchain_core.language_models.fake import FakeListLLM
@@ -306,8 +348,10 @@ def test_embedded_server_port_conflict_does_not_crash(tmp_path: Path) -> None:
     busy_port = sock.getsockname()[1]
 
     async def _go() -> None:
-        # create() must return cleanly despite the port being in use.
-        tl = await TraceSage.create(_cfg(tmp_path, port=busy_port), start_server=True)
+        # port_auto=False pins the busy port; create() must still return cleanly.
+        tl = await TraceSage.create(
+            _cfg(tmp_path, port=busy_port, port_auto=False), start_server=True
+        )
         try:
             assert tl.bound_port is None, "server should not report a port it never bound"
             # Tracing still works end-to-end.

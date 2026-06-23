@@ -1,5 +1,5 @@
 site_name: tracesage
-site_description: Production observability for LangChain & LangGraph multi-agent systems.
+site_description: Local-first observability for LangChain & LangGraph multi-agent systems.
 site_url: https://kjgpta.github.io/tracesage/
 site_author: tracesage contributors
 
@@ -89,6 +89,7 @@ nav:
   - API reference: api.md
   - MCP support: mcp.md
   - Production: production.md
+  - Troubleshooting: troubleshooting.md
   - Extending: extending.md
   - Comparison: comparison.md
   - Examples: examples.md

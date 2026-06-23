@@ -29,7 +29,15 @@ class TraceSageConfig(BaseSettings):
     # --- Server ---
     host: str = "127.0.0.1"
     port: int = 7842
+    # If the chosen port is busy, automatically bind the next free port (scanning
+    # upward from `port`, then an OS-ephemeral port as a last resort) so multiple
+    # apps can run at once without a port clash. Set False to use exactly `port`.
+    port_auto: bool = True
     auth_token: str | None = None
+    # Optional human-friendly label for THIS application, shown in the UI header (and
+    # browser tab) so you can tell apart UIs when tracing several apps at once. Env:
+    # TRACESAGE_PROJECT_NAME. Unset -> nothing shown.
+    project_name: str | None = None
     # If set, used verbatim as the base for run-trace deep links (e.g. behind a
     # reverse proxy: "https://traces.example.com"). Otherwise derived from host/port.
     public_url: str | None = None

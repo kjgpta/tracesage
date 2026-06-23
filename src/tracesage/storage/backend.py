@@ -120,19 +120,24 @@ class StorageBackend(Protocol):
         """Return system-wide stats: total_runs, by-status counts, avg duration, totals."""
         ...
 
-    async def get_topology(self) -> Topology:
+    async def get_topology(self, scope: str | None = None) -> Topology:
         """Return the agent topology graph derived from observed events.
 
         Nodes: unique (agent_name | tool_name | retriever) seen across events.
         Edges: parent→child run relationships.
+
+        `scope` bounds which runs are aggregated: None/"all" = all-time, "run:<id>" =
+        a single run's structure, "last_n:<N>" = the N most-recent runs. Scoping keeps
+        a removed component (tool, agent, MCP server) from lingering across versions.
         """
         ...
 
-    async def get_tool_inventory(self) -> dict:
+    async def get_tool_inventory(self, scope: str | None = None) -> dict:
         """Return tools grouped by source (MCP server name, or 'local').
 
-        Shape: {"sources": [{source, kind, tool_count, invocation_count,
-        error_count, tools: [{name, invocations, errors}]}]}.
+        `scope` matches :meth:`get_topology`. Shape: {"sources": [{source, kind,
+        tool_count, invocation_count, error_count, tools: [{name, invocations,
+        errors}]}]}.
         """
         ...
 

@@ -539,7 +539,37 @@ class SQLiteBackend:
             "db_size_bytes": db_size,
         }
 
-    async def get_topology(self) -> Topology:
+    async def _scope_run_ids(
+        self, conn: aiosqlite.Connection, scope: str | None
+    ) -> list[str] | None:
+        """Resolve a topology/tools scope string to the root_run_ids it covers.
+
+        - None / "all"     -> None (all-time aggregate; back-compat).
+        - "run:<id>"       -> [<id>] (a single run's structure).
+        - "last_n:<N>"     -> the N most-recent root runs.
+        Returns [] when the scope matches no runs (caller returns an empty result).
+        """
+        if not scope or scope == "all":
+            return None
+        if scope.startswith("run:"):
+            rid = scope[4:].strip()
+            return [rid] if rid else None
+        if scope.startswith("last_n:"):
+            try:
+                n = max(1, min(1000, int(scope.split(":", 1)[1])))
+            except (ValueError, IndexError):
+                return None
+            cur = await conn.execute(
+                "SELECT root_run_id FROM runs WHERE run_id = root_run_id "
+                "ORDER BY started_at DESC LIMIT ?",
+                (n,),
+            )
+            rows = await cur.fetchall()
+            await cur.close()
+            return [r["root_run_id"] for r in rows]
+        return None
+
+    async def get_topology(self, scope: str | None = None) -> Topology:
         # Aggregate per-node stats from events.
         #
         # Counting model:
@@ -641,15 +671,41 @@ class SQLiteBackend:
         """
 
         async with self._conn() as conn:
-            cur = await conn.execute(node_sql)
+            run_ids = await self._scope_run_ids(conn, scope)
+            if run_ids == []:
+                return Topology(nodes=[], edges=[])  # scope matched no runs
+            if run_ids is None:
+                scope_node = scope_edge = scope_children = ""
+                params: tuple = ()
+            else:
+                ph = ",".join("?" * len(run_ids))
+                scope_node = f" WHERE root_run_id IN ({ph})"
+                scope_edge = f" AND c.root_run_id IN ({ph})"
+                scope_children = f" AND root_run_id IN ({ph})"
+                params = tuple(run_ids)
+            # Inject the scope filter (values bound via ? — no interpolation of data).
+            node_sql_x = node_sql + scope_node
+            edge_sql_x = edge_sql.replace(
+                f"WHERE c.event_type IN {start_event_types}",
+                f"WHERE c.event_type IN {start_event_types}{scope_edge}",
+            )
+            children_sql_x = has_children_sql + scope_children
+
+            cur = await conn.execute(node_sql_x, params)
             event_rows = await cur.fetchall()
             await cur.close()
-            cur = await conn.execute(edge_sql)
+            cur = await conn.execute(edge_sql_x, params)
             edge_rows = await cur.fetchall()
             await cur.close()
-            cur = await conn.execute(has_children_sql)
+            cur = await conn.execute(children_sql_x, params)
             has_children_rows = await cur.fetchall()
             await cur.close()
+
+        # Servers active within the scope (any tool of theirs ran). Used to gate the
+        # registered-tool folding below so a server removed from the app (or simply
+        # not used in the scoped run) doesn't linger in a scoped topology.
+        scoped = run_ids is not None
+        active_servers = {r["mcp_server"] for r in event_rows if r["mcp_server"]}
 
         runs_with_children: set[str] = {
             r["parent_run_id"] for r in has_children_rows if r["parent_run_id"]
@@ -783,6 +839,10 @@ class SQLiteBackend:
         nodes_by_id = {n.id: n for n in nodes}
         registered = await self.get_mcp_tools()
         for server, tool_names in registered.items():
+            # When scoped, only show a registered server's (possibly uncalled) tools
+            # if that server was actually active in the scoped run(s).
+            if scoped and server not in active_servers:
+                continue
             for tname in tool_names:
                 tid = f"tool:{tname}"
                 node = nodes_by_id.get(tid)
@@ -850,12 +910,13 @@ class SQLiteBackend:
 
         return Topology(nodes=nodes, edges=edges)
 
-    async def get_tool_inventory(self) -> dict:
+    async def get_tool_inventory(self, scope: str | None = None) -> dict:
         """Tools grouped by source (MCP server name, or 'local' when unattributed).
 
-        Returns {"sources": [{source, kind, tool_count, invocation_count,
-        error_count, tools: [{name, invocations, errors}]}]} sorted with MCP
-        servers first (by name) then the local bucket last.
+        `scope` matches :meth:`get_topology` ("run:<id>" / "last_n:<N>" / "all") so the
+        panel agrees with the topology. Returns {"sources": [{source, kind, tool_count,
+        invocation_count, error_count, tools: [{name, invocations, errors}]}]} sorted
+        with MCP servers first (by name) then the local bucket last.
         """
         sql = """
             SELECT
@@ -865,12 +926,22 @@ class SQLiteBackend:
                 SUM(CASE WHEN event_type = 'tool_error' THEN 1 ELSE 0 END) AS errors
               FROM events
              WHERE tool_name IS NOT NULL
-             GROUP BY mcp_server, tool_name
         """
         async with self._conn() as conn:
-            cur = await conn.execute(sql)
+            run_ids = await self._scope_run_ids(conn, scope)
+            if run_ids == []:
+                return {"sources": []}  # scope matched no runs
+            params: tuple = ()
+            if run_ids is not None:
+                ph = ",".join("?" * len(run_ids))
+                sql += f" AND root_run_id IN ({ph})"
+                params = tuple(run_ids)
+            sql += " GROUP BY mcp_server, tool_name"
+            cur = await conn.execute(sql, params)
             rows = await cur.fetchall()
             await cur.close()
+        scoped = run_ids is not None
+        active_servers = {r["mcp_server"] for r in rows if r["mcp_server"]}
 
         grouped: dict[str | None, dict] = {}
         for r in rows:
@@ -891,6 +962,9 @@ class SQLiteBackend:
         # inventory matches the topology (a server lists ALL the tools it provides).
         registered = await self.get_mcp_tools()
         for server, names in registered.items():
+            # When scoped, only fold a registered server's tools if it was active.
+            if scoped and server not in active_servers:
+                continue
             bucket = grouped.setdefault(
                 server, {"invocation_count": 0, "error_count": 0, "tools": []}
             )
