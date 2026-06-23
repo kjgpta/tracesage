@@ -643,22 +643,6 @@ export class GraphView {
     });
     sub.textContent = 'Left → right by call order  ·  each caller’s tools sit to its right';
     this.headersLayer.appendChild(sub);
-
-    // Swimlane labels at the very left margin.
-    const laneLabel = (text, y) => {
-      const t = el('text', {
-        x: 18, y,
-        'font-size': 10,
-        'font-weight': 800,
-        'letter-spacing': 1,
-        fill: dim,
-        'text-anchor': 'start',
-      });
-      t.textContent = text;
-      this.headersLayer.appendChild(t);
-    };
-    laneLabel('AGENTS', 200 + 5);
-    laneLabel('RESOURCES', 360);
   }
 
   /* ------------------------------------------------------------- nodes */

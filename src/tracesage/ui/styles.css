@@ -1213,6 +1213,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   color: var(--text-dim);
   margin: 0 0 8px;
 }
+/* Collapsible drawer section header (e.g. the invocations dropdown). The reset
+   neutralizes PicoCSS's <button> styling so it reads as a plain clickable row. */
+.drawer-collapse-head {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: none; color: inherit; font: inherit;
+  padding: 0; margin: 0 0 8px; box-shadow: none;
+}
+.drawer-collapse-head h4 { margin: 0; }
+.drawer-collapse-head:hover h4 { color: var(--text); }
+.drawer-collapse-chevron { color: var(--text-dim); font-size: 11px; width: 12px; flex: 0 0 auto; }
+.drawer-collapse-body.hidden { display: none; }
 .kv {
   display: flex; justify-content: space-between; gap: 10px;
   padding: 4px 0;

@@ -441,38 +441,76 @@ function renderTimeline() {
     return;
   }
 
-  // Collapse the raw event stream into one row per INVOCATION (a node's
-  // start→end share a run_id) so the timeline isn't a wall of start/end cards.
-  const invs = groupInvocations(events);
-  const startIdx = Math.max(0, invs.length - TIMELINE_MAX);
-  const visible = invs.slice(startIdx);
-  const prevScroll = tl.scrollTop;
+  // One card per raw event (detailed view): truncate to the last TIMELINE_MAX,
+  // with a "load earlier" stub if we cut.
+  const start = Math.max(0, events.length - TIMELINE_MAX);
+  const visible = events.slice(start);
   const frag = document.createDocumentFragment();
-  if (startIdx > 0) {
+  if (start > 0) {
     const btn = document.createElement('button');
     btn.className = 'load-earlier';
-    btn.textContent = `Load earlier (${startIdx} hidden) — render all`;
+    btn.textContent = `Load earlier (${start} hidden) — render all`;
     btn.addEventListener('click', () => {
       const allFrag = document.createDocumentFragment();
-      invs.forEach((inv) => allFrag.appendChild(buildInvocationRow(inv)));
+      events.forEach((e) => allFrag.appendChild(buildStepCard(e)));
       tl.innerHTML = '';
       tl.appendChild(allFrag);
     });
     frag.appendChild(btn);
   }
-  visible.forEach((inv) => frag.appendChild(buildInvocationRow(inv)));
+  visible.forEach((e) => frag.appendChild(buildStepCard(e)));
   tl.innerHTML = '';
   tl.appendChild(frag);
 
-  // Bottom for live tail; otherwise keep the user's scroll across a re-render.
   if (state.autoScrollTimeline) tl.scrollTop = tl.scrollHeight;
-  else tl.scrollTop = prevScroll;
   hideNewestPill();
   applyTimelineFilter();
 }
 
+/** One detailed timeline card per event (icon, timestamp, name, summary, badges).
+ *  Click opens the full step drawer (request + response payloads). */
+function buildStepCard(ev) {
+  const card = document.createElement('article');
+  card.className = 'step-card';
+  if (ev.error_message) card.classList.add('error');
+  card.dataset.eventId = ev.event_id;
+  card.setAttribute('role', 'listitem');
+
+  const icon = EVENT_ICONS[ev.event_type] || '•';
+  const ts = formatTs(ev.timestamp);
+  const name = ev.tool_name || ev.agent_name || ev.event_type;
+  const summary = ev.summary || '';
+  card.dataset.search = `${ev.event_type} ${name} ${summary} ${ev.error_message || ''}`.toLowerCase();
+  const dur = ev.duration_ms != null ? `<span class="badge duration">${formatMs(ev.duration_ms)}</span>` : '';
+  const tokens = (ev.token_input != null || ev.token_output != null)
+    ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}</span>` : '';
+  const errorBadge = ev.error_message ? `<span class="badge error">error</span>` : '';
+  const openBtn = ev.blob_path ? `<button class="open-btn" data-event-id="${escapeHtml(ev.event_id)}" aria-label="Open step details">Open</button>` : '';
+
+  card.innerHTML = `
+    <div class="row-1">
+      <span class="icon ${ev.error_message ? 'error' : ''}" aria-hidden="true">${icon}</span>
+      <span class="ts">${ts}</span>
+      <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+      ${openBtn}
+    </div>
+    ${summary ? `<div class="summary" title="${escapeHtml(summary)}">${escapeHtml(summary)}</div>` : ''}
+    ${(dur || tokens || errorBadge) ? `<div class="badges">${dur}${tokens}${errorBadge}</div>` : ''}
+  `;
+
+  if (ev.blob_path) {
+    card.querySelector('.open-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openStepDrawer(ev);
+    });
+  }
+  card.addEventListener('click', () => openStepDrawer(ev));
+  return card;
+}
+
 /** Group an ordered event list into invocations keyed by run_id (preserving
- *  first-seen order), merging each step's start (request) and end (response). */
+ *  first-seen order), merging each step's start (request) and end (response).
+ *  Used by the node drawer's invocations dropdown. */
 function groupInvocations(events) {
   const order = [];
   const byRun = new Map();
@@ -515,113 +553,26 @@ function finalizeInvocation(inv) {
   inv.search = `${inv.eventType} ${inv.name} ${inv.summary} ${inv.error || ''}`.toLowerCase();
 }
 
-/** A collapsed, expandable timeline row for one invocation. Click to reveal the
- *  full summary + request/response payloads inline (lazily fetched). */
-function buildInvocationRow(inv) {
-  const row = document.createElement('article');
-  row.className = 'invocation-row';
-  if (inv.error) row.classList.add('error');
-  if (inv.status === 'running') row.classList.add('running');
-  row.dataset.runId = inv.runId;
-  row.dataset.eventIds = inv.eventIds.join(' ');
-  row.dataset.search = inv.search;
-  row.setAttribute('role', 'listitem');
-
-  const expanded = state.expandedInvocations.has(inv.runId);
-  const dur = inv.durationMs != null ? `<span class="badge duration">${formatMs(inv.durationMs)}</span>` : '';
-  const tokens = (inv.tokenIn != null || inv.tokenOut != null)
-    ? `<span class="badge tokens">↑${inv.tokenIn || 0} ↓${inv.tokenOut || 0}</span>` : '';
-  const err = inv.error ? `<span class="badge error">error</span>` : '';
-  const src = inv.source ? `<span class="badge mcp">mcp:${escapeHtml(inv.source)}</span>` : '';
-
-  row.innerHTML = `
-    <div class="inv-head" role="button" tabindex="0" aria-expanded="${expanded}">
-      <span class="inv-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
-      <span class="inv-kind ${inv.error ? 'error' : ''}">${inv.icon}</span>
-      <span class="inv-name" title="${escapeHtml(inv.name)}">${escapeHtml(inv.name)}</span>
-      <span class="inv-badges">${src}${dur}${tokens}${err}</span>
-      <span class="inv-ts">${formatTs(inv.timestamp)}</span>
-    </div>
-    <div class="inv-detail ${expanded ? '' : 'hidden'}"></div>
-  `;
-
-  const head = row.querySelector('.inv-head');
-  const detail = row.querySelector('.inv-detail');
-  const toggle = () => {
-    const willExpand = !state.expandedInvocations.has(inv.runId);
-    if (willExpand) { state.expandedInvocations.add(inv.runId); fillInvocationDetail(detail, inv); }
-    else state.expandedInvocations.delete(inv.runId);
-    detail.classList.toggle('hidden', !willExpand);
-    row.querySelector('.inv-chevron').textContent = willExpand ? '▾' : '▸';
-    head.setAttribute('aria-expanded', String(willExpand));
-  };
-  head.addEventListener('click', toggle);
-  head.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
-  });
-  if (expanded) fillInvocationDetail(detail, inv);
-  return row;
-}
-
-/** Fill an invocation's expanded panel: full summary + request/response payloads,
- *  fetched lazily and cached by event_id so re-renders don't re-fetch. */
-function fillInvocationDetail(container, inv) {
-  const sec = (phase, title, ev) => ev
-    ? `<div class="inv-payload" data-phase="${phase}"><h5>${title}</h5>
-         <div class="pl-status dim">Loading…</div>
-         <pre class="json-pre pl-pre hidden"></pre></div>`
-    : '';
-  container.innerHTML = `
-    ${inv.summary ? `<div class="inv-summary">${escapeHtml(inv.summary)}</div>` : ''}
-    ${sec('req', 'Request payload', inv.startEv)}
-    ${sec('res', 'Response payload', inv.endEv)}
-    ${(!inv.startEv && !inv.endEv)
-      ? `<div class="dim">No full payload captured for this step.</div>` : ''}
-  `;
-  const load = (ev, phase) => {
-    if (!ev) return;
-    const box = container.querySelector(`.inv-payload[data-phase="${phase}"]`);
-    if (!box) return;
-    const status = box.querySelector('.pl-status');
-    const pre = box.querySelector('.pl-pre');
-    const cached = state.payloadCache.get(ev.event_id);
-    if (cached != null) {
-      status.classList.add('hidden'); pre.classList.remove('hidden'); pre.innerHTML = cached;
-      return;
-    }
-    apiGet(`/runs/${encodeURIComponent(ev.run_id)}/steps/${encodeURIComponent(ev.event_id)}/full`)
-      .then((data) => {
-        const html = highlightJson(data.full_payload);
-        state.payloadCache.set(ev.event_id, html);
-        if (!box.isConnected) return;
-        status.classList.add('hidden'); pre.classList.remove('hidden'); pre.innerHTML = html;
-      })
-      .catch((err) => { if (status) status.textContent = `Failed: ${err.message}`; });
-  };
-  load(inv.startEv, 'req');
-  load(inv.endEv, 'res');
-}
-
 /** Show/hide timeline step cards based on `state.timelineFilter`. Matches against
  *  each card's pre-computed `data-search` haystack (kind/name/summary/error). */
 function applyTimelineFilter() {
   const q = (state.timelineFilter || '').trim().toLowerCase();
   const tl = document.getElementById('timeline');
   if (!tl) return;
-  const rows = tl.querySelectorAll('.invocation-row');
+  const cards = tl.querySelectorAll('.step-card');
   const countEl = document.getElementById('timeline-search-count');
   if (!q) {
-    rows.forEach((c) => c.classList.remove('filtered-out'));
+    cards.forEach((c) => c.classList.remove('filtered-out'));
     if (countEl) countEl.textContent = '';
     return;
   }
   let shown = 0;
-  rows.forEach((c) => {
+  cards.forEach((c) => {
     const hit = (c.dataset.search || '').includes(q);
     c.classList.toggle('filtered-out', !hit);
     if (hit) shown += 1;
   });
-  if (countEl) countEl.textContent = `${shown} / ${rows.length}`;
+  if (countEl) countEl.textContent = `${shown} / ${cards.length}`;
 }
 
 function appendStepCard(ev) {
@@ -629,13 +580,22 @@ function appendStepCard(ev) {
   state.knownEventIds.add(ev.event_id);
   state.journey.push(ev);
 
-  // Re-group + re-render (invocation rows merge a step's start/end, so a single
-  // append can update an existing row rather than add one). renderTimeline keeps
-  // scroll position when not auto-scrolling and preserves the expanded set.
-  renderTimeline();
-  if (!state.autoScrollTimeline) {
-    state.newEventCount += 1;
-    showNewestPill();
+  const tl = document.getElementById('timeline');
+  // If we're showing the empty/skeleton placeholder, do a full re-render.
+  if (!tl.querySelector('.step-card') && !tl.querySelector('.load-earlier')) {
+    renderTimeline();
+  } else {
+    // At the cap, drop the oldest visible card, then append the new one.
+    const cards = tl.querySelectorAll('.step-card');
+    if (cards.length >= TIMELINE_MAX) cards[0].remove();
+    tl.appendChild(buildStepCard(ev));
+    if (state.timelineFilter) applyTimelineFilter();
+    if (state.autoScrollTimeline) {
+      tl.scrollTop = tl.scrollHeight;
+    } else {
+      state.newEventCount += 1;
+      showNewestPill();
+    }
   }
 
   // Pulse graph node + flash edge from previous event's node.
@@ -998,14 +958,28 @@ function openNodeDrawer(nodeData) {
     </section>
 
     <section class="drawer-section">
-      <h4>${escapeHtml(ctxLabel)} ${state.selectedRunId ? `<span class="count-pill">${matching.length}</span>` : ''}</h4>
-      <div class="node-events">
+      <button class="drawer-collapse-head" id="invocations-toggle" type="button" aria-expanded="false">
+        <span class="drawer-collapse-chevron" aria-hidden="true">▸</span>
+        <h4>${escapeHtml(ctxLabel)} ${state.selectedRunId ? `<span class="count-pill">${matching.length}</span>` : ''}</h4>
+      </button>
+      <div class="node-events drawer-collapse-body hidden" id="invocations-body">
         ${visible.length
           ? visible.map(renderEventCard).join('')
           : `<div class="dim">No invocations in the loaded journey.${state.selectedRunId ? '' : ' Click a run on the left first.'}</div>`}
       </div>
     </section>
   `;
+
+  // The invocations list is a collapsed dropdown — click the header to expand.
+  const invToggle = document.getElementById('invocations-toggle');
+  const invBody = document.getElementById('invocations-body');
+  if (invToggle && invBody) {
+    invToggle.addEventListener('click', () => {
+      const open = invBody.classList.toggle('hidden') === false;
+      invToggle.setAttribute('aria-expanded', String(open));
+      invToggle.querySelector('.drawer-collapse-chevron').textContent = open ? '▾' : '▸';
+    });
+  }
   // Connection-row click → navigate to that node (graph focus + drawer update).
   body.querySelectorAll('.connection-item').forEach((el) => {
     el.addEventListener('click', () => navigateToNode(el.dataset.nodeId));
@@ -1828,26 +1802,24 @@ function updatePlaybackUI() {
   dis('replay-next', pb === 'playing' || !hasSteps);
 }
 
-/** Apply 'current-step' highlight to the invocation row containing this event id
- *  and scroll it into view. Removes the highlight from any previously-current row. */
+/** Apply 'current-step' highlight to the timeline card for this event id and
+ *  scroll it into view. Removes the highlight from any previously-current card. */
 function highlightTimelineEvent(eventId) {
   const tl = document.getElementById('timeline');
   if (!tl) return;
-  tl.querySelectorAll('.invocation-row.current-step').forEach((el) => el.classList.remove('current-step'));
+  tl.querySelectorAll('.step-card.current-step').forEach((el) => el.classList.remove('current-step'));
   if (!eventId) return;
-  const row = [...tl.querySelectorAll('.invocation-row')].find(
-    (r) => (r.dataset.eventIds || '').split(' ').includes(eventId),
-  );
-  if (row) {
-    row.classList.add('current-step');
-    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const card = tl.querySelector(`.step-card[data-event-id="${cssEscapeAttr(eventId)}"]`);
+  if (card) {
+    card.classList.add('current-step');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 
 function clearTimelineEventHighlight() {
   const tl = document.getElementById('timeline');
   if (!tl) return;
-  tl.querySelectorAll('.invocation-row.current-step').forEach((el) => el.classList.remove('current-step'));
+  tl.querySelectorAll('.step-card.current-step').forEach((el) => el.classList.remove('current-step'));
 }
 
 /** Escape an event id (uuid) for use in an attribute selector. UUIDs are
