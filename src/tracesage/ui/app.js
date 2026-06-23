@@ -1089,7 +1089,15 @@ function scheduleRunsReconnect() {
 function handleRunsWsMessage(msg) {
   if (!msg || !msg.msg_type) return;
   if (msg.msg_type === 'run_update' && msg.payload?.run) {
-    upsertRun(msg.payload.run);
+    const incoming = msg.payload.run;
+    const prev = state.runsById.get(incoming.run_id);
+    upsertRun(incoming);
+    if (prev?.status === 'running' && incoming.status === 'completed') {
+      toast('Run completed', 'success', 3000);
+    } else if (prev?.status === 'running' && incoming.status === 'failed') {
+      const detail = incoming.error_message ? `: ${incoming.error_message.slice(0, 60)}` : '';
+      toast(`Run failed${detail}`, 'error', 5000);
+    }
   } else if (msg.msg_type === 'event' && msg.payload?.event_id) {
     // The global feed may not carry per-run events depending on backend wiring;
     // keep a defensive path that bumps run.total_steps when we see events.

@@ -13,6 +13,7 @@
 
 # --- tracesage ---
 tracesage[mcp]
+python-dotenv
 
 # --- LangChain stack ---
 langchain>=0.3
