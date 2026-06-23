@@ -15,6 +15,9 @@ Run:
     python examples/mcp/trip_demo/demo.py
     python examples/mcp/trip_demo/demo.py --open   # auto-open browser
 
+    (A .env file in the repo root is loaded automatically, so ANTHROPIC_API_KEY /
+    OPENAI_API_KEY can live there instead of being exported.)
+
 Switch to OpenAI:
     export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...
     python examples/mcp/trip_demo/demo.py
@@ -31,6 +34,12 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+try:
+    from dotenv import find_dotenv, load_dotenv
+    load_dotenv(find_dotenv(usecwd=True))
+except ImportError:
+    pass
 
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
@@ -69,9 +78,21 @@ def format_travel_brief(summary: str) -> str:
 
 # ── Setup helpers ─────────────────────────────────────────────────────────────
 
+_PROVIDER_KEY = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+
+
 def make_llm() -> Runnable:
     provider = os.environ.get("LLM_PROVIDER", "anthropic")
     model = os.environ.get("LLM_MODEL", "claude-haiku-4-5-20251001")
+    key_var = _PROVIDER_KEY.get(provider, f"{provider.upper()}_API_KEY")
+    if not os.environ.get(key_var):
+        sys.exit(
+            f"\nNo LLM API key found. This demo defaults to '{provider}' and needs ${key_var}.\n\n"
+            f"    export {key_var}=...\n"
+            "    python examples/mcp/trip_demo/demo.py\n\n"
+            "(Or add it to a .env file in the repo root — this script loads .env automatically.)\n"
+            "Use a different provider: export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...\n"
+        )
     return init_chat_model(model, model_provider=provider, temperature=0.0)
 
 
@@ -100,13 +121,15 @@ def make_mcp_client() -> MultiServerMCPClient:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main(*, check: bool = False, open_browser: bool = False) -> None:
+    llm = make_llm()  # preflight: exits with setup steps if no LLM API key is set
+
     # ── tracesage: two lines, that's it ──────────────────────────────────────
     tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
     mcp_tools = await register_mcp_client(tracer, make_mcp_client())
     # ─────────────────────────────────────────────────────────────────────────
 
     all_tools = [*mcp_tools, format_travel_brief]
-    agent = create_react_agent(make_llm(), all_tools)
+    agent = create_react_agent(llm, all_tools)
 
     print(f"Q: {QUERY}\n")
     result = await agent.ainvoke(
@@ -129,7 +152,9 @@ async def main(*, check: bool = False, open_browser: bool = False) -> None:
         await tracer.stop()
         return
 
-    url = "http://localhost:7842/ui"
+    # tracesage defaults to :7842 and auto-picks the next free port if it's busy —
+    # print the URL it actually bound.
+    url = tracer.ui_url or "http://localhost:7842/ui"
     print(f"\ntracesage UI → {url}")
     print("  Topology tab   — 1 agent node fanning out to 3 coloured MCP server nodes")
     print("  Tools panel    — flights(2)  weather(2)  hotels(2)  Local(1)")
