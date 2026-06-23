@@ -122,12 +122,10 @@
     </aside>
 
     <section class="pane pane-graph" aria-label="Topology and trace graph">
-      <div class="graph-controls">
-        <div class="graph-controls-left">
-          <div class="seg-toggle" role="tablist" aria-label="Graph mode">
-            <button class="seg-btn active" data-mode="topology" role="tab" aria-selected="true">Topology</button>
-            <button class="seg-btn" data-mode="trace" role="tab" aria-selected="false" disabled>Run trace</button>
-          </div>
+      <!-- Topology box (top): the system graph + its scope/zoom controls. -->
+      <div class="graph-box" id="topology-box">
+        <div class="graph-box-header">
+          <span class="graph-box-title">Topology</span>
           <span class="topology-scope-wrap" id="topology-scope-wrap">
             <select id="topology-scope" class="topology-scope" aria-label="Topology scope"
                     title="Which runs the topology aggregates. 'This run' = the selected run only (no stale structure).">
@@ -139,6 +137,55 @@
                    min="1" max="1000" value="5" aria-label="Number of recent runs"
                    title="How many of the most recent runs to aggregate">
           </span>
+          <span class="graph-box-spacer"></span>
+          <button class="icon-btn small" id="layout-toggle" aria-label="Toggle layout direction" title="Toggle direction (TD/LR)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M4 6h16M4 12h10M4 18h7"/>
+            </svg>
+          </button>
+          <button class="icon-btn small" id="zoom-in" aria-label="Zoom in" title="Zoom in">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+          <button class="icon-btn small" id="zoom-out" aria-label="Zoom out" title="Zoom out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+          <button class="icon-btn small" id="zoom-fit" aria-label="Fit to view" title="Fit to view">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+            </svg>
+          </button>
+        </div>
+        <div class="graph-box-body">
+          <div id="graph-container" class="graph-container" role="img" aria-label="Topology graph"></div>
+          <div id="graph-legend" class="graph-legend" aria-hidden="true">
+            <div class="legend-section">
+              <div class="legend-item"><span class="legend-shape agent"></span>agent</div>
+              <div class="legend-item"><span class="legend-shape mcp"></span>mcp server</div>
+              <div class="legend-item"><span class="legend-shape tool"></span>tool</div>
+              <div class="legend-item"><span class="legend-shape llm"></span>llm</div>
+              <div class="legend-item"><span class="legend-shape retriever"></span>retriever</div>
+              <div class="legend-item"><span class="legend-shape chain"></span>chain</div>
+            </div>
+            <div id="legend-mcp-servers" class="legend-section legend-mcp hidden"></div>
+          </div>
+          <div id="tools-panel" class="tools-panel" aria-label="Tools by source">
+            <div class="tools-panel-header" title="Drag to move · click to collapse">
+              <span class="tools-panel-title">Tools by source</span>
+              <button class="tools-panel-toggle" id="tools-panel-toggle" type="button"
+                      aria-label="Collapse tools panel" aria-expanded="true">&#x2212;</button>
+            </div>
+            <div class="tools-panel-body" id="tools-panel-body">
+              <div class="tools-panel-empty">No tools yet</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Run-trace box (bottom): the selected run's execution + playback. -->
+      <div class="graph-box" id="trace-box">
+        <div class="graph-box-header">
+          <span class="graph-box-title">Run trace</span>
+          <span class="graph-box-runid" id="trace-runid"></span>
           <div class="replay-controls hidden" id="replay-controls" role="group" aria-label="Replay controls">
             <!-- Explicit playback: Start, then Pause/Continue. Clicking a node
                  while playing pauses; Continue resumes from where it stopped. -->
@@ -163,53 +210,29 @@
               </button>
             </span>
           </div>
-        </div>
-        <div class="graph-controls-right">
-          <button class="icon-btn small" id="layout-toggle" aria-label="Toggle layout direction" title="Toggle direction (TD/LR)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M4 6h16M4 12h10M4 18h7"/>
-            </svg>
-          </button>
-          <button class="icon-btn small" id="zoom-in" aria-label="Zoom in" title="Zoom in">
+          <span class="graph-box-spacer"></span>
+          <button class="icon-btn small" id="trace-zoom-in" aria-label="Zoom in" title="Zoom in">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
           </button>
-          <button class="icon-btn small" id="zoom-out" aria-label="Zoom out" title="Zoom out">
+          <button class="icon-btn small" id="trace-zoom-out" aria-label="Zoom out" title="Zoom out">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
           </button>
-          <button class="icon-btn small" id="zoom-fit" aria-label="Fit to view" title="Fit to view">
+          <button class="icon-btn small" id="trace-zoom-fit" aria-label="Fit to view" title="Fit to view">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
             </svg>
           </button>
         </div>
+        <div class="graph-box-body">
+          <div id="graph-container-trace" class="graph-container" role="img" aria-label="Run trace graph"></div>
+          <div id="trace-placeholder" class="trace-placeholder">Select a run on the left to see its execution trace.</div>
+          <div id="replay-step-badge" class="replay-step-badge" aria-live="polite">
+            <span class="step-label">Replay step <span id="replay-step-current">0</span> / <span id="replay-step-total">0</span></span>
+            <span class="step-detail" id="replay-step-detail"></span>
+          </div>
+        </div>
       </div>
-      <div id="graph-container" class="graph-container" role="img" aria-label="Agent topology graph"></div>
       <div id="graph-tooltip" class="graph-tooltip hidden" role="tooltip"></div>
-      <div id="replay-step-badge" class="replay-step-badge" aria-live="polite">
-        <span class="step-label">Replay step <span id="replay-step-current">0</span> / <span id="replay-step-total">0</span></span>
-        <span class="step-detail" id="replay-step-detail"></span>
-      </div>
-      <div id="graph-legend" class="graph-legend" aria-hidden="true">
-        <div class="legend-section">
-          <div class="legend-item"><span class="legend-shape agent"></span>agent</div>
-          <div class="legend-item"><span class="legend-shape mcp"></span>mcp server</div>
-          <div class="legend-item"><span class="legend-shape tool"></span>tool</div>
-          <div class="legend-item"><span class="legend-shape llm"></span>llm</div>
-          <div class="legend-item"><span class="legend-shape retriever"></span>retriever</div>
-          <div class="legend-item"><span class="legend-shape chain"></span>chain</div>
-        </div>
-        <div id="legend-mcp-servers" class="legend-section legend-mcp hidden"></div>
-      </div>
-      <div id="tools-panel" class="tools-panel" aria-label="Tools by source">
-        <div class="tools-panel-header" title="Drag to move · click to collapse">
-          <span class="tools-panel-title">Tools by source</span>
-          <button class="tools-panel-toggle" id="tools-panel-toggle" type="button"
-                  aria-label="Collapse tools panel" aria-expanded="true">&#x2212;</button>
-        </div>
-        <div class="tools-panel-body" id="tools-panel-body">
-          <div class="tools-panel-empty">No tools yet</div>
-        </div>
-      </div>
       <div id="graph-empty" class="graph-empty hidden">
         <div class="empty-card">
           <h3>No runs yet</h3>

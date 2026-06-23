@@ -54,7 +54,6 @@ const state = {
   journey: [],                 // StoredEvent[] for selected run
   newEventCount: 0,
   autoScrollTimeline: true,
-  graphMode: 'topology',       // 'topology' | 'trace'
   topologyScope: 'run',        // 'run' (selected/latest) | 'lastn' | 'all'
   topologyScopeN: 5,           // N for the 'lastn' scope
   toolsCollapsed: true,        // "Tools by source" panel starts minimized
@@ -94,7 +93,8 @@ let wsRunsLastMsgAt = 0;
 let wsRunsLivenessTimer = null;
 
 // Graph view instance — created after DOM ready.
-let graph;
+let graph;        // topology box instance
+let graphTrace;   // run-trace box instance
 
 /* ============================================================
  * REST helpers
@@ -199,6 +199,7 @@ function applyTheme(theme) {
   localStorage.setItem(STORAGE_THEME, theme);
   // Cytoscape colors come from CSS vars — re-apply stylesheet so it picks up changes.
   if (graph?.isReady()) graph.refreshStyles();
+  if (graphTrace?.isReady()) graphTrace.refreshStyles();
 }
 
 function toggleTheme() {
@@ -361,11 +362,19 @@ async function selectRun(runId) {
   state.knownEventIds = new Set();
   setHash(runId);
   renderRunList();
-  setGraphModeAvailable(true);
+  // Reveal the run-trace box's playback controls + label; hide its placeholder.
   document.getElementById('replay-controls').classList.remove('hidden');
+  const runidEl = document.getElementById('trace-runid');
+  if (runidEl) runidEl.textContent = runId.slice(0, 12) + '…';
+  document.getElementById('trace-placeholder')?.classList.add('hidden');
 
   const tlMeta = document.getElementById('timeline-meta');
   tlMeta.textContent = runId.slice(0, 12) + '…';
+
+  // Cancel any in-flight replay from the previous run BEFORE loading the new one.
+  if (graphTrace?.isReady() && graphTrace.cancelReplay) graphTrace.cancelReplay();
+  state.autoReplayInProgress = false;
+  state.playback = 'idle';
 
   showTimelineSkeleton();
   try {
@@ -380,22 +389,18 @@ async function selectRun(runId) {
   // Point the timeline at the first entry on open.
   const tlEl = document.getElementById('timeline');
   if (tlEl) tlEl.scrollTop = 0;
-  applyRunTraceToGraph();
-  // When the topology is scoped to "this run", refresh it for the new selection.
+  // When the topology is scoped to "this run", refresh it for the new selection;
+  // it also re-applies the trace. Otherwise apply the trace against the current
+  // topology node set directly.
   if (state.topologyScope === 'run') loadTopology();
+  else applyRunTraceToGraph();
 
-  // Reset replay/playback for the new run: cancel any in-flight replay, rebuild
-  // the step list against the new journey, and reset the controls to idle.
-  if (graph?.isReady() && graph.cancelReplay) graph.cancelReplay();
-  state.autoReplayInProgress = false;
-  state.playback = 'idle';
   state.replaySteps = buildReplaySteps();
-  if (graph?.isReady()) graph.clearStepHighlight();
+  if (graphTrace?.isReady()) graphTrace.clearStepHighlight();
   clearTimelineEventHighlight();
   updatePlaybackUI();
 
   openTraceWS(runId);
-  setGraphMode('trace');
 }
 
 function setHash(runId) {
@@ -1388,6 +1393,9 @@ async function loadTopology() {
     state.topology = await apiGet(`/topology?scope=${scope}`);
     if (graph?.isReady()) graph.setTopology(state.topology);
     renderMcpLegend();
+    // The trace box reuses the topology's node set; re-apply the current run's
+    // trace so it stays in sync when the topology refreshes/rescopes.
+    if (state.selectedRunId) applyRunTraceToGraph();
   } catch (e) {
     toast(`Could not load topology: ${e.message}`, 'error', 3000);
   }
@@ -1599,49 +1607,15 @@ function wireToolsPanel() {
   applyToolsCollapsed();
 }
 
-function setGraphMode(mode) {
-  state.graphMode = mode;
-  // The topology-scope selector and the "Tools by source" panel only apply to
-  // the Topology view — hide both in Run trace mode.
-  const scopeWrap = document.getElementById('topology-scope-wrap');
-  if (scopeWrap) scopeWrap.classList.toggle('hidden', mode !== 'topology');
-  const toolsPanel = document.getElementById('tools-panel');
-  if (toolsPanel) toolsPanel.classList.toggle('hidden', mode !== 'topology');
-  document.querySelectorAll('.seg-btn').forEach((b) => {
-    const isActive = b.dataset.mode === mode;
-    b.classList.toggle('active', isActive);
-    b.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-  if (mode === 'topology') {
-    // Stop any in-flight replay so the graph doesn't keep animating after the
-    // user has explicitly asked to leave trace view.
-    if (state.autoReplayInProgress && graph?.isReady()) {
-      graph.cancelReplay();
-    }
-    state.autoReplayInProgress = false;
-    state.playback = 'idle';
-    updatePlaybackUI();
-    hideReplayStepBadge();
-    clearTimelineEventHighlight();
-    // Hide the replay controls bar entirely while in pure topology — there's
-    // nothing to replay when the user is browsing the system architecture.
-    document.getElementById('replay-controls').classList.add('hidden');
-    if (graph?.isReady()) {
-      graph.clearStepHighlight();
-      graph.clearRunTrace();   // resets to column layout, drops all run state
-    }
-  } else {
-    document.getElementById('replay-controls').classList.remove('hidden');
-    applyRunTraceToGraph();
-  }
-}
-
-function setGraphModeAvailable(available) {
-  document.querySelector('.seg-btn[data-mode="trace"]').disabled = !available;
-}
-
+/** Render the selected run's trace into the dedicated trace-box instance. The
+ *  trace instance reuses the topology node set, so we load it first, then switch
+ *  it to the sequential trace layout. */
 function applyRunTraceToGraph() {
-  if (!graph?.isReady() || state.graphMode !== 'trace') return;
+  if (!graphTrace?.isReady() || !state.selectedRunId) return;
+  if (!state.journey || state.journey.length === 0) return;
+  // Give the trace instance the current topology node set (shapes/labels) before
+  // switching it into trace layout.
+  if (state.topology) graphTrace.setTopology(state.topology);
   const nodeIds = new Set();
   const edges = [];
   let prev = null;
@@ -1652,17 +1626,16 @@ function applyRunTraceToGraph() {
     if (prev && prev !== id) edges.push({ source: prev, target: id });
     prev = id;
   }
-  // Pass the ordered journey so the graph can switch to a sequential trace
-  // layout instead of the column layout used in topology mode.
-  graph.setRunTrace([...nodeIds], edges, state.journey);
+  graphTrace.setRunTrace([...nodeIds], edges, state.journey);
+  document.getElementById('trace-placeholder')?.classList.add('hidden');
 }
 
-/** Pulse on graph for a single new event. */
+/** Pulse the trace graph for a single new live event. */
 function pulseGraphForEvent(ev) {
-  if (!graph?.isReady()) return;
+  if (!graphTrace?.isReady()) return;
   const nodeId = nodeIdForEvent(ev);
   if (!nodeId) return;
-  graph.pulseNode(nodeId);
+  graphTrace.pulseNode(nodeId);
 
   // Find previous event for edge dot.
   const idx = state.journey.findIndex((e) => e.event_id === ev.event_id);
@@ -1670,7 +1643,7 @@ function pulseGraphForEvent(ev) {
     for (let i = idx - 1; i >= 0; i--) {
       const prevId = nodeIdForEvent(state.journey[i]);
       if (prevId && prevId !== nodeId) {
-        graph.flashEdge(prevId, nodeId);
+        graphTrace.flashEdge(prevId, nodeId);
         break;
       }
     }
@@ -1694,11 +1667,9 @@ function scheduleGraphTopologyRefresh() {
       const topo = await apiGet('/topology');
       state.topology = topo;
       if (graph?.isReady()) graph.setTopology(topo);
-      // setTopology rebuilds the node/edge elements, dropping all step-*
-      // highlight classes — re-apply whatever should currently be showing.
-      if (state.graphMode === 'trace') applyRunTraceToGraph();
-      // A playing/paused replay holds the loop alive and is guarded above
-      // (we return early on autoReplayInProgress), so no manual re-apply is needed.
+      // Keep the trace box in sync with the refreshed node set (guarded above:
+      // we return early during an in-flight/paused replay).
+      if (state.selectedRunId) applyRunTraceToGraph();
     } catch { /* swallow */ }
   }, 300);
 }
@@ -1740,7 +1711,7 @@ function buildReplaySteps() {
 
 /** Start a fresh replay from the beginning. */
 async function startReplay() {
-  if (!state.selectedRunId || !graph?.isReady()) return;
+  if (!state.selectedRunId || !graphTrace?.isReady()) return;
   if (state.playback === 'playing' || state.playback === 'paused') return;
   const speed = parseFloat(document.getElementById('replay-speed').value || '1');
   const edges = buildReplaySteps();
@@ -1748,14 +1719,14 @@ async function startReplay() {
     toast('Nothing to replay yet — no traversed edges.', 'info', 2500);
     return;
   }
-  if (graph.cancelReplay) graph.cancelReplay();   // reset cursor to 0
+  if (graphTrace.cancelReplay) graphTrace.cancelReplay();   // reset cursor to 0
   state.playback = 'playing';
   state.autoReplayInProgress = true;
   updatePlaybackUI();
   toast(`Replaying ${edges.length} step${edges.length === 1 ? '' : 's'} at ${speed}x`, 'info', 2000);
   showReplayStepBadge(0, edges.length, '');
   try {
-    await graph.playRun(edges, speed);   // resolves when finished OR cancelled
+    await graphTrace.playRun(edges, speed);   // resolves when finished OR cancelled
   } finally {
     state.autoReplayInProgress = false;
     state.playback = 'idle';
@@ -1767,7 +1738,7 @@ async function startReplay() {
 /** Pause the running replay (keeps the loop alive so Continue resumes here). */
 function pauseReplay() {
   if (state.playback !== 'playing') return;
-  if (graph?.pauseReplay) graph.pauseReplay();
+  if (graphTrace?.pauseReplay) graphTrace.pauseReplay();
   state.playback = 'paused';
   updatePlaybackUI();
 }
@@ -1775,15 +1746,15 @@ function pauseReplay() {
 /** Resume a paused replay from exactly where it stopped. */
 function resumeReplay() {
   if (state.playback !== 'paused') return;
-  if (graph?.resumeReplay) graph.resumeReplay();
+  if (graphTrace?.resumeReplay) graphTrace.resumeReplay();
   state.playback = 'playing';
   updatePlaybackUI();
 }
 
 /** Step the cursor while paused (delta -1 / +1); resume continues from here. */
 function stepReplay(delta) {
-  if (state.playback !== 'paused' || !graph?.isReady()) return;
-  const info = graph.stepTo(graph.replayCursor + delta);
+  if (state.playback !== 'paused' || !graphTrace?.isReady()) return;
+  const info = graphTrace.stepTo(graphTrace.replayCursor + delta);
   if (!info) return;
   showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
   if (info.eventId) highlightTimelineEvent(info.eventId);
@@ -1798,8 +1769,8 @@ function updatePlaybackUI() {
   show('replay-start', pb === 'idle');
   show('replay-pause', pb === 'playing');
   show('replay-continue', pb === 'paused');
-  const total = graph?.isReady() ? graph.replayTotal : 0;
-  const cur = graph?.isReady() ? graph.replayCursor : 0;
+  const total = graphTrace?.isReady() ? graphTrace.replayTotal : 0;
+  const cur = graphTrace?.isReady() ? graphTrace.replayCursor : 0;
   const prev = document.getElementById('replay-prev');
   const next = document.getElementById('replay-next');
   if (prev) prev.disabled = pb !== 'paused' || cur <= 0;
@@ -2013,16 +1984,13 @@ function wireUI() {
     applyTimelineFilter();
   });
 
-  document.querySelectorAll('.seg-btn').forEach((b) => {
-    b.addEventListener('click', () => {
-      if (b.disabled) return;
-      setGraphMode(b.dataset.mode);
-    });
-  });
-
+  // Topology box zoom + (trace box has its own set below).
   document.getElementById('zoom-in').addEventListener('click', () => graph?.zoomIn());
   document.getElementById('zoom-out').addEventListener('click', () => graph?.zoomOut());
   document.getElementById('zoom-fit').addEventListener('click', () => graph?.fit());
+  document.getElementById('trace-zoom-in').addEventListener('click', () => graphTrace?.zoomIn());
+  document.getElementById('trace-zoom-out').addEventListener('click', () => graphTrace?.zoomOut());
+  document.getElementById('trace-zoom-fit').addEventListener('click', () => graphTrace?.fit());
   const scopeSel = document.getElementById('topology-scope');
   const scopeN = document.getElementById('topology-scope-n');
   if (scopeSel) {
@@ -2117,9 +2085,15 @@ function wsUrl(path) {
 async function main() {
   applyTheme(state.theme);
 
-  // Construct GraphView after DOM ready.
+  // Two independent GraphView instances: the Topology box (always shown) and the
+  // Run-trace box (the selected run + playback). Replay handlers live on the
+  // trace instance.
   graph = new GraphView(
     document.getElementById('graph-container'),
+    { onNodeClick: openNodeDrawer, onEdgeClick: openEdgeDrawer },
+  );
+  graphTrace = new GraphView(
+    document.getElementById('graph-container-trace'),
     {
       onNodeClick: openNodeDrawer,
       onEdgeClick: openEdgeDrawer,
@@ -2128,13 +2102,8 @@ async function main() {
         toast('Replay complete', 'success', 1500);
       },
       onPlayStep: (s) => {
-        showReplayStepBadge(
-          s.index + 1,
-          s.total,
-          `${s.sourceLabel} → ${s.targetLabel}`,
-        );
-        // Highlight the corresponding event card in the timeline so the user
-        // can follow the run on the right side simultaneously with the graph.
+        showReplayStepBadge(s.index + 1, s.total, `${s.sourceLabel} → ${s.targetLabel}`);
+        // Follow along in the timeline on the right.
         if (s.eventId) highlightTimelineEvent(s.eventId);
       },
     },
