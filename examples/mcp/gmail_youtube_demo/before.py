@@ -10,8 +10,13 @@ Compare with after.py — the diff is the entire tracesage pitch.
 
 Prerequisites:
     pip install 'tracesage[mcp]' mcp-google-gmail mcp-youtube-transcript langchain-anthropic langchain-openai
-    uv tool install mcp-google-gmail          # installs the auth CLI
-    mcp-google-gmail auth                     # one-time browser OAuth
+
+    YouTube works with no auth. Gmail is OPTIONAL — the mcp-google-gmail server
+    needs Google Application Default Credentials (it calls google.auth.default()):
+        gcloud auth application-default login           # easiest, needs gcloud
+        # …or point GOOGLE_APPLICATION_CREDENTIALS at an OAuth/service-account JSON
+    Without Gmail creds the Gmail server just fails to load and the agent runs with
+    YouTube only. See the server's own docs for the exact GCP / Gmail-API setup.
 
 Run (set whichever key you have — Anthropic is the default):
     export ANTHROPIC_API_KEY=...              # default
@@ -101,9 +106,9 @@ def make_mcp_client() -> MultiServerMCPClient:
         sys.exit(
             f"\nThis demo needs external MCP servers that aren't installed: {', '.join(missing)}\n\n"
             "Install them into this environment, then re-run:\n"
-            f"    pip install {' '.join(missing)}\n"
-            "    mcp-google-gmail auth        # one-time Gmail OAuth (opens a browser)\n\n"
+            f"    pip install {' '.join(missing)}\n\n"
             "(Or install uv — https://astral.sh/uv — and they'll run via uvx automatically.)\n"
+            "Gmail also needs Google credentials (gcloud auth application-default login).\n"
             "Full setup: examples/mcp/gmail_youtube_demo/README.md\n"
         )
     return MultiServerMCPClient(servers)

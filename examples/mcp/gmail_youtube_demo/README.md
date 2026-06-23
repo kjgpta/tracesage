@@ -13,7 +13,8 @@ Here's what was in your inbox: ... The most interesting video was about ...
 Final answer only. No visibility into tool calls, LLM rounds, token counts, or timing.
 
 ### with tracesage (`after.py`)
-Open **http://localhost:7842/ui** and see:
+Open the UI URL the script prints (tracesage uses **http://localhost:7842/ui** by
+default, but auto-picks the next free port — 7843, … — if 7842 is busy) and see:
 
 | UI surface | What you see |
 |---|---|
@@ -47,20 +48,30 @@ config={"callbacks": [tracer.handler], "recursion_limit": 25}
 pip install 'tracesage[mcp]' mcp-google-gmail mcp-youtube-transcript langchain-anthropic
 ```
 
-Both MCP servers run via `uvx` (comes with `uv`). If you don't have `uv`:
+The demo launches each server's console script directly. If you'd rather not
+install them into this environment, install [`uv`](https://astral.sh/uv) and the
+demo will run them via `uvx` automatically:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. Gmail — one-time OAuth2 setup
+### 2. Gmail — optional, needs Google credentials
+
+The `mcp-google-gmail` server authenticates with **Google Application Default
+Credentials** (it calls `google.auth.default()` at startup). The simplest setup:
 
 ```bash
-uv tool install mcp-google-gmail   # installs the CLI globally
-mcp-google-gmail auth              # opens browser to authorise — token cached after this
+gcloud auth application-default login    # needs the gcloud CLI + a GCP project with the Gmail API enabled
+# …or set GOOGLE_APPLICATION_CREDENTIALS to an OAuth-client / service-account JSON
 ```
 
-No `credentials.json` to download. The auth flow handles everything and stores the token automatically.
+See the [mcp-google-gmail](https://pypi.org/project/mcp-google-gmail/) docs for the
+exact GCP project and Gmail-API scope setup.
+
+**Gmail is optional.** Without credentials the Gmail server simply fails to load
+and the agent runs with YouTube only — the query falls back to summarising
+`YOUTUBE_URL` (a public video), so the before/after comparison still works.
 
 ### 3. YouTube — no setup needed
 

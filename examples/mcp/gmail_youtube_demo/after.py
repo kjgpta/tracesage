@@ -10,14 +10,23 @@ Run it, then open http://localhost:7842/ui:
 
 Prerequisites:
     pip install 'tracesage[mcp]' mcp-google-gmail mcp-youtube-transcript langchain-anthropic langchain-openai
-    uv tool install mcp-google-gmail          # installs the auth CLI
-    mcp-google-gmail auth                     # one-time browser OAuth
+
+    YouTube works with no auth. Gmail is OPTIONAL — the mcp-google-gmail server
+    needs Google Application Default Credentials (it calls google.auth.default()):
+        gcloud auth application-default login           # easiest, needs gcloud
+        # …or point GOOGLE_APPLICATION_CREDENTIALS at an OAuth/service-account JSON
+    Without Gmail creds the Gmail server just fails to load and the agent runs with
+    YouTube only (it falls back to summarising YOUTUBE_URL). See the server's own
+    docs for the exact GCP project / Gmail-API setup.
 
 Run (set whichever key you have — Anthropic is the default):
     export ANTHROPIC_API_KEY=...              # default
     export OPENROUTER_API_KEY=...             # or use OpenRouter
     python examples/mcp/gmail_youtube_demo/after.py
     python examples/mcp/gmail_youtube_demo/after.py --open   # auto-open browser
+
+Note: tracesage serves its UI on :7842 by default and auto-picks the next free
+port (7843, …) if it's busy — always open the URL the script actually prints.
 """
 from __future__ import annotations
 
@@ -108,9 +117,9 @@ def make_mcp_client() -> MultiServerMCPClient:
         sys.exit(
             f"\nThis demo needs external MCP servers that aren't installed: {', '.join(missing)}\n\n"
             "Install them into this environment, then re-run:\n"
-            f"    pip install {' '.join(missing)}\n"
-            "    mcp-google-gmail auth        # one-time Gmail OAuth (opens a browser)\n\n"
+            f"    pip install {' '.join(missing)}\n\n"
             "(Or install uv — https://astral.sh/uv — and they'll run via uvx automatically.)\n"
+            "Gmail also needs Google credentials (gcloud auth application-default login).\n"
             "Full setup: examples/mcp/gmail_youtube_demo/README.md\n"
         )
     return MultiServerMCPClient(servers)
@@ -138,7 +147,9 @@ async def main(*, open_browser: bool = False) -> None:
     llm = make_llm()
     agent = create_react_agent(llm, mcp_tools)
 
-    url = "http://localhost:7842/ui"
+    # Print the ACTUAL bound URL — tracesage defaults to :7842 but auto-binds the
+    # next free port (7843, …) if it's taken (e.g. another run still holding 7842).
+    url = tracer.ui_url or "http://localhost:7842/ui"
     print(f"\ntracesage UI → {url}  (open now to watch live)\n")
     if open_browser:
         webbrowser.open(url)
