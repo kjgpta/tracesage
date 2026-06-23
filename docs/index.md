@@ -84,7 +84,16 @@ and renders it in an interactive graph + timeline UI in real time.
 
 ## What you'll see
 
-![tracesage topology graph](assets/ui-topology.png)
+<table>
+  <tr>
+    <td width="50%"><img src="assets/ui-topology.png" alt="Topology view"></td>
+    <td width="50%"><img src="assets/ui-run-trace.png" alt="Run-trace view with timeline and replay"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Topology — the system architecture by node kind.</em></td>
+    <td align="center"><em>Run-trace — one run as a call tree, with the step timeline and replay controls.</em></td>
+  </tr>
+</table>
 
 Once a run lands, the UI shows:
 
@@ -128,16 +137,25 @@ come from [`GET /api/stats`](api.md), polled periodically.
 ### Inspect any node
 
 Click a node to open its drawer — counts, durations, errors, the tools it provides
-or uses, and (for MCP) its server of origin.
+or uses, and (for MCP) its server of origin. **LLM** nodes show token usage
+(in / out, total across calls).
 
 <table>
   <tr>
-    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+    <td width="50%"><img src="assets/ui-llm-drawer.png" alt="LLM inspector with token usage"></td>
     <td width="50%"><img src="assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
   </tr>
   <tr>
-    <td align="center"><em>“Tools by source” — tools grouped by origin (MCP vs. local).</em></td>
+    <td align="center"><em>LLM inspector — token usage (in / out, total across calls) and latency.</em></td>
     <td align="center"><em>MCP server inspector — provided tools, invocations and callers.</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+    <td width="50%"><img src="assets/ui-step-payload.png" alt="Step request and response payloads"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>“Tools by source” — tools grouped by origin (MCP vs. local).</em></td>
+    <td align="center"><em>Any step → its full request and response payloads.</em></td>
   </tr>
 </table>
 

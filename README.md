@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/tracesage-logo-badge.png" alt="tracesage" width="420">
+<img src="docs/assets/tracesage-logo-badge.png" alt="tracesage" width="420">
 
 # tracesage
 
@@ -173,34 +173,42 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
 
 <table>
   <tr>
-    <td width="50%"><img src="assets/ui-topology.png" alt="Live topology graph"></td>
-    <td width="50%"><img src="assets/ui-run-trace.png" alt="Run trace and timeline"></td>
+    <td width="50%"><img src="docs/assets/ui-topology.png" alt="Live topology graph"></td>
+    <td width="50%"><img src="docs/assets/ui-run-trace.png" alt="Run trace and timeline"></td>
   </tr>
   <tr>
     <td align="center"><em>Live topology — agents, tools, LLMs and MCP servers across a run.</em></td>
     <td align="center"><em>Run trace — the path a run took, with a step-by-step timeline you can replay.</em></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/ui-step-payload.png" alt="Step request and response payloads"></td>
-    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+    <td width="50%"><img src="docs/assets/ui-step-payload.png" alt="Step request and response payloads"></td>
+    <td width="50%"><img src="docs/assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
   </tr>
   <tr>
     <td align="center"><em>Click any step for its full <strong>request and response</strong> payloads, duration and errors.</em></td>
     <td align="center"><em>“Tools by source” — every tool grouped by origin (MCP servers vs. local).</em></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
-    <td width="50%"><img src="assets/ui-agent-drawer.png" alt="Agent inspector"></td>
+    <td width="50%"><img src="docs/assets/ui-llm-drawer.png" alt="LLM inspector with token usage"></td>
+    <td width="50%"><img src="docs/assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
   </tr>
   <tr>
-    <td align="center"><em>Click any node to inspect it — MCP server: invocations, errors, provided tools, callers.</em></td>
-    <td align="center"><em>…or an agent: its in-code tools, the MCP servers it uses, and what called it.</em></td>
+    <td align="center"><em>Inspect an <strong>LLM</strong> — token usage (in / out, total across calls) and latency.</em></td>
+    <td align="center"><em>…an <strong>MCP server</strong> — invocations, errors, and the tools it provides.</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/ui-agent-drawer.png" alt="Agent inspector"></td>
+    <td width="50%"><img src="docs/assets/ui-chain-drawer.png" alt="Chain inspector"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>…an <strong>agent</strong> — its tools, the servers it uses, and its callers.</em></td>
+    <td align="center"><em>…or a <strong>chain</strong> — the LangGraph/LCEL plumbing, with what it calls.</em></td>
   </tr>
 </table>
 
 ### Watch a trace stream in
 
-[![tracesage trace demo](assets/tracesage-demo.gif)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
+[![tracesage trace demo — topology, run-trace replay, timeline logs and token usage](docs/assets/tracesage-demo.gif)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
 
 _Sped-up preview — [watch the full-quality clip](docs/assets/tracesage-demo.mp4), or see it play inline on the [docs site](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)._
 
