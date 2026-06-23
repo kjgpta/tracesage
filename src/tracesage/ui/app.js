@@ -874,29 +874,30 @@ function eventMatchesNode(ev, nodeData) {
   return ev.agent_name === nodeData.label && !isLlmEvt && !isRetEvt;
 }
 
-/** Render one rich event card with inline input/output text for the drawer. */
-function renderEventCard(ev) {
-  const dur = ev.duration_ms != null
-    ? `<span class="badge">${formatMs(ev.duration_ms)}</span>`
-    : '';
-  const tok = (ev.token_input != null || ev.token_output != null)
-    ? `<span class="badge">↑${ev.token_input ?? 0} ↓${ev.token_output ?? 0}</span>`
-    : '';
-  const errCls = ev.error_message ? ' error' : '';
-  const blobBtn = ev.blob_path
-    ? `<button class="btn-link" data-event-full="${escapeHtml(ev.event_id)}">view full ›</button>`
-    : '';
+/** Render one LOGICAL invocation — a call's start (request) + end (response)
+ *  merged into a single card. Tokens come from the end event only (set by
+ *  finalizeInvocation), so a call is shown and counted exactly once. Clicking
+ *  opens the step drawer, which pairs the same run_id to show full request +
+ *  response. */
+function renderInvocationCard(inv) {
+  const dur = inv.durationMs != null ? `<span class="badge">${formatMs(inv.durationMs)}</span>` : '';
+  const tok = (inv.tokenIn != null || inv.tokenOut != null)
+    ? `<span class="badge">↑${inv.tokenIn ?? 0} ↓${inv.tokenOut ?? 0}</span>` : '';
+  const errCls = inv.status === 'error' ? ' error' : '';
+  const running = inv.status === 'running' ? '<span class="badge">running…</span>' : '';
+  // Open the drawer on the end event when present so its token line resolves;
+  // openStepDrawer re-pairs by run_id either way.
+  const clickId = inv.eventIds[inv.eventIds.length - 1] || inv.eventIds[0];
   return `
-    <article class="node-event-card${errCls}" data-event-id="${escapeHtml(ev.event_id)}">
+    <article class="node-event-card${errCls}" data-event-id="${escapeHtml(clickId)}">
       <header class="node-event-head">
-        <span class="node-event-type">${escapeHtml(ev.event_type)}</span>
-        <span class="node-event-time">${formatTs(ev.timestamp)}</span>
+        <span class="node-event-type">${escapeHtml(inv.eventType)}</span>
+        <span class="node-event-time">${formatTs(inv.timestamp)}</span>
       </header>
-      <div class="node-event-body">${escapeHtml(ev.summary || '(no summary)')}</div>
+      <div class="node-event-body">${escapeHtml(inv.summary || '(no summary)')}</div>
       <footer class="node-event-foot">
-        ${dur}${tok}
-        ${ev.error_message ? `<span class="badge error">${escapeHtml(ev.error_message).slice(0, 80)}</span>` : ''}
-        ${blobBtn}
+        ${dur}${tok}${running}
+        ${inv.error ? `<span class="badge error">${escapeHtml(inv.error).slice(0, 80)}</span>` : ''}
       </footer>
     </article>`;
 }
@@ -919,19 +920,21 @@ function openNodeDrawer(nodeData) {
 
   const matching = (state.journey || []).filter((ev) => eventMatchesNode(ev, nodeData));
   matching.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const visible = matching.slice(-12).reverse();
+  // Collapse each call's start (request) + end (response) into ONE logical
+  // invocation, keyed by run_id. Without this a single call shows up as two
+  // rows (a *_start card and a *_end card) and doubles the count.
+  const invocations = groupInvocations(matching);
+  const visible = invocations.slice(-12).reverse();
 
-  // Aggregate token usage across this node's invocations (carried on llm_end
-  // events). Shown in the hero for LLM nodes so usage is visible without
-  // expanding the invocations list.
-  const tokenEvents = matching.filter(
-    (ev) => ev.token_input != null || ev.token_output != null,
-  );
-  const tokenIn = tokenEvents.reduce((s, ev) => s + (ev.token_input || 0), 0);
-  const tokenOut = tokenEvents.reduce((s, ev) => s + (ev.token_output || 0), 0);
-  const showTokens = nodeData.type === 'llm' && tokenEvents.length > 0;
+  // Aggregate token usage across this node's invocations. finalizeInvocation
+  // takes tokens from the END event only, so summing per-invocation counts each
+  // call exactly once — no start/end double counting.
+  const tokenInvs = invocations.filter((inv) => inv.tokenIn != null || inv.tokenOut != null);
+  const tokenIn = tokenInvs.reduce((s, inv) => s + (inv.tokenIn || 0), 0);
+  const tokenOut = tokenInvs.reduce((s, inv) => s + (inv.tokenOut || 0), 0);
+  const showTokens = nodeData.type === 'llm' && tokenInvs.length > 0;
   const ctxLabel = state.selectedRunId
-    ? `Invocations in selected run (${matching.length})`
+    ? `Invocations in selected run (${invocations.length})`
     : 'Select a run to see invocations';
 
   // Connections derived from topology — what does this node call, and who calls it.
@@ -984,7 +987,7 @@ function openNodeDrawer(nodeData) {
           <span class="stat-value">${tokenOut.toLocaleString()}</span>
         </div>` : ''}
       </div>
-      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}${showTokens ? ` · Total tokens: <strong>${(tokenIn + tokenOut).toLocaleString()}</strong> across ${tokenEvents.length} call${tokenEvents.length === 1 ? '' : 's'}` : ''}</div>
+      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}${showTokens ? ` · Total tokens: <strong>${(tokenIn + tokenOut).toLocaleString()}</strong> across ${tokenInvs.length} call${tokenInvs.length === 1 ? '' : 's'}` : ''}</div>
     </section>
 
     ${renderCallsSection(nodeData, calls)}
@@ -997,11 +1000,11 @@ function openNodeDrawer(nodeData) {
     <section class="drawer-section">
       <button class="drawer-collapse-head" id="invocations-toggle" type="button" aria-expanded="false">
         <span class="drawer-collapse-chevron" aria-hidden="true">▸</span>
-        <h4>${escapeHtml(ctxLabel)} ${state.selectedRunId ? `<span class="count-pill">${matching.length}</span>` : ''}</h4>
+        <h4>${escapeHtml(ctxLabel)} ${state.selectedRunId ? `<span class="count-pill">${invocations.length}</span>` : ''}</h4>
       </button>
       <div class="node-events drawer-collapse-body hidden" id="invocations-body">
         ${visible.length
-          ? visible.map(renderEventCard).join('')
+          ? visible.map(renderInvocationCard).join('')
           : `<div class="dim">No invocations in the loaded journey.${state.selectedRunId ? '' : ' Click a run on the left first.'}</div>`}
       </div>
     </section>
@@ -1056,7 +1059,9 @@ function openEdgeDrawer(edgeData) {
   const targetNode = { type: tgtType, label: tgtName };
   const matching = (state.journey || []).filter((ev) => eventMatchesNode(ev, targetNode));
   matching.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const visible = matching.slice(-10).reverse();
+  // One entry per logical call (start+end merged), so counts aren't doubled.
+  const invocations = groupInvocations(matching);
+  const visible = invocations.slice(-10).reverse();
 
   body.innerHTML = `
     <section class="drawer-section">
@@ -1067,10 +1072,10 @@ function openEdgeDrawer(edgeData) {
       <div class="kv"><span class="kv-key">last seen</span><span class="kv-val">${formatRelTime(edgeData.lastSeen)}</span></div>
     </section>
     <section class="drawer-section">
-      <h4>Invocations of target in selected run (${matching.length})</h4>
+      <h4>Invocations of target in selected run (${invocations.length})</h4>
       <div class="node-events">
         ${visible.length
-          ? visible.map(renderEventCard).join('')
+          ? visible.map(renderInvocationCard).join('')
           : `<div class="dim">No invocations in this run's journey.</div>`}
       </div>
     </section>
