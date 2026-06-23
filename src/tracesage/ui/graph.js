@@ -344,111 +344,104 @@ export class GraphView {
       return;
     }
 
-    // Walk journey to build:
-    //   - orderedRoots: chain nodes (e.g. LangGraph) in first-seen order
-    //   - orderedAgents: agent nodes in first-seen order
-    //   - agentResources: agent_id -> ordered list of resource ids called by it
-    const orderedRoots = [];
-    const seenRoots = new Set();
-    const orderedAgents = [];
-    const seenAgents = new Set();
-    const agentResources = new Map();
-    const stack = []; // stack of agent/chain ids whose chain_start has fired
+    // Build a call TREE from the journey so the run reads left -> right by call
+    // depth (root chain -> agent -> tool/llm/retriever). Each caller's resources
+    // live in the column to its RIGHT (not stacked directly beneath it), and a
+    // caller is vertically centered against its children — so every
+    // caller -> resource edge is distinct and visible.
+    const parentOf = new Map();    // id -> parent id (null = root)
+    const childrenOf = new Map();  // id -> [child ids, first-seen order]
+    const depthOf = new Map();     // id -> column index (roots = 0)
+    const roots = [];              // root ids, first-seen order
+    const seen = new Set();
+    const stack = [];              // container (chain/agent) ids currently open
+    const ensure = (id) => { if (!childrenOf.has(id)) childrenOf.set(id, []); };
 
     for (const ev of journey) {
       const id = this._eventNodeId(ev);
       if (!id) continue;
       const node = this.nodesById.get(id);
       if (!node) continue;
-
       const t = ev.event_type;
-      const isStart = t === 'chain_start' || t === 'run_start';
-      const isEnd = t === 'chain_end' || t === 'chain_error' || t === 'run_end';
+      const isStart = t.endsWith('_start') || t === 'run_start' || t === 'agent_action';
+      const isEnd = t.endsWith('_end') || t.endsWith('_error');
+      const isContainer = node.type === 'chain' || node.type === 'agent';
 
-      if ((node.type === 'chain' || node.type === 'agent') && isStart) {
-        stack.push(id);
-        if (node.type === 'chain' && !seenRoots.has(id)) {
-          seenRoots.add(id);
-          orderedRoots.push(id);
+      if (isStart) {
+        if (!seen.has(id)) {
+          seen.add(id);
+          ensure(id);
+          const parent = stack.length ? stack[stack.length - 1] : null;
+          parentOf.set(id, parent);
+          if (parent == null) {
+            roots.push(id);
+            depthOf.set(id, 0);
+          } else {
+            ensure(parent);
+            childrenOf.get(parent).push(id);
+            depthOf.set(id, (depthOf.get(parent) ?? 0) + 1);
+          }
         }
-        if (node.type === 'agent' && !seenAgents.has(id)) {
-          seenAgents.add(id);
-          orderedAgents.push(id);
-          agentResources.set(id, []);
-        }
-      } else if ((node.type === 'chain' || node.type === 'agent') && isEnd) {
-        // Pop matching frame if any (defensive on order anomalies).
+        if (isContainer) stack.push(id);
+      } else if (isEnd && isContainer) {
         const idx = stack.lastIndexOf(id);
         if (idx >= 0) stack.splice(idx, 1);
-      } else if (
-        (node.type === 'tool' || node.type === 'llm' || node.type === 'retriever') &&
-        (t.endsWith('_start') || t === 'chat_model_start')
-      ) {
-        // Attribute this resource to the nearest agent on the stack (skip chains).
-        let agentId = null;
-        for (let i = stack.length - 1; i >= 0; i--) {
-          const sid = stack[i];
-          const sNode = this.nodesById.get(sid);
-          if (sNode && sNode.type === 'agent') { agentId = sid; break; }
-        }
-        if (agentId == null && stack.length > 0) agentId = stack[stack.length - 1];
-        if (agentId && agentResources.has(agentId)) {
-          const list = agentResources.get(agentId);
-          if (!list.includes(id)) list.push(id);
-        } else if (agentId) {
-          agentResources.set(agentId, [id]);
-        }
       }
     }
 
-    // Layout constants for trace mode.
-    const COL_W = 240;
-    const AGENT_Y = 200;
-    const RESOURCE_Y0 = 360;
-    const RESOURCE_DY = 100;
-    const PAD_LEFT = 100;
-
-    // Columns left to right: roots first, then agents in order.
-    let colIdx = 0;
-    for (const rid of orderedRoots) {
-      const n = this.nodesById.get(rid);
-      if (!n) continue;
-      n.x = PAD_LEFT + colIdx * COL_W;
-      n.y = AGENT_Y;
-      colIdx++;
-    }
-    for (const aid of orderedAgents) {
-      const a = this.nodesById.get(aid);
-      if (!a) continue;
-      a.x = PAD_LEFT + colIdx * COL_W;
-      a.y = AGENT_Y;
-      // Resources stacked beneath this agent.
-      const list = agentResources.get(aid) || [];
-      list.forEach((rid, i) => {
-        const r = this.nodesById.get(rid);
-        if (!r) return;
-        r.x = PAD_LEFT + colIdx * COL_W;
-        r.y = RESOURCE_Y0 + i * RESOURCE_DY;
-      });
-      colIdx++;
-    }
-
-    // Hide nodes that did not participate in this run. Guard against missing
-    // run data: setRunTrace populates runNodeIds, but _layoutTrace can be
-    // reached (e.g. via setTopology) before a trace has been set.
+    // Backfill any participating node we never positioned (e.g. only end events
+    // seen) as a leaf under the first root, so it isn't hidden.
     const runNodeIds = this.runNodeIds || new Set();
+    for (const nid of runNodeIds) {
+      if (!seen.has(nid) && this.nodesById.has(nid)) {
+        seen.add(nid);
+        ensure(nid);
+        const parent = roots.length ? roots[0] : null;
+        parentOf.set(nid, parent);
+        if (parent == null) { roots.push(nid); depthOf.set(nid, 0); }
+        else { ensure(parent); childrenOf.get(parent).push(nid); depthOf.set(nid, 1); }
+      }
+    }
+
+    // Tidy-tree Y assignment: leaves take sequential rows; a parent centers on
+    // the vertical span of its children.
+    const TOP = 110;
+    const ROW_DY = 96;
+    const COL_W = 230;
+    const PAD_LEFT = 90;
+    const yOf = new Map();
+    let leafRow = 0;
+    let maxDepth = 0;
+    const placed = new Set();
+    const place = (id) => {
+      if (placed.has(id)) return;   // cycle / re-entry guard
+      placed.add(id);
+      maxDepth = Math.max(maxDepth, depthOf.get(id) ?? 0);
+      const kids = (childrenOf.get(id) || []).filter((c) => seen.has(c));
+      if (kids.length === 0) {
+        yOf.set(id, TOP + (leafRow++) * ROW_DY);
+        return;
+      }
+      for (const c of kids) place(c);
+      const ys = kids.map((c) => yOf.get(c)).filter((v) => v != null);
+      yOf.set(id, ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : TOP + (leafRow++) * ROW_DY);
+    };
+    for (const rid of roots) place(rid);
+
+    // Apply positions; hide non-participating nodes off-screen so trace-mode
+    // edge culling (_makeEdgeElement) drops their edges.
     for (const n of this.nodes) {
-      if (!runNodeIds.has(n.id)) {
+      if (seen.has(n.id) && yOf.has(n.id)) {
+        n.x = PAD_LEFT + (depthOf.get(n.id) ?? 0) * COL_W;
+        n.y = yOf.get(n.id);
+      } else {
         n.x = -100000;
         n.y = -100000;
       }
     }
 
-    // Compute viewBox height based on max resource stack.
-    let maxResources = 0;
-    for (const list of agentResources.values()) maxResources = Math.max(maxResources, list.length);
-    this.viewBox.h = Math.max(500, RESOURCE_Y0 + maxResources * RESOURCE_DY + 100);
-    this.viewBox.w = Math.max(800, PAD_LEFT * 2 + colIdx * COL_W);
+    this.viewBox.w = Math.max(800, PAD_LEFT * 2 + (maxDepth + 1) * COL_W);
+    this.viewBox.h = Math.max(420, TOP * 2 + Math.max(1, leafRow) * ROW_DY);
     this._applyViewBox();
   }
 
@@ -649,28 +642,30 @@ export class GraphView {
       'pointer-events': 'all',
     }));
 
-    // START / END flag for the first/last visited node in run-trace mode.
+    // START / END marker for the first/last visited node in run-trace mode.
+    // These are plain, non-interactive LABELS — no play/stop glyphs, which would
+    // wrongly imply the user can run or stop the trace from the node itself.
     if (inRunMode && (n.id === this.runFirstNodeId || n.id === this.runLastNodeId)) {
       const isStart = n.id === this.runFirstNodeId;
-      const isEnd = n.id === this.runLastNodeId;
       const flagY = -NODE_HALF - 18;
-      const flagX = isStart ? -NODE_HALF - 36 : NODE_HALF + 36;
-      const flagFill = isStart ? cssVar('--success') : cssVar('--accent');
-      const flagText = isStart ? 'START ▶' : (isEnd ? '■ END' : '');
+      const flagX = isStart ? -NODE_HALF - 30 : NODE_HALF + 30;
+      const flagText = isStart ? 'START' : 'END';
+      const flagW = 50;
       const flagBg = el('rect', {
-        x: flagX - 36, y: flagY - 12,
-        width: 72, height: 22,
-        rx: 11, ry: 11,
-        fill: flagFill,
-        'fill-opacity': 0.92,
+        x: flagX - flagW / 2, y: flagY - 11,
+        width: flagW, height: 20,
+        rx: 10, ry: 10,
+        fill: cssVar('--surface-2'),
+        stroke: cssVar('--border'),
+        'stroke-width': 1,
       });
       const flagTxt = el('text', {
-        x: flagX, y: flagY + 4,
+        x: flagX, y: flagY + 3.5,
         'text-anchor': 'middle',
-        'font-size': 11,
-        'font-weight': 800,
-        'letter-spacing': 0.5,
-        fill: '#0d1117',
+        'font-size': 10.5,
+        'font-weight': 700,
+        'letter-spacing': 1,
+        fill: cssVar('--text-dim'),
       });
       flagTxt.textContent = flagText;
       g.appendChild(flagBg);
@@ -750,7 +745,12 @@ export class GraphView {
       'font-weight': 700,
       fill: cssVar('--text'),
     });
-    cn.textContent = String(n.invocations);
+    // In trace mode show THIS run's invocation count; in topology show the
+    // (scope-aggregated) count that came from the backend.
+    const invCount = (this.mode === 'trace' && this.runCounts)
+      ? (this.runCounts.get(n.id) || 0)
+      : (n.invocations || 0);
+    cn.textContent = String(invCount);
     countBubble.appendChild(cn);
     g.appendChild(countBubble);
 
@@ -1183,8 +1183,12 @@ export class GraphView {
     path.addEventListener('mouseleave', () => this._hideTooltip());
     g.appendChild(path);
 
-    // Count label at midpoint.
-    if (edge.count && edge.count > 0) {
+    // Count label at midpoint. Trace mode uses this run's traversal count;
+    // topology uses the scope-aggregated edge count.
+    const edgeCount = (this.mode === 'trace' && this.runEdgeCounts)
+      ? (this.runEdgeCounts.get(`${edge.source}->${edge.target}`) || 0)
+      : (edge.count || 0);
+    if (edgeCount > 0) {
       const midX = (x1 + x2) / 2;
       const midY = (y1 + y2) / 2 - 10;
       g.appendChild(el('rect', {
@@ -1201,7 +1205,7 @@ export class GraphView {
         'font-weight': 700,
         fill: cssVar('--text'),
       });
-      txt.textContent = `×${edge.count}`;
+      txt.textContent = `×${edgeCount}`;
       g.appendChild(txt);
     }
     return g;
@@ -1214,13 +1218,40 @@ export class GraphView {
     this.runNodeIds = new Set(nodeIds);
     this.runEdges = new Set(traversedEdges.map(e => `${e.source}->${e.target}`));
     this.runJourney = journey;
+
+    // Per-trace counts (THIS run only) so node/edge badges in trace mode reflect
+    // this run — not the topology's scoped all-runs aggregate.
+    this.runCounts = new Map();
+    this.runEdgeCounts = new Map();
+    if (journey) {
+      let prevId = null;
+      for (const ev of journey) {
+        const id = this._eventNodeId(ev);
+        if (!id) continue;
+        const t = ev.event_type;
+        if (t.endsWith('_start') || t === 'run_start' || t === 'agent_action') {
+          this.runCounts.set(id, (this.runCounts.get(id) || 0) + 1);
+        }
+        if (prevId && prevId !== id) {
+          const k = `${prevId}->${id}`;
+          this.runEdgeCounts.set(k, (this.runEdgeCounts.get(k) || 0) + 1);
+        }
+        prevId = id;
+      }
+    }
     // MCP provenance in the trace is shown INLINE on each tool (colour ring +
     // server chip in _makeNodeElement), not as a separate node — which keeps
     // multi-agent traces readable. So no mcp nodes are injected into the trace.
     // Determine first / last node for START / END markers.
     if (traversedEdges.length > 0) {
       this.runFirstNodeId = traversedEdges[0].source;
-      this.runLastNodeId = traversedEdges[traversedEdges.length - 1].target;
+      // Land END on the last endpoint distinct from START, so it marks a real
+      // terminus rather than the root orchestrator when the run loops home.
+      let last = traversedEdges[traversedEdges.length - 1].target;
+      for (let i = traversedEdges.length - 1; i >= 0; i--) {
+        if (traversedEdges[i].target !== this.runFirstNodeId) { last = traversedEdges[i].target; break; }
+      }
+      this.runLastNodeId = last;
     } else if (nodeIds.length > 0) {
       this.runFirstNodeId = nodeIds[0];
       this.runLastNodeId = nodeIds[nodeIds.length - 1];
@@ -1243,6 +1274,8 @@ export class GraphView {
     this.runFirstNodeId = null;
     this.runLastNodeId = null;
     this.runJourney = null;
+    this.runCounts = null;
+    this.runEdgeCounts = null;
     // Back to topology layout.
     this.mode = 'topology';
     this._layout();
