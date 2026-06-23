@@ -84,6 +84,11 @@
 
   <main class="app-main">
     <aside class="pane pane-runs" aria-label="Run list">
+      <button class="pane-collapse-btn pane-collapse-left" id="collapse-runs" type="button"
+              aria-label="Collapse run list" title="Collapse runs panel">
+        <span class="pane-chevron" aria-hidden="true">&#x00AB;</span>
+        <span class="pane-collapse-label">Collapse</span>
+      </button>
       <button class="pane-expand-btn" id="expand-runs" type="button"
               aria-label="Expand run list" title="Show runs">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -101,10 +106,6 @@
             <option value="completed">completed</option>
             <option value="failed">failed</option>
           </select>
-          <button class="pane-collapse-btn pane-collapse-left" id="collapse-runs" type="button"
-                  aria-label="Collapse run list" title="Collapse runs panel">
-            <span class="pane-chevron" aria-hidden="true">&#x00AB;</span>
-          </button>
         </div>
         <div class="run-list" id="run-list" role="list" tabindex="0" aria-label="Runs">
           <div class="skeleton-list" aria-hidden="true">
@@ -231,6 +232,11 @@ result = await graph.ainvoke(
     </section>
 
     <aside class="pane pane-timeline" aria-label="Step timeline">
+      <button class="pane-collapse-btn pane-collapse-right" id="collapse-timeline" type="button"
+              aria-label="Collapse timeline" title="Collapse timeline panel">
+        <span class="pane-chevron" aria-hidden="true">&#x00BB;</span>
+        <span class="pane-collapse-label">Collapse</span>
+      </button>
       <button class="pane-expand-btn" id="expand-timeline" type="button"
               aria-label="Expand timeline" title="Show timeline">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -241,10 +247,6 @@ result = await graph.ainvoke(
       </button>
       <div class="pane-content">
         <div class="pane-header">
-          <button class="pane-collapse-btn pane-collapse-right" id="collapse-timeline" type="button"
-                  aria-label="Collapse timeline" title="Collapse timeline panel">
-            <span class="pane-chevron" aria-hidden="true">&#x00BB;</span>
-          </button>
           <h2>Timeline</h2>
           <span class="timeline-meta" id="timeline-meta">no run selected</span>
         </div>

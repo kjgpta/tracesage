@@ -367,8 +367,8 @@ async function selectRun(runId) {
   document.getElementById('replay-controls').classList.remove('hidden');
 
   const tlMeta = document.getElementById('timeline-meta');
-  // Short run id in brackets after the "Timeline" heading; full id on hover.
-  tlMeta.textContent = `(${runId.slice(0, 8)}…)`;
+  // Full run id in brackets right after the "Timeline" heading (also on hover).
+  tlMeta.textContent = `(${runId})`;
   tlMeta.title = runId;
 
   showTimelineSkeleton();
