@@ -189,14 +189,20 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
     <td align="center"><em>“Tools by source” — every tool grouped by origin (MCP servers vs. local).</em></td>
   </tr>
   <tr>
-    <td width="33%"><img src="docs/assets/ui-llm-drawer.png" alt="LLM inspector with token usage"></td>
-    <td width="33%"><img src="docs/assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
-    <td width="33%"><img src="docs/assets/ui-agent-drawer.png" alt="Agent inspector"></td>
+    <td width="50%"><img src="docs/assets/ui-llm-drawer.png" alt="LLM inspector with token usage"></td>
+    <td width="50%"><img src="docs/assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
   </tr>
   <tr>
     <td align="center"><em>Inspect an <strong>LLM</strong> — token usage (in / out, total across calls) and latency.</em></td>
     <td align="center"><em>…an <strong>MCP server</strong> — invocations, errors, and the tools it provides.</em></td>
-    <td align="center"><em>…or an <strong>agent</strong> — its tools, the servers it uses, and its callers.</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/ui-agent-drawer.png" alt="Agent inspector"></td>
+    <td width="50%"><img src="docs/assets/ui-chain-drawer.png" alt="Chain inspector"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>…an <strong>agent</strong> — its tools, the servers it uses, and its callers.</em></td>
+    <td align="center"><em>…or a <strong>chain</strong> — the LangGraph/LCEL plumbing, with what it calls.</em></td>
   </tr>
 </table>
 
