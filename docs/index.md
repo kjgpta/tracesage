@@ -88,12 +88,17 @@ and renders it in an interactive graph + timeline UI in real time.
 
 Once a run lands, the UI shows:
 
-- **Run list** — every run with status, tags, started-at, total steps, total tokens
-- **Topology graph** — agent / tool / chain / retriever relationships, scoped to the
-  selected run by default (a toolbar selector switches to last-N-runs / all-time)
-- **Timeline** — chronological steps; click any step to expand its full **request and
-  response** payloads (MCP-backed tools are tagged with their server)
-- **Replay** — animate any completed run at 1x / 2x / 5x
+- **Run list** — every run with status, tags, started-at, total steps, total tokens,
+  and a toast when a watched run completes or fails
+- **Graph pane** — toggles between two views:
+    - **Topology** — agent / tool / chain / retriever relationships by kind, scoped to the
+      selected run by default (a toolbar selector switches to last-N-runs / all-time)
+    - **Run-trace** — one selected run laid out as a left → right call tree in call order
+- **Timeline** — chronological steps; a `*_start` shows its request, a `*_end` the full
+  **request + response** payloads (MCP-backed tools are tagged with their server)
+- **Step-through replay** — explicit Start / Pause / Resume plus Prev / Next manual
+  stepping (1x / 2x / 5x); clicking a timeline step jumps the cursor there
+- **Node inspector** — click any node for its stats; LLM nodes show token usage (in / out)
 
 Keyboard: `j` / `k` next/prev run, `/` focus search, `t` theme, `Esc` close, `?` help.
 

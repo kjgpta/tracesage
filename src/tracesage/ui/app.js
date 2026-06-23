@@ -1235,7 +1235,19 @@ function scheduleRunsReconnect() {
 function handleRunsWsMessage(msg) {
   if (!msg || !msg.msg_type) return;
   if (msg.msg_type === 'run_update' && msg.payload?.run) {
-    upsertRun(msg.payload.run);
+    const incoming = msg.payload.run;
+    // Capture the prior status as a STRING before upsert — upsertRun does
+    // Object.assign(existing, run) (mutates in place), so holding the object
+    // reference would see the already-overwritten status. Toast on a
+    // running -> completed/failed transition so you don't have to watch the list.
+    const prevStatus = state.runsById.get(incoming.run_id)?.status;
+    upsertRun(incoming);
+    if (prevStatus === 'running' && incoming.status === 'completed') {
+      toast('Run completed', 'success', 3000);
+    } else if (prevStatus === 'running' && incoming.status === 'failed') {
+      const detail = incoming.error_message ? `: ${incoming.error_message.slice(0, 60)}` : '';
+      toast(`Run failed${detail}`, 'error', 5000);
+    }
   } else if (msg.msg_type === 'event' && msg.payload?.event_id) {
     // The global feed may not carry per-run events depending on backend wiring;
     // keep a defensive path that bumps run.total_steps when we see events.
