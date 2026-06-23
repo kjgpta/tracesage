@@ -26,6 +26,10 @@ _LOG = logging.getLogger("tracesage.server.ws")
 
 GLOBAL_FEED_KEY = "__all__"
 
+# How often the global feed emits a heartbeat ping when otherwise idle. The UI's
+# liveness window should be a small multiple of this (it tolerates a missed ping).
+RUNS_PING_INTERVAL = 15.0
+
 
 class WebSocketManager:
     """Tracks per-run subscribers and a global feed under a single asyncio lock."""
@@ -184,7 +188,18 @@ async def ws_runs(websocket: WebSocket) -> None:
     try:
         while True:
             try:
-                await websocket.receive_text()
+                # Block on the client, but wake every RUNS_PING_INTERVAL seconds to
+                # emit a heartbeat. The client uses these (plus normal traffic) as a
+                # liveness signal: if it stops hearing from us it flips to
+                # "disconnected" even when no socket-close arrives (half-open
+                # connection, hung/suspended server, dropped network).
+                await asyncio.wait_for(websocket.receive_text(), timeout=RUNS_PING_INTERVAL)
+            except TimeoutError:
+                alive = await manager.send_personal(
+                    websocket, WSMessage(msg_type="ping", run_id="", payload={})
+                )
+                if not alive:
+                    return
             except WebSocketDisconnect:
                 return
     finally:

@@ -28,9 +28,12 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // Deterministic per-MCP-server colour. The SAME function is imported by app.js so
 // the graph rings, the dynamic legend, and the "Tools by source" panel always agree
 // on a server's colour. Hash the name into a fixed, theme-friendly palette.
+// Warm reds/oranges/pinks/magentas only — deliberately NOT overlapping the
+// node-kind colors (agent green, tool amber, llm blue, retriever purple, chain
+// gray, mcp teal), so a server-colored node/tool is never confused with a kind.
 const MCP_PALETTE = [
-  '#58a6ff', '#3fb950', '#d29922', '#a371f7', '#ec6cb9',
-  '#39c5cf', '#ff7b72', '#bc8cff', '#7ee787', '#ffa657',
+  '#e6194B', '#f58231', '#f032e6', '#ff5cb5',
+  '#9A6324', '#800000', '#ff7f50', '#c2255c',
 ];
 export function mcpServerColor(name) {
   if (!name) return '';
@@ -110,6 +113,7 @@ export class GraphView {
     this.focusedNodeId = null;    // node user clicked on (highlight neighborhood)
     this.hoveredNodeId = null;    // node user is currently hovering (ephemeral preview)
     this.activeDots = [];         // {dot, cancelled}[] — in-flight cursor dots
+    this._playToken = 0;          // generation guard for playRun (restart safety)
 
     this.viewBox = { x: 0, y: 0, w: 1400, h: 700 };
 
@@ -313,12 +317,37 @@ export class GraphView {
 
   /** Dispatch to the right layout function depending on mode. */
   _layout() {
+    // Re-anchor to the top-left only when the view actually switches
+    // (topology↔trace) — NOT on same-mode live refreshes, which would yank a
+    // user's pan back on every incoming event.
+    const modeChanged = this._lastLayoutMode !== undefined && this._lastLayoutMode !== this.mode;
+    this._lastLayoutMode = this.mode;
     if (this.mode === 'trace' && this.runJourney) {
       this._layoutTrace();
     } else {
       this._layoutColumns();
     }
     this._applyManualPositions();
+    if (modeChanged) { this.viewBox.x = 0; this.viewBox.y = 0; }
+    // A big layout (e.g. many tools) must pan, not shrink every node to a dot.
+    this._clampZoomOut();
+    this._applyViewBox();
+  }
+
+  /** Cap the viewBox so the graph never auto-renders below MIN_FIT_SCALE. Only
+   *  ever zooms IN (shrinks the viewBox); never grows it, and never moves x/y, so
+   *  a user's pan survives data refreshes. Overflow becomes pan/scroll instead of
+   *  everything zooming out into illegibility. The explicit fit() button bypasses
+   *  this (it sets the viewBox directly) so "fit all" can still show everything. */
+  _clampZoomOut() {
+    const cw = this.svg?.clientWidth || 0;
+    const ch = this.svg?.clientHeight || 0;
+    if (cw < 2 || ch < 2) return;            // pane not laid out / collapsed
+    const MIN_FIT_SCALE = 0.72;              // nodes never rendered below ~72%
+    const maxW = cw / MIN_FIT_SCALE;
+    const maxH = ch / MIN_FIT_SCALE;
+    if (this.viewBox.w > maxW) this.viewBox.w = maxW;
+    if (this.viewBox.h > maxH) this.viewBox.h = maxH;
   }
 
   /** Re-apply any user-dragged positions on top of the computed layout (so manual
@@ -344,111 +373,104 @@ export class GraphView {
       return;
     }
 
-    // Walk journey to build:
-    //   - orderedRoots: chain nodes (e.g. LangGraph) in first-seen order
-    //   - orderedAgents: agent nodes in first-seen order
-    //   - agentResources: agent_id -> ordered list of resource ids called by it
-    const orderedRoots = [];
-    const seenRoots = new Set();
-    const orderedAgents = [];
-    const seenAgents = new Set();
-    const agentResources = new Map();
-    const stack = []; // stack of agent/chain ids whose chain_start has fired
+    // Build a call TREE from the journey so the run reads left -> right by call
+    // depth (root chain -> agent -> tool/llm/retriever). Each caller's resources
+    // live in the column to its RIGHT (not stacked directly beneath it), and a
+    // caller is vertically centered against its children — so every
+    // caller -> resource edge is distinct and visible.
+    const parentOf = new Map();    // id -> parent id (null = root)
+    const childrenOf = new Map();  // id -> [child ids, first-seen order]
+    const depthOf = new Map();     // id -> column index (roots = 0)
+    const roots = [];              // root ids, first-seen order
+    const seen = new Set();
+    const stack = [];              // container (chain/agent) ids currently open
+    const ensure = (id) => { if (!childrenOf.has(id)) childrenOf.set(id, []); };
 
     for (const ev of journey) {
       const id = this._eventNodeId(ev);
       if (!id) continue;
       const node = this.nodesById.get(id);
       if (!node) continue;
-
       const t = ev.event_type;
-      const isStart = t === 'chain_start' || t === 'run_start';
-      const isEnd = t === 'chain_end' || t === 'chain_error' || t === 'run_end';
+      const isStart = t.endsWith('_start') || t === 'run_start' || t === 'agent_action';
+      const isEnd = t.endsWith('_end') || t.endsWith('_error');
+      const isContainer = node.type === 'chain' || node.type === 'agent';
 
-      if ((node.type === 'chain' || node.type === 'agent') && isStart) {
-        stack.push(id);
-        if (node.type === 'chain' && !seenRoots.has(id)) {
-          seenRoots.add(id);
-          orderedRoots.push(id);
+      if (isStart) {
+        if (!seen.has(id)) {
+          seen.add(id);
+          ensure(id);
+          const parent = stack.length ? stack[stack.length - 1] : null;
+          parentOf.set(id, parent);
+          if (parent == null) {
+            roots.push(id);
+            depthOf.set(id, 0);
+          } else {
+            ensure(parent);
+            childrenOf.get(parent).push(id);
+            depthOf.set(id, (depthOf.get(parent) ?? 0) + 1);
+          }
         }
-        if (node.type === 'agent' && !seenAgents.has(id)) {
-          seenAgents.add(id);
-          orderedAgents.push(id);
-          agentResources.set(id, []);
-        }
-      } else if ((node.type === 'chain' || node.type === 'agent') && isEnd) {
-        // Pop matching frame if any (defensive on order anomalies).
+        if (isContainer) stack.push(id);
+      } else if (isEnd && isContainer) {
         const idx = stack.lastIndexOf(id);
         if (idx >= 0) stack.splice(idx, 1);
-      } else if (
-        (node.type === 'tool' || node.type === 'llm' || node.type === 'retriever') &&
-        (t.endsWith('_start') || t === 'chat_model_start')
-      ) {
-        // Attribute this resource to the nearest agent on the stack (skip chains).
-        let agentId = null;
-        for (let i = stack.length - 1; i >= 0; i--) {
-          const sid = stack[i];
-          const sNode = this.nodesById.get(sid);
-          if (sNode && sNode.type === 'agent') { agentId = sid; break; }
-        }
-        if (agentId == null && stack.length > 0) agentId = stack[stack.length - 1];
-        if (agentId && agentResources.has(agentId)) {
-          const list = agentResources.get(agentId);
-          if (!list.includes(id)) list.push(id);
-        } else if (agentId) {
-          agentResources.set(agentId, [id]);
-        }
       }
     }
 
-    // Layout constants for trace mode.
-    const COL_W = 240;
-    const AGENT_Y = 200;
-    const RESOURCE_Y0 = 360;
-    const RESOURCE_DY = 100;
-    const PAD_LEFT = 100;
-
-    // Columns left to right: roots first, then agents in order.
-    let colIdx = 0;
-    for (const rid of orderedRoots) {
-      const n = this.nodesById.get(rid);
-      if (!n) continue;
-      n.x = PAD_LEFT + colIdx * COL_W;
-      n.y = AGENT_Y;
-      colIdx++;
-    }
-    for (const aid of orderedAgents) {
-      const a = this.nodesById.get(aid);
-      if (!a) continue;
-      a.x = PAD_LEFT + colIdx * COL_W;
-      a.y = AGENT_Y;
-      // Resources stacked beneath this agent.
-      const list = agentResources.get(aid) || [];
-      list.forEach((rid, i) => {
-        const r = this.nodesById.get(rid);
-        if (!r) return;
-        r.x = PAD_LEFT + colIdx * COL_W;
-        r.y = RESOURCE_Y0 + i * RESOURCE_DY;
-      });
-      colIdx++;
-    }
-
-    // Hide nodes that did not participate in this run. Guard against missing
-    // run data: setRunTrace populates runNodeIds, but _layoutTrace can be
-    // reached (e.g. via setTopology) before a trace has been set.
+    // Backfill any participating node we never positioned (e.g. only end events
+    // seen) as a leaf under the first root, so it isn't hidden.
     const runNodeIds = this.runNodeIds || new Set();
+    for (const nid of runNodeIds) {
+      if (!seen.has(nid) && this.nodesById.has(nid)) {
+        seen.add(nid);
+        ensure(nid);
+        const parent = roots.length ? roots[0] : null;
+        parentOf.set(nid, parent);
+        if (parent == null) { roots.push(nid); depthOf.set(nid, 0); }
+        else { ensure(parent); childrenOf.get(parent).push(nid); depthOf.set(nid, 1); }
+      }
+    }
+
+    // Tidy-tree Y assignment: leaves take sequential rows; a parent centers on
+    // the vertical span of its children.
+    const TOP = 110;
+    const ROW_DY = 96;
+    const COL_W = 230;
+    const PAD_LEFT = 90;
+    const yOf = new Map();
+    let leafRow = 0;
+    let maxDepth = 0;
+    const placed = new Set();
+    const place = (id) => {
+      if (placed.has(id)) return;   // cycle / re-entry guard
+      placed.add(id);
+      maxDepth = Math.max(maxDepth, depthOf.get(id) ?? 0);
+      const kids = (childrenOf.get(id) || []).filter((c) => seen.has(c));
+      if (kids.length === 0) {
+        yOf.set(id, TOP + (leafRow++) * ROW_DY);
+        return;
+      }
+      for (const c of kids) place(c);
+      const ys = kids.map((c) => yOf.get(c)).filter((v) => v != null);
+      yOf.set(id, ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : TOP + (leafRow++) * ROW_DY);
+    };
+    for (const rid of roots) place(rid);
+
+    // Apply positions; hide non-participating nodes off-screen so trace-mode
+    // edge culling (_makeEdgeElement) drops their edges.
     for (const n of this.nodes) {
-      if (!runNodeIds.has(n.id)) {
+      if (seen.has(n.id) && yOf.has(n.id)) {
+        n.x = PAD_LEFT + (depthOf.get(n.id) ?? 0) * COL_W;
+        n.y = yOf.get(n.id);
+      } else {
         n.x = -100000;
         n.y = -100000;
       }
     }
 
-    // Compute viewBox height based on max resource stack.
-    let maxResources = 0;
-    for (const list of agentResources.values()) maxResources = Math.max(maxResources, list.length);
-    this.viewBox.h = Math.max(500, RESOURCE_Y0 + maxResources * RESOURCE_DY + 100);
-    this.viewBox.w = Math.max(800, PAD_LEFT * 2 + colIdx * COL_W);
+    this.viewBox.w = Math.max(800, PAD_LEFT * 2 + (maxDepth + 1) * COL_W);
+    this.viewBox.h = Math.max(420, TOP * 2 + Math.max(1, leafRow) * ROW_DY);
     this._applyViewBox();
   }
 
@@ -459,30 +481,82 @@ export class GraphView {
 
   /** Position nodes in columns by kind, sorted alphabetically within each column. */
   _layoutColumns() {
+    const SUBCOL_W = 170;   // width of one tool sub-column (labels are short)
     const groups = {};
     for (const k of KIND_COLUMNS) groups[k] = [];
     for (const n of this.nodes) {
       groups[KIND_COLUMNS.includes(n.type) ? n.type : 'agent'].push(n);
     }
-    for (const k of KIND_COLUMNS) groups[k].sort((a, b) => a.name.localeCompare(b.name));
+    // Non-tool columns: simple alpha sort.
+    for (const k of KIND_COLUMNS) {
+      if (k !== 'tool') groups[k].sort((a, b) => a.name.localeCompare(b.name));
+    }
 
-    let maxRows = 0;
-    for (const k of KIND_COLUMNS) maxRows = Math.max(maxRows, groups[k].length);
-    if (maxRows === 0) maxRows = 1;
+    // Tool column: GROUP BY SOURCE SERVER (local/unsourced last), alpha within a
+    // group, so a server's tools are contiguous (and share the server colour).
+    const tools = groups.tool;
+    const bySource = new Map();
+    for (const t of tools) {
+      const key = t.source || '';                 // '' = local / unsourced
+      if (!bySource.has(key)) bySource.set(key, []);
+      bySource.get(key).push(t);
+    }
+    const sourceKeys = [...bySource.keys()].sort((a, b) => {
+      if (a === '') return 1;
+      if (b === '') return -1;
+      return a.localeCompare(b);
+    });
+    const orderedTools = [];
+    for (const k of sourceKeys) {
+      bySource.get(k).sort((a, b) => a.name.localeCompare(b.name));
+      for (const t of bySource.get(k)) orderedTools.push(t);
+    }
+
+    // Rows per sub-column: tall enough to match the other columns, but capped so
+    // a big tool list WRAPS into multiple sub-columns instead of one tall ribbon.
+    let otherMax = 1;
+    for (const k of KIND_COLUMNS) if (k !== 'tool') otherMax = Math.max(otherMax, groups[k].length);
+    const ROWS_CAP = Math.max(6, otherMax);
+    const toolSubCols = Math.max(1, Math.ceil(orderedTools.length / ROWS_CAP));
+    orderedTools.forEach((t, idx) => {
+      t._subCol = Math.floor(idx / ROWS_CAP);
+      t._subRow = idx % ROWS_CAP;
+    });
+
+    let maxRows = ROWS_CAP;
+    for (const k of KIND_COLUMNS) if (k !== 'tool') maxRows = Math.max(maxRows, groups[k].length);
+    maxRows = Math.max(1, Math.min(maxRows, Math.max(otherMax, Math.min(ROWS_CAP, orderedTools.length || 1))));
+
+    // Build per-kind bands: every kind is COLUMN_WIDTH wide except the tool band,
+    // which spans its sub-columns. Columns after tools shift right accordingly.
+    // _renderHeaders reads this map so headers/separators match the layout.
+    this._bands = {};
+    let bx = COLUMN_PAD_X;
+    for (const kind of KIND_COLUMNS) {
+      const width = kind === 'tool' ? Math.max(COLUMN_WIDTH, toolSubCols * SUBCOL_W) : COLUMN_WIDTH;
+      this._bands[kind] = { x: bx, width, subCols: kind === 'tool' ? toolSubCols : 1 };
+      bx += width;
+    }
 
     const totalH = HEADER_HEIGHT + TOP_PAD + maxRows * ROW_HEIGHT + 60;
     this.viewBox.h = Math.max(this.viewBox.h, totalH);
-    this.viewBox.w = Math.max(this.viewBox.w, COLUMN_PAD_X * 2 + KIND_COLUMNS.length * COLUMN_WIDTH);
+    this.viewBox.w = Math.max(this.viewBox.w, bx + COLUMN_PAD_X);
 
-    for (const [colIdx, kind] of KIND_COLUMNS.entries()) {
-      const col = groups[kind];
-      const colX = COLUMN_PAD_X + colIdx * COLUMN_WIDTH + COLUMN_WIDTH / 2;
-      // Center the column vertically against the tallest column.
-      const startY = HEADER_HEIGHT + TOP_PAD + ((maxRows - col.length) * ROW_HEIGHT) / 2 + ROW_HEIGHT / 2;
-      col.forEach((n, i) => {
-        n.x = colX;
-        n.y = startY + i * ROW_HEIGHT;
-      });
+    for (const kind of KIND_COLUMNS) {
+      const band = this._bands[kind];
+      if (kind === 'tool') {
+        const usedRows = Math.min(ROWS_CAP, Math.max(1, orderedTools.length));
+        const startY = HEADER_HEIGHT + TOP_PAD + ((maxRows - usedRows) * ROW_HEIGHT) / 2 + ROW_HEIGHT / 2;
+        orderedTools.forEach((t) => {
+          t.x = band.x + t._subCol * SUBCOL_W + SUBCOL_W / 2;
+          t.y = startY + t._subRow * ROW_HEIGHT;
+        });
+      } else {
+        const col = groups[kind];
+        const colX = band.x + band.width / 2;
+        const startY = HEADER_HEIGHT + TOP_PAD + ((maxRows - col.length) * ROW_HEIGHT) / 2 + ROW_HEIGHT / 2;
+        col.forEach((n, i) => { n.x = colX; n.y = startY + i * ROW_HEIGHT; });
+      }
     }
 
     this._applyViewBox();
@@ -492,9 +566,12 @@ export class GraphView {
     if (this._didFitOnce) return;
     if (this.nodes.length === 0) return;
     this._didFitOnce = true;
-    // Re-anchor viewBox to start at 0,0 so the whole layout is visible.
+    // Re-anchor viewBox to start at 0,0 so the layout opens at its top-left
+    // (agent/server columns), then cap the zoom so a wide/tall graph stays
+    // readable and pans instead of shrinking to fit.
     this.viewBox.x = 0;
     this.viewBox.y = 0;
+    this._clampZoomOut();
     this._applyViewBox();
   }
 
@@ -512,14 +589,21 @@ export class GraphView {
     }
     const border = cssVar('--border') || '#30363d';
     const dim = cssVar('--text-dim') || '#8b949e';
+    // Use the band map built by _layoutColumns so headings/bands/separators line
+    // up with the (variable-width) tool band. Fall back to uniform columns if a
+    // layout hasn't run yet.
+    const bands = this._bands || {};
 
-    for (const [colIdx, kind] of KIND_COLUMNS.entries()) {
-      const colX = COLUMN_PAD_X + colIdx * COLUMN_WIDTH;
+    let colIdx = 0;
+    for (const kind of KIND_COLUMNS) {
+      const band = bands[kind] || { x: COLUMN_PAD_X + colIdx * COLUMN_WIDTH, width: COLUMN_WIDTH };
+      const colX = band.x;
+      const colW = band.width;
       // Subtle column band for visual grouping.
       this.bgLayer.appendChild(el('rect', {
         x: colX,
         y: HEADER_HEIGHT,
-        width: COLUMN_WIDTH,
+        width: colW,
         height: this.viewBox.h - HEADER_HEIGHT,
         fill: cssVar(`--node-${kind}`) || dim,
         'fill-opacity': 0.04,
@@ -535,9 +619,9 @@ export class GraphView {
           opacity: 0.4,
         }));
       }
-      // Column heading text.
+      // Column heading text (centered over the — possibly wide — band).
       const heading = el('text', {
-        x: colX + COLUMN_WIDTH / 2,
+        x: colX + colW / 2,
         y: HEADER_HEIGHT - 22,
         'text-anchor': 'middle',
         'font-size': 13,
@@ -549,7 +633,7 @@ export class GraphView {
       this.headersLayer.appendChild(heading);
       // Subtitle so users know what each column means at a glance.
       const subtitle = el('text', {
-        x: colX + COLUMN_WIDTH / 2,
+        x: colX + colW / 2,
         y: HEADER_HEIGHT - 6,
         'text-anchor': 'middle',
         'font-size': 10,
@@ -557,6 +641,7 @@ export class GraphView {
       });
       subtitle.textContent = KIND_SUBTITLE[kind] || '';
       this.headersLayer.appendChild(subtitle);
+      colIdx++;
     }
   }
 
@@ -584,24 +669,8 @@ export class GraphView {
       'font-size': 11,
       fill: dim,
     });
-    sub.textContent = 'Agents in time order  ·  resources stacked beneath the agent that called them';
+    sub.textContent = 'Left → right by call order  ·  each caller’s tools sit to its right';
     this.headersLayer.appendChild(sub);
-
-    // Swimlane labels at the very left margin.
-    const laneLabel = (text, y) => {
-      const t = el('text', {
-        x: 18, y,
-        'font-size': 10,
-        'font-weight': 800,
-        'letter-spacing': 1,
-        fill: dim,
-        'text-anchor': 'start',
-      });
-      t.textContent = text;
-      this.headersLayer.appendChild(t);
-    };
-    laneLabel('AGENTS', 200 + 5);
-    laneLabel('RESOURCES', 360);
   }
 
   /* ------------------------------------------------------------- nodes */
@@ -649,28 +718,30 @@ export class GraphView {
       'pointer-events': 'all',
     }));
 
-    // START / END flag for the first/last visited node in run-trace mode.
+    // START / END marker for the first/last visited node in run-trace mode.
+    // These are plain, non-interactive LABELS — no play/stop glyphs, which would
+    // wrongly imply the user can run or stop the trace from the node itself.
     if (inRunMode && (n.id === this.runFirstNodeId || n.id === this.runLastNodeId)) {
       const isStart = n.id === this.runFirstNodeId;
-      const isEnd = n.id === this.runLastNodeId;
       const flagY = -NODE_HALF - 18;
-      const flagX = isStart ? -NODE_HALF - 36 : NODE_HALF + 36;
-      const flagFill = isStart ? cssVar('--success') : cssVar('--accent');
-      const flagText = isStart ? 'START ▶' : (isEnd ? '■ END' : '');
+      const flagX = isStart ? -NODE_HALF - 30 : NODE_HALF + 30;
+      const flagText = isStart ? 'START' : 'END';
+      const flagW = 50;
       const flagBg = el('rect', {
-        x: flagX - 36, y: flagY - 12,
-        width: 72, height: 22,
-        rx: 11, ry: 11,
-        fill: flagFill,
-        'fill-opacity': 0.92,
+        x: flagX - flagW / 2, y: flagY - 11,
+        width: flagW, height: 20,
+        rx: 10, ry: 10,
+        fill: cssVar('--surface-2'),
+        stroke: cssVar('--border'),
+        'stroke-width': 1,
       });
       const flagTxt = el('text', {
-        x: flagX, y: flagY + 4,
+        x: flagX, y: flagY + 3.5,
         'text-anchor': 'middle',
-        'font-size': 11,
-        'font-weight': 800,
-        'letter-spacing': 0.5,
-        fill: '#0d1117',
+        'font-size': 10.5,
+        'font-weight': 700,
+        'letter-spacing': 1,
+        fill: cssVar('--text-dim'),
       });
       flagTxt.textContent = flagText;
       g.appendChild(flagBg);
@@ -682,18 +753,11 @@ export class GraphView {
     // chip is redundant (the connected mcp node labels the server), so the chip is
     // shown in TRACE mode — where each tool directly/distinctly carries its MCP
     // server, instead of a far-off mcp node + long edge across a multi-agent trace.
+    // The tool shape itself is now filled with the server colour (see
+    // _shapeForKind), so no separate ring is needed. In TRACE mode we still show
+    // a server-name chip above the tool, since the run trace has no mcp node.
     if (n.type === 'tool' && n.source) {
       const serverColor = mcpServerColor(n.source);
-      g.appendChild(el('rect', {
-        class: 'node-source-ring',
-        x: -NODE_HALF - 5, y: -NODE_HALF * 0.7 - 5,
-        width: NODE_HALF * 2 + 10, height: NODE_HALF * 1.4 + 10,
-        rx: 13, ry: 13,
-        fill: 'none',
-        stroke: serverColor,
-        'stroke-width': 2.5,
-        'stroke-dasharray': '4 3',
-      }));
       if (this.mode === 'trace') {
         const chipText = `mcp · ${this._truncate(n.source, 12)}`;
         const chipW = Math.max(40, chipText.length * 6.2 + 12);
@@ -750,7 +814,12 @@ export class GraphView {
       'font-weight': 700,
       fill: cssVar('--text'),
     });
-    cn.textContent = String(n.invocations);
+    // In trace mode show THIS run's invocation count; in topology show the
+    // (scope-aggregated) count that came from the backend.
+    const invCount = (this.mode === 'trace' && this.runCounts)
+      ? (this.runCounts.get(n.id) || 0)
+      : (n.invocations || 0);
+    cn.textContent = String(invCount);
     countBubble.appendChild(cn);
     g.appendChild(countBubble);
 
@@ -977,9 +1046,10 @@ export class GraphView {
   getLayoutDir() { return 'LR'; }
 
   _shapeForKind(kind, n) {
-    // MCP server nodes are filled with their own per-server colour (matching the
-    // tool rings + legend); every other kind uses its --node-{kind} theme colour.
-    const fill = (kind === 'mcp' && n.source)
+    // MCP server nodes AND the tools they provide are filled with the server's
+    // per-server colour, so a server and its tools read as one group; every other
+    // kind (and local/unsourced tools) uses its --node-{kind} theme colour.
+    const fill = ((kind === 'mcp' || kind === 'tool') && n.source)
       ? mcpServerColor(n.source)
       : (cssVar(`--node-${kind}`) || cssVar('--accent'));
     const stroke = (this.runNodeIds && this.runNodeIds.has(n.id))
@@ -1183,8 +1253,12 @@ export class GraphView {
     path.addEventListener('mouseleave', () => this._hideTooltip());
     g.appendChild(path);
 
-    // Count label at midpoint.
-    if (edge.count && edge.count > 0) {
+    // Count label at midpoint. Trace mode uses this run's traversal count;
+    // topology uses the scope-aggregated edge count.
+    const edgeCount = (this.mode === 'trace' && this.runEdgeCounts)
+      ? (this.runEdgeCounts.get(`${edge.source}->${edge.target}`) || 0)
+      : (edge.count || 0);
+    if (edgeCount > 0) {
       const midX = (x1 + x2) / 2;
       const midY = (y1 + y2) / 2 - 10;
       g.appendChild(el('rect', {
@@ -1201,7 +1275,7 @@ export class GraphView {
         'font-weight': 700,
         fill: cssVar('--text'),
       });
-      txt.textContent = `×${edge.count}`;
+      txt.textContent = `×${edgeCount}`;
       g.appendChild(txt);
     }
     return g;
@@ -1214,13 +1288,40 @@ export class GraphView {
     this.runNodeIds = new Set(nodeIds);
     this.runEdges = new Set(traversedEdges.map(e => `${e.source}->${e.target}`));
     this.runJourney = journey;
+
+    // Per-trace counts (THIS run only) so node/edge badges in trace mode reflect
+    // this run — not the topology's scoped all-runs aggregate.
+    this.runCounts = new Map();
+    this.runEdgeCounts = new Map();
+    if (journey) {
+      let prevId = null;
+      for (const ev of journey) {
+        const id = this._eventNodeId(ev);
+        if (!id) continue;
+        const t = ev.event_type;
+        if (t.endsWith('_start') || t === 'run_start' || t === 'agent_action') {
+          this.runCounts.set(id, (this.runCounts.get(id) || 0) + 1);
+        }
+        if (prevId && prevId !== id) {
+          const k = `${prevId}->${id}`;
+          this.runEdgeCounts.set(k, (this.runEdgeCounts.get(k) || 0) + 1);
+        }
+        prevId = id;
+      }
+    }
     // MCP provenance in the trace is shown INLINE on each tool (colour ring +
     // server chip in _makeNodeElement), not as a separate node — which keeps
     // multi-agent traces readable. So no mcp nodes are injected into the trace.
     // Determine first / last node for START / END markers.
     if (traversedEdges.length > 0) {
       this.runFirstNodeId = traversedEdges[0].source;
-      this.runLastNodeId = traversedEdges[traversedEdges.length - 1].target;
+      // Land END on the last endpoint distinct from START, so it marks a real
+      // terminus rather than the root orchestrator when the run loops home.
+      let last = traversedEdges[traversedEdges.length - 1].target;
+      for (let i = traversedEdges.length - 1; i >= 0; i--) {
+        if (traversedEdges[i].target !== this.runFirstNodeId) { last = traversedEdges[i].target; break; }
+      }
+      this.runLastNodeId = last;
     } else if (nodeIds.length > 0) {
       this.runFirstNodeId = nodeIds[0];
       this.runLastNodeId = nodeIds[nodeIds.length - 1];
@@ -1243,6 +1344,8 @@ export class GraphView {
     this.runFirstNodeId = null;
     this.runLastNodeId = null;
     this.runJourney = null;
+    this.runCounts = null;
+    this.runEdgeCounts = null;
     // Back to topology layout.
     this.mode = 'topology';
     this._layout();
@@ -1316,13 +1419,56 @@ export class GraphView {
 
   /* ----------------------------------------------------------- replay */
 
-  /** Cancel an in-flight playRun. Sets the cancellation flag the loop checks
-   *  between steps and tears down any active dot/edge highlight so the
-   *  user doesn't see ghost animations after they've switched to manual. */
+  /** Cancel an in-flight playRun entirely (full stop + cursor reset). Tears down
+   *  any active dot/edge highlight so no ghost animation lingers. */
   cancelReplay() {
     this._replayCancelled = true;
+    this._playPaused = false;
+    this._playIdx = 0;
+    // Bump the play token so any loop still unwinding can't run another step
+    // (prevents a concurrent loop when Start restarts an in-flight/paused run).
+    this._playToken = (this._playToken || 0) + 1;
     this._cancelActiveDots();
     this.clearStepHighlight();
+  }
+
+  /** Pause an in-flight playRun after the current step; resume continues from
+   *  exactly where it paused. The loop keeps awaiting (does not unwind), so the
+   *  caller's `await playRun(...)` promise stays pending until resume/cancel. */
+  pauseReplay() { this._playPaused = true; }
+  resumeReplay() { this._playPaused = false; }
+  get isReplayPaused() { return !!this._playPaused; }
+  get replayCursor() { return this._playIdx || 0; }
+  get replayTotal() { return (this._playEdges || []).length; }
+
+  /** Load the step list for MANUAL stepping (prev/next) without starting the
+   *  auto-play loop. Idempotent; lets stepTo() work from an idle state. */
+  primeReplay(edges) {
+    this._playEdges = edges;
+    if (this._playIdx == null) this._playIdx = 0;
+  }
+
+  /** While paused, jump the replay cursor to `idx` and render that step's
+   *  highlight (no auto-advance), so a subsequent resume continues from here.
+   *  Returns step info for the badge/timeline, or null. */
+  stepTo(idx) {
+    const edges = this._playEdges || [];
+    if (edges.length === 0) return null;
+    const clamped = Math.max(0, Math.min(idx, edges.length - 1));
+    this._playIdx = clamped;
+    const e = edges[clamped];
+    const src = this.nodesById.get(e.source);
+    const tgt = this.nodesById.get(e.target);
+    this.highlightStep(e.source, e.target, { animate: true, pulse: false });
+    return {
+      index: clamped,
+      total: edges.length,
+      source: e.source,
+      target: e.target,
+      sourceLabel: src ? src.name : e.source,
+      targetLabel: tgt ? tgt.name : e.target,
+      eventId: e.eventId || null,
+    };
   }
 
   async playRun(edges, speed = 1) {
@@ -1330,11 +1476,26 @@ export class GraphView {
     // step + 1400 ms dot animation. Faster speeds compress predictably.
     const stepDur = Math.max(500, 2000 / speed);
     const dotDur  = Math.max(350, 1400 / speed);
+    // Token each run; an older loop bails once a newer playRun/cancelReplay wins.
+    const myToken = ++this._playToken;
+    const superseded = () => this._replayCancelled || this._playToken !== myToken;
+    this._playEdges = edges;
     const total = edges.length;
     this._replayCancelled = false;
+    this._playPaused = false;
+    if (this._playIdx == null || this._playIdx >= total) this._playIdx = 0;
 
-    for (let i = 0; i < total; i++) {
-      if (this._replayCancelled) return;
+    // Cursor-based loop: `this._playIdx` is the single source of truth so pause
+    // (wait) / resume / stepTo(jump) all work without restarting the loop.
+    while (this._playIdx < total) {
+      if (superseded()) return;
+      // Honor a pause between steps — wait here until resumed or cancelled.
+      while (this._playPaused && !superseded()) {
+        await new Promise(r => setTimeout(r, 120));
+      }
+      if (superseded()) return;
+
+      const i = this._playIdx;
       const e = edges[i];
       const tgt = this.nodesById.get(e.target);
       const src = this.nodesById.get(e.source);
@@ -1368,15 +1529,20 @@ export class GraphView {
 
       // Wait for the dot to reach target.
       await new Promise(r => setTimeout(r, dotDur));
-      if (this._replayCancelled) return;
+      if (superseded()) return;
 
       // Pulse the target node so the landing is dramatic.
       if (tgt) this.pulseNode(tgt.id);
 
       // Hold so the user can read the moment.
       await new Promise(r => setTimeout(r, Math.max(150, stepDur - dotDur)));
+      if (superseded()) return;
+
+      // Advance the cursor (re-read at loop top, so a stepTo during pause wins).
+      this._playIdx = i + 1;
     }
-    if (!this._replayCancelled) {
+    if (!superseded()) {
+      this._playIdx = 0;
       this.handlers.onPlayDone && this.handlers.onPlayDone();
     }
   }

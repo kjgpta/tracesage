@@ -84,10 +84,21 @@ auto-detection is a fallback.
 
 ## Try it
 
-A runnable end-to-end scenario (two local stdio MCP servers + two hardcoded tools,
-no API key) lives in [`examples/mcp/`](https://github.com/kjgpta/tracesage/tree/main/examples/mcp):
+Runnable MCP examples live in [`examples/mcp/`](https://github.com/kjgpta/tracesage/tree/main/examples/mcp).
+
+**Intro** — two local stdio MCP servers + hardcoded tools, **no API key**:
 
 ```bash
 pip install 'tracesage[mcp]'
 python examples/mcp/main.py    # then open http://localhost:7842/ui
+```
+
+**Real-world demos** — need an LLM API key:
+
+```bash
+# Trip Planner — one agent over 3 bundled MCP servers (flights, weather, hotels) + a local tool
+python examples/mcp/trip_demo/demo.py
+
+# Gmail + YouTube — a ReAct agent; before.py/after.py show the exact tracesage diff
+python examples/mcp/gmail_youtube_demo/after.py
 ```

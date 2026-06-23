@@ -7,7 +7,7 @@ in three tiers — from a 30-second first taste to a 30-app before/after gallery
 | Tier | Folder | Needs | What it is |
 |---|---|---|---|
 | **Getting started** | [`examples/getting_started/`](https://github.com/kjgpta/tracesage/tree/main/examples/getting_started) | no API key | 3 standalone demos driven by `FakeListChatModel` — run instantly |
-| **MCP tools** | [`examples/mcp/`](https://github.com/kjgpta/tracesage/tree/main/examples/mcp) | `tracesage[mcp]` | tools from local MCP servers attributed by source, plus hardcoded tools |
+| **MCP tools** | [`examples/mcp/`](https://github.com/kjgpta/tracesage/tree/main/examples/mcp) | `tracesage[mcp]` (+ LLM key for the real-world demos) | intro scenarios + two real-world demos (Trip Planner, Gmail+YouTube) — tools attributed by source |
 | **Showcase** | [`examples/showcase/`](https://github.com/kjgpta/tracesage/tree/main/examples/showcase) | an LLM API key | **30 real before/after apps** across popular use cases |
 
 ## Getting started (zero setup)
@@ -28,9 +28,17 @@ pip install "tracesage[mcp]"
 python examples/mcp/main.py            # then open the URL it prints (default http://localhost:7842/ui)
 ```
 
-Two local stdio MCP servers (`weather`, `math`) plus two hardcoded tools, all
-attributed by source in the topology and the "Tools by source" panel. See
-[MCP support](mcp.md) for how attribution works.
+Tools attributed by source in the topology and the "Tools by source" panel:
+
+- **Intro scenarios** (`main.py`, `mcp_only.py`, `local_only.py`, `single_agent_multi_mcp.py`) —
+  two local stdio MCP servers (`weather`, `math`) plus hardcoded tools; **no API key**.
+- **Real-world demos** (need an LLM key):
+    - **Trip Planner** (`trip_demo/demo.py`) — one agent across **three** bundled MCP servers
+      (flights, weather, hotels; 7 tools each) plus a local tool. No external installs.
+    - **Gmail + YouTube** (`gmail_youtube_demo/`) — a ReAct agent reading Gmail + YouTube
+      transcripts, with a `before.py` / `after.py` pair showing the exact diff.
+
+See [MCP support](mcp.md) for how attribution works.
 
 ## Showcase — 30 before/after apps
 

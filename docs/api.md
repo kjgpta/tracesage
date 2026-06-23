@@ -48,7 +48,7 @@ A failed WebSocket handshake is closed with code `4401`.
 Liveness probe. Public — never requires auth.
 
 ```json
-{ "status": "ok", "version": "0.2.1", "project_name": "my-app" }
+{ "status": "ok", "version": "0.3.0", "project_name": "my-app" }
 ```
 
 `project_name` is the optional `TRACESAGE_PROJECT_NAME` label (`null` when unset); the

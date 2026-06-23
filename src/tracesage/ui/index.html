@@ -87,6 +87,7 @@
       <button class="pane-collapse-btn pane-collapse-left" id="collapse-runs" type="button"
               aria-label="Collapse run list" title="Collapse runs panel">
         <span class="pane-chevron" aria-hidden="true">&#x00AB;</span>
+        <span class="pane-collapse-label">Collapse</span>
       </button>
       <button class="pane-expand-btn" id="expand-runs" type="button"
               aria-label="Expand run list" title="Show runs">
@@ -140,35 +141,28 @@
                    title="How many of the most recent runs to aggregate">
           </span>
           <div class="replay-controls hidden" id="replay-controls" role="group" aria-label="Replay controls">
-            <div class="replay-mode-toggle" role="tablist" aria-label="Replay mode">
-              <button class="replay-mode-btn active" data-replay-mode="auto" role="tab" aria-selected="true" type="button">Auto</button>
-              <button class="replay-mode-btn" data-replay-mode="manual" role="tab" aria-selected="false" type="button">Manual</button>
-            </div>
-            <div class="replay-controls-auto" id="replay-controls-auto">
-              <button class="icon-btn small" id="replay-btn" aria-label="Play replay" title="Play replay">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <polygon points="6,4 20,12 6,20"/>
-                </svg>
-              </button>
-              <select id="replay-speed" aria-label="Replay speed">
-                <option value="1">1x</option>
-                <option value="2">2x</option>
-                <option value="5">5x</option>
-              </select>
-            </div>
-            <div class="replay-controls-manual hidden" id="replay-controls-manual">
-              <button class="icon-btn small" id="replay-prev" aria-label="Previous step" title="Previous step" disabled>
+            <!-- Explicit playback: Start, then Pause/Continue. Clicking a node
+                 while playing pauses; Continue resumes from where it stopped. -->
+            <button class="replay-text-btn" id="replay-start" type="button" title="Start replay from the beginning">▶ Start</button>
+            <button class="replay-text-btn" id="replay-pause" type="button" title="Pause replay">❚❚ Pause</button>
+            <button class="replay-text-btn" id="replay-continue" type="button" title="Resume from where you paused">▶ Resume</button>
+            <select id="replay-speed" aria-label="Replay speed">
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="5">5x</option>
+            </select>
+            <span class="replay-step-controls">
+              <button class="icon-btn small" id="replay-prev" aria-label="Previous step" title="Step back (while paused)" disabled>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                   <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </button>
-              <span class="manual-step-label" id="manual-step-label" aria-live="polite">Step <span id="manual-step-current">0</span> / <span id="manual-step-total">0</span></span>
-              <button class="icon-btn small" id="replay-next" aria-label="Next step" title="Next step">
+              <button class="icon-btn small" id="replay-next" aria-label="Next step" title="Step forward (while paused)" disabled>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                   <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </button>
-            </div>
+            </span>
           </div>
         </div>
         <div class="graph-controls-right">
@@ -241,6 +235,7 @@ result = await graph.ainvoke(
       <button class="pane-collapse-btn pane-collapse-right" id="collapse-timeline" type="button"
               aria-label="Collapse timeline" title="Collapse timeline panel">
         <span class="pane-chevron" aria-hidden="true">&#x00BB;</span>
+        <span class="pane-collapse-label">Collapse</span>
       </button>
       <button class="pane-expand-btn" id="expand-timeline" type="button"
               aria-label="Expand timeline" title="Show timeline">

@@ -1,4 +1,4 @@
-# Example 4 — MCP tools attributed by source
+# MCP tools attributed by source
 
 Shows tracesage distinguishing tools that come from **MCP servers** from tools
 **hardcoded** in your workflow, in **three scenarios**. Each tool node in the
@@ -50,6 +50,21 @@ Add `--check` to any of them to run once, print the inventory, and exit (no serv
 
 ```bash
 python examples/mcp/main.py --check
+```
+
+## Real-world demos (need an LLM API key)
+
+Two production-like MCP apps with explicit tracesage integration:
+
+| Demo | What it shows |
+|---|---|
+| [`trip_demo/`](trip_demo/) | **One agent, three MCP servers.** A trip planner over flights / weather / hotels (7 tools each) plus a local formatting tool. Bundles all three stdio servers — **no external installs**, just an LLM key. Best place to see multi-server topology, per-server colours, and the "Tools by source" panel at scale. |
+| [`gmail_youtube_demo/`](gmail_youtube_demo/) | **Gmail + YouTube research agent.** Reads a real Gmail inbox, pulls YouTube transcripts from linked videos, and summarises them. Ships `before.py` / `after.py` so the exact tracesage diff is obvious. YouTube needs no auth; Gmail is optional (Google Application Default Credentials). |
+
+```bash
+export ANTHROPIC_API_KEY=...                     # or OPENAI_API_KEY / OPENROUTER_API_KEY
+python examples/mcp/trip_demo/demo.py            # zero external setup
+python examples/mcp/gmail_youtube_demo/after.py  # see gmail_youtube_demo/README.md for Gmail auth
 ```
 
 ## Exporting to OpenTelemetry (optional)

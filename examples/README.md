@@ -31,9 +31,13 @@ pip install "tracesage[mcp]"
 python examples/mcp/main.py            # then open http://localhost:7842/ui
 ```
 
-Two local stdio MCP servers (`weather`, `math`) plus two hardcoded tools, all attributed
-by source in the topology and the "Tools by source" panel. See [`mcp/README.md`](mcp/README.md)
-for the `mcp_only` / `local_only` / `single_agent_multi_mcp` variants.
+Tools attributed by source in the topology and the "Tools by source" panel. See
+[`mcp/README.md`](mcp/README.md) for:
+
+- **Intro scenarios** (`main.py`, `mcp_only.py`, `local_only.py`, `single_agent_multi_mcp.py`) —
+  local stdio MCP servers (`weather`, `math`) + hardcoded tools; no API key.
+- **Real-world demos** (need an LLM key) — `trip_demo/demo.py` (one agent over 3 bundled MCP
+  servers, no external installs) and `gmail_youtube_demo/` (Gmail + YouTube, before/after pair).
 
 ## Showcase — 30 before/after apps
 
@@ -62,6 +66,7 @@ separate, **every example writes to its own data dir** under `~/.tracesage/`:
 | `getting_started/02_research_supervisor.py` | `~/.tracesage/research-supervisor` |
 | `getting_started/03_rag_with_tools.py` | `~/.tracesage/rag-tools` |
 | `mcp/main.py` · `mcp_only.py` · `local_only.py` · `single_agent_multi_mcp.py` | `~/.tracesage/mcp-mixed` · `mcp-only` · `local-tools` · `multi-mcp` |
+| `mcp/trip_demo/demo.py` · `gmail_youtube_demo/after.py` | `~/.tracesage/trip-demo` · `gmail-youtube-demo` |
 | `showcase/<NN>_<name>/after.py` | `~/.tracesage/<NN>_<name>` (its folder name) |
 
 Each script prints its `Data dir:` and the exact `tracesage runs -d <dir>` command on

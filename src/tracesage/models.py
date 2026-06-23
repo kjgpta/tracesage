@@ -136,7 +136,7 @@ class Run(BaseModel):
 class WSMessage(BaseModel):
     """Message broadcast over WebSocket to UI subscribers."""
 
-    msg_type: Literal["event", "run_update", "catchup", "topology_update", "error"]
+    msg_type: Literal["event", "run_update", "catchup", "topology_update", "error", "ping"]
     run_id: str
     payload: dict[str, Any]
 

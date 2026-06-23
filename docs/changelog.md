@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.3.0] — 2026-06-23
+
+A major UI overhaul (topology vs. run-trace, step-through replay, readable
+multi-server graphs), two real-world MCP example apps, and accurate per-call
+token attribution.
+
+### Added
+- **Topology vs. Run-trace views.** A single graph pane now toggles between two
+  layouts: **Topology** (the all-up system architecture, nodes in per-kind
+  columns) and **Run trace** (one selected run laid out as a left → right call
+  tree in call order). Selecting a run opens its trace; the Topology button
+  returns to the architecture view.
+- **Step-through replay.** Explicit **Start / Pause / Resume** controls plus
+  **Prev / Next** manual stepping walk a run's execution on the graph. Start
+  always restarts from the beginning; Resume only works once paused. Clicking a
+  timeline step during replay pauses and jumps the cursor to that event.
+- **Run-status toasts.** The UI pops a toast when a run you're watching finishes —
+  "Run completed" (or "Run failed: …" with the error) — driven by the `/ws/runs`
+  lifecycle feed, so you don't have to keep eyes on the run list.
+- **Per-call token usage on LLM nodes.** Open an LLM node to see total **Tokens
+  in / Tokens out** and a "Total tokens across N calls" line in the hero, summed
+  per logical call (counted once, from each call's end event).
+- **Gmail + YouTube demo** (`examples/mcp/gmail_youtube_demo/`) — a ReAct agent
+  that reads a real Gmail inbox, pulls YouTube transcripts from linked videos, and
+  summarises them. Ships `before.py` / `after.py` so the exact tracesage diff (two
+  imports, two setup lines, one `callbacks=` kwarg) is obvious. Gmail is optional
+  (needs Google Application Default Credentials); without it the agent runs with
+  YouTube only. `credentials.json` / `token.json` are gitignored.
+- **Trip Planner demo** (`examples/mcp/trip_demo/`) — a single agent planning a trip
+  across **three** MCP servers (flights, weather, hotels, 7 tools each) plus a local
+  formatting tool, showcasing per-server tool-source attribution in the topology and
+  the "Tools by source" panel. Bundles the three stdio MCP servers — no external
+  installs, just an LLM key. Loads a repo-root `.env` automatically.
+- `examples/mcp/requirements.txt` pinning the demos' dependencies.
+
+### Changed
+- **Readable graphs at scale.** MCP servers get distinct colours; a server's tools
+  are grouped and tinted by source. A large tool fan-out wraps into multiple
+  sub-columns, and the auto-layout no longer shrinks every node to fit — it caps
+  the zoom (~72% floor) and pans/scrolls instead, so nodes stay legible. The
+  explicit "fit" button still zooms to show everything.
+- **Detailed timeline + node-drawer invocations.** The timeline keeps one card per
+  event; node and edge drawers now group a call's start (request) + end (response)
+  into **one logical invocation**, so counts and token totals are never doubled.
+- **Step drawer is phase-aware.** Opening a `*_start` shows only its **request**;
+  opening a `*_end` / `*_error` shows the full completed call (request + response).
+- **Connection liveness.** The `/ws/runs` feed sends periodic heartbeats and the
+  client tracks liveness, so the header reflects a dropped connection instead of
+  showing a stale "connected".
+- UI polish: plain `START` / `END` flags (no glyphs), full run id shown beside the
+  Timeline heading, full-height collapse gutters mirroring the expand rails, and
+  the topology-scope selector + "Tools by source" panel hidden in Run-trace mode.
+
+### Fixed
+- **Token attribution.** `llm_end` events now carry the model name, so token usage
+  (which lives on the end event) is attributed to the LLM node — previously the
+  end events were nameless and dropped from the node's invocation set.
+- **Demo ergonomics.** Both MCP demos print the **actual** bound UI port (auto-port
+  may pick 7843+ if 7842 is busy), preflight their prerequisites (MCP servers / LLM
+  API key) and exit with clear setup instructions instead of cryptic failures.
+
 ## [0.2.1] — 2026-06-21
 
 Multi-app quality-of-life, scoped topology, an offline-capable UI, and an
@@ -231,7 +292,8 @@ First public release.
 - Cost tracking and PII redaction planned for a future release
 - CrewAI / AutoGen / LlamaIndex adapters planned for a future release
 
-[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/kjgpta/tracesage/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kjgpta/tracesage/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/kjgpta/tracesage/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kjgpta/tracesage/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kjgpta/tracesage/releases/tag/v0.1.1

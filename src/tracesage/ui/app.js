@@ -65,11 +65,15 @@ const state = {
   serverVersion: '?',
   // event_id set so we never duplicate when both REST catchup and WS catchup land.
   knownEventIds: new Set(),
-  // Replay
-  replayMode: 'auto',          // 'auto' | 'manual'
+  // Replay / playback
+  playback: 'idle',            // 'idle' | 'playing' | 'paused'
+  replayGen: 0,                // generation guard so a restarted run's finally can't clobber
   replaySteps: [],             // [{source, target, eventId}, ...]
-  manualStepIdx: -1,           // -1 = nothing yet selected, 0..N-1 = current step
-  autoReplayInProgress: false, // true while graph.playRun is running
+  autoReplayInProgress: false, // true while graph.playRun is alive (playing OR paused)
+  // Timeline: which invocation rows are expanded (by run_id) + a cache of fetched
+  // payload HTML (by event_id) so re-renders don't re-fetch/flicker.
+  expandedInvocations: new Set(),
+  payloadCache: new Map(),
   currentDrawerEventId: null,  // guards async blob fetch against a re-opened drawer
   timelineFilter: '',          // within-run timeline search query (lowercased on use)
 };
@@ -81,6 +85,14 @@ let wsRunsBackoff = 0;
 let wsTraceBackoff = 0;
 let wsRunsCloseRequested = false;
 let wsTraceCloseRequested = false;
+
+// Liveness: the server pings /ws/runs every ~15s. If we hear nothing (ping or
+// real traffic) for this long, treat the link as dead — covers cases where the
+// socket never fires `onclose` (half-open connection, hung/suspended server,
+// dropped network) so the header doesn't get stuck on "connected".
+const WS_RUNS_LIVENESS_MS = 35000;
+let wsRunsLastMsgAt = 0;
+let wsRunsLivenessTimer = null;
 
 // Graph view instance — created after DOM ready.
 let graph;
@@ -264,6 +276,7 @@ function buildRunRow(run) {
   row.setAttribute('role', 'listitem');
   row.setAttribute('tabindex', '0');
   row.setAttribute('aria-label', `Run ${run.run_id} — ${run.status}`);
+  row.title = run.run_id;   // hovering anywhere on the row shows the full run id
 
   const tags = (run.tags || []).slice(0, 3)
     .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
@@ -339,10 +352,20 @@ function upsertRun(run) {
  * ============================================================ */
 
 async function selectRun(runId) {
-  if (state.selectedRunId === runId) return;
+  if (state.selectedRunId === runId) {
+    // Re-clicking the already-selected run: the user likely switched to Topology
+    // and wants its run-trace back. Re-apply the trace and switch the view —
+    // the journey is already loaded, so no re-fetch.
+    if (state.graphMode !== 'trace') {
+      applyRunTraceToGraph();
+      setGraphMode('trace');
+    }
+    return;
+  }
   state.selectedRunId = runId;
   state.journey = [];
   state.newEventCount = 0;
+  state.expandedInvocations.clear();   // a new run starts with all rows collapsed
   // Open at the FIRST step (top), not the latest. Live tailing re-enables itself
   // when the user scrolls to the bottom (see the timeline scroll listener).
   state.autoScrollTimeline = false;
@@ -353,7 +376,9 @@ async function selectRun(runId) {
   document.getElementById('replay-controls').classList.remove('hidden');
 
   const tlMeta = document.getElementById('timeline-meta');
-  tlMeta.textContent = runId.slice(0, 12) + '…';
+  // Full run id in brackets right after the "Timeline" heading (also on hover).
+  tlMeta.textContent = `(${runId})`;
+  tlMeta.title = runId;
 
   showTimelineSkeleton();
   try {
@@ -372,15 +397,15 @@ async function selectRun(runId) {
   // When the topology is scoped to "this run", refresh it for the new selection.
   if (state.topologyScope === 'run') loadTopology();
 
-  // Reset manual replay state for the new run; if user is in manual mode,
-  // refresh the step list against the new journey.
+  // Reset replay/playback for the new run: cancel any in-flight replay, rebuild
+  // the step list against the new journey, and reset the controls to idle.
+  if (graph?.isReady() && graph.cancelReplay) graph.cancelReplay();
+  state.autoReplayInProgress = false;
+  state.playback = 'idle';
   state.replaySteps = buildReplaySteps();
-  state.manualStepIdx = -1;
-  if (state.replayMode === 'manual') {
-    updateManualStepUI();
-    if (graph?.isReady()) graph.clearStepHighlight();
-    clearTimelineEventHighlight();
-  }
+  if (graph?.isReady()) graph.clearStepHighlight();
+  clearTimelineEventHighlight();
+  updatePlaybackUI();
 
   openTraceWS(runId);
   setGraphMode('trace');
@@ -428,7 +453,8 @@ function renderTimeline() {
     return;
   }
 
-  // Truncate to last TIMELINE_MAX, plus a "load earlier" stub if we cut.
+  // One card per raw event (detailed view): truncate to the last TIMELINE_MAX,
+  // with a "load earlier" stub if we cut.
   const start = Math.max(0, events.length - TIMELINE_MAX);
   const visible = events.slice(start);
   const frag = document.createDocumentFragment();
@@ -437,8 +463,6 @@ function renderTimeline() {
     btn.className = 'load-earlier';
     btn.textContent = `Load earlier (${start} hidden) — render all`;
     btn.addEventListener('click', () => {
-      // For now, expanding shows everything.  In huge runs this still gates re-render
-      // to a single click rather than continuous DOM growth on scroll.
       const allFrag = document.createDocumentFragment();
       events.forEach((e) => allFrag.appendChild(buildStepCard(e)));
       tl.innerHTML = '';
@@ -453,6 +477,98 @@ function renderTimeline() {
   if (state.autoScrollTimeline) tl.scrollTop = tl.scrollHeight;
   hideNewestPill();
   applyTimelineFilter();
+}
+
+/** One detailed timeline card per event (icon, timestamp, name, summary, badges).
+ *  Click opens the full step drawer (request + response payloads). */
+function buildStepCard(ev) {
+  const card = document.createElement('article');
+  card.className = 'step-card';
+  if (ev.error_message) card.classList.add('error');
+  card.dataset.eventId = ev.event_id;
+  card.setAttribute('role', 'listitem');
+
+  const icon = EVENT_ICONS[ev.event_type] || '•';
+  const ts = formatTs(ev.timestamp);
+  const name = ev.tool_name || ev.agent_name || ev.event_type;
+  const summary = ev.summary || '';
+  card.dataset.search = `${ev.event_type} ${name} ${summary} ${ev.error_message || ''}`.toLowerCase();
+  const dur = ev.duration_ms != null ? `<span class="badge duration">${formatMs(ev.duration_ms)}</span>` : '';
+  const tokens = (ev.token_input != null || ev.token_output != null)
+    ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}</span>` : '';
+  const errorBadge = ev.error_message ? `<span class="badge error">error</span>` : '';
+  const openBtn = ev.blob_path ? `<button class="open-btn" data-event-id="${escapeHtml(ev.event_id)}" aria-label="Open step details">Open</button>` : '';
+
+  card.innerHTML = `
+    <div class="row-1">
+      <span class="icon ${ev.error_message ? 'error' : ''}" aria-hidden="true">${icon}</span>
+      <span class="ts">${ts}</span>
+      <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+      ${openBtn}
+    </div>
+    ${summary ? `<div class="summary" title="${escapeHtml(summary)}">${escapeHtml(summary)}</div>` : ''}
+    ${(dur || tokens || errorBadge) ? `<div class="badges">${dur}${tokens}${errorBadge}</div>` : ''}
+  `;
+
+  if (ev.blob_path) {
+    card.querySelector('.open-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      seekReplayToEvent(ev.event_id);
+      openStepDrawer(ev);
+    });
+  }
+  card.addEventListener('click', () => {
+    // While replaying, clicking a timeline step stops the run there and jumps the
+    // graph trace to that step — no matter where playback currently is.
+    seekReplayToEvent(ev.event_id);
+    openStepDrawer(ev);
+  });
+  return card;
+}
+
+/** Group an ordered event list into invocations keyed by run_id (preserving
+ *  first-seen order), merging each step's start (request) and end (response).
+ *  Used by the node drawer's invocations dropdown. */
+function groupInvocations(events) {
+  const order = [];
+  const byRun = new Map();
+  for (const ev of events) {
+    const rid = ev.run_id || ev.event_id;
+    let inv = byRun.get(rid);
+    if (!inv) { inv = { runId: rid, events: [], eventIds: [] }; byRun.set(rid, inv); order.push(inv); }
+    inv.events.push(ev);
+    inv.eventIds.push(ev.event_id);
+  }
+  for (const inv of order) finalizeInvocation(inv);
+  return order;
+}
+
+function finalizeInvocation(inv) {
+  const evs = inv.events;
+  const startEv = evs.find((e) => stepPhase(e.event_type) === 'request') || evs[0];
+  const endEv = [...evs].reverse().find((e) => stepPhase(e.event_type) === 'response');
+  const errEv = evs.find((e) => /_error$/.test(e.event_type) || e.error_message);
+  const ref = startEv || evs[0];
+  inv.name = ref.tool_name || ref.agent_name || ref.event_type;
+  inv.eventType = ref.event_type;
+  inv.icon = EVENT_ICONS[ref.event_type] || '•';
+  inv.source = (evs.find((e) => e.mcp_server) || {}).mcp_server || null;
+  inv.timestamp = (startEv || ref).timestamp;
+  inv.durationMs = (endEv && endEv.duration_ms != null)
+    ? endEv.duration_ms
+    : ((evs.find((e) => e.duration_ms != null) || {}).duration_ms ?? null);
+  const tokEv = (endEv && (endEv.token_input != null || endEv.token_output != null))
+    ? endEv : evs.find((e) => e.token_input != null || e.token_output != null);
+  inv.tokenIn = tokEv ? (tokEv.token_input || 0) : null;
+  inv.tokenOut = tokEv ? (tokEv.token_output || 0) : null;
+  inv.error = errEv ? (errEv.error_message || 'error') : null;
+  inv.status = errEv ? 'error' : (endEv ? 'done' : 'running');
+  inv.summary = (endEv && endEv.summary) || (startEv && startEv.summary) || ref.summary || '';
+  inv.startEv = (stepPhase(startEv?.event_type) === 'request' && startEv?.blob_path)
+    ? startEv : (evs.find((e) => stepPhase(e.event_type) === 'request' && e.blob_path) || null);
+  inv.endEv = (endEv && endEv.blob_path)
+    ? endEv : (evs.find((e) => stepPhase(e.event_type) === 'response' && e.blob_path) || null);
+  inv.search = `${inv.eventType} ${inv.name} ${inv.summary} ${inv.error || ''}`.toLowerCase();
 }
 
 /** Show/hide timeline step cards based on `state.timelineFilter`. Matches against
@@ -477,83 +593,37 @@ function applyTimelineFilter() {
   if (countEl) countEl.textContent = `${shown} / ${cards.length}`;
 }
 
-function buildStepCard(ev) {
-  const card = document.createElement('article');
-  card.className = 'step-card';
-  if (ev.error_message) card.classList.add('error');
-  card.dataset.eventId = ev.event_id;
-  card.setAttribute('role', 'listitem');
-
-  const icon = EVENT_ICONS[ev.event_type] || '•';
-  const ts = formatTs(ev.timestamp);
-  const name = ev.tool_name || ev.agent_name || ev.event_type;
-  const summary = ev.summary || '';
-  // Pre-computed haystack for the timeline filter (kind/name/summary/error).
-  card.dataset.search = `${ev.event_type} ${name} ${summary} ${ev.error_message || ''}`.toLowerCase();
-  const dur = ev.duration_ms != null ? `<span class="badge duration">${formatMs(ev.duration_ms)}</span>` : '';
-  const tokens = (ev.token_input != null || ev.token_output != null)
-    ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}</span>`
-    : '';
-  const errorBadge = ev.error_message ? `<span class="badge error">error</span>` : '';
-  const openBtn = ev.blob_path ? `<button class="open-btn" data-event-id="${escapeHtml(ev.event_id)}" aria-label="Open step details">Open</button>` : '';
-
-  card.innerHTML = `
-    <div class="row-1">
-      <span class="icon ${ev.error_message ? 'error' : ''}" aria-hidden="true">${icon}</span>
-      <span class="ts">${ts}</span>
-      <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-      ${openBtn}
-    </div>
-    ${summary ? `<div class="summary" title="${escapeHtml(summary)}">${escapeHtml(summary)}</div>` : ''}
-    ${(dur || tokens || errorBadge) ? `<div class="badges">${dur}${tokens}${errorBadge}</div>` : ''}
-  `;
-
-  if (ev.blob_path) {
-    card.querySelector('.open-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openStepDrawer(ev);
-    });
-  }
-  card.addEventListener('click', () => openStepDrawer(ev));
-  return card;
-}
-
 function appendStepCard(ev) {
   if (state.knownEventIds.has(ev.event_id)) return;
   state.knownEventIds.add(ev.event_id);
   state.journey.push(ev);
 
   const tl = document.getElementById('timeline');
-  // If we're showing the empty/skeleton placeholder, full re-render.
+  // If we're showing the empty/skeleton placeholder, do a full re-render.
   if (!tl.querySelector('.step-card') && !tl.querySelector('.load-earlier')) {
     renderTimeline();
-    return;
-  }
-  // If we're at TIMELINE_MAX cap, drop the oldest visible card.
-  const cards = tl.querySelectorAll('.step-card');
-  if (cards.length >= TIMELINE_MAX) {
-    cards[0].remove();
-  }
-
-  tl.appendChild(buildStepCard(ev));
-  if (state.timelineFilter) applyTimelineFilter();
-
-  if (state.autoScrollTimeline) {
-    tl.scrollTop = tl.scrollHeight;
   } else {
-    state.newEventCount += 1;
-    showNewestPill();
+    // At the cap, drop the oldest visible card, then append the new one.
+    const cards = tl.querySelectorAll('.step-card');
+    if (cards.length >= TIMELINE_MAX) cards[0].remove();
+    tl.appendChild(buildStepCard(ev));
+    if (state.timelineFilter) applyTimelineFilter();
+    if (state.autoScrollTimeline) {
+      tl.scrollTop = tl.scrollHeight;
+    } else {
+      state.newEventCount += 1;
+      showNewestPill();
+    }
   }
 
   // Pulse graph node + flash edge from previous event's node.
   pulseGraphForEvent(ev);
 
-  // Keep the manual-replay step list current as live events stream in, so the
-  // "Step X / N" total and prev/next reach later-arriving events without the
-  // user re-selecting the run. manualStepIdx is preserved.
-  if (state.replayMode === 'manual') {
+  // Keep the replay step list current as live events stream in, so step-back/
+  // forward reach later-arriving events — but only while idle (don't mutate the
+  // edge list under an in-flight or paused replay).
+  if (state.playback === 'idle') {
     state.replaySteps = buildReplaySteps();
-    updateManualStepUI();
   }
 }
 
@@ -613,14 +683,17 @@ function openStepDrawer(ev) {
   ].filter(([, v]) => v != null && v !== '');
 
   // A logical step is a request (*_start) + a response (*_end/_error) sharing the
-  // same run_id. Find both halves so the drawer can show the full REQUEST and
-  // RESPONSE payloads together, no matter which card was clicked.
+  // same run_id. Find both halves by run_id.
   const siblings = (state.journey || []).filter((e) => e.run_id === ev.run_id);
   const pickWithBlob = (phase) =>
     siblings.find((e) => stepPhase(e.event_type) === phase && e.blob_path)
     || (stepPhase(ev.event_type) === phase && ev.blob_path ? ev : null);
   const reqEv = pickWithBlob('request');
-  const resEv = pickWithBlob('response');
+  // A *_start card is a REQUEST — show only the request, never the response (the
+  // response belongs to the *_end half, and conflating them misleads). A *_end /
+  // *_error card shows request (context) + response: the full completed call,
+  // which is also what the merged invocation cards open.
+  const resEv = stepPhase(ev.event_type) === 'request' ? null : pickWithBlob('response');
 
   const payloadSection = (id, title, sourceEv) => sourceEv ? `
     <section class="drawer-section">
@@ -639,7 +712,7 @@ function openStepDrawer(ev) {
         </div>`).join('')}
     </section>
     <section class="drawer-section" id="drawer-summary-section">
-      <h4>Summary <span style="font-weight:400;font-size:11px;color:var(--text-dim);">— short one-line preview; full request/response below</span></h4>
+      <h4>Summary <span style="font-weight:400;font-size:11px;color:var(--text-dim);">— short one-line preview; full payload below</span></h4>
       <div style="white-space:pre-wrap; word-break:break-word; color:var(--text);">${escapeHtml(ev.summary || '(none)')}</div>
     </section>
     ${payloadSection('drawer-request', 'Request payload', reqEv)}
@@ -804,34 +877,38 @@ function eventMatchesNode(ev, nodeData) {
   return ev.agent_name === nodeData.label && !isLlmEvt && !isRetEvt;
 }
 
-/** Render one rich event card with inline input/output text for the drawer. */
-function renderEventCard(ev) {
-  const dur = ev.duration_ms != null
-    ? `<span class="badge">${formatMs(ev.duration_ms)}</span>`
-    : '';
-  const tok = (ev.token_input != null || ev.token_output != null)
-    ? `<span class="badge">↑${ev.token_input ?? 0} ↓${ev.token_output ?? 0}</span>`
-    : '';
-  const errCls = ev.error_message ? ' error' : '';
-  const blobBtn = ev.blob_path
-    ? `<button class="btn-link" data-event-full="${escapeHtml(ev.event_id)}">view full ›</button>`
-    : '';
+/** Render one LOGICAL invocation — a call's start (request) + end (response)
+ *  merged into a single card. Tokens come from the end event only (set by
+ *  finalizeInvocation), so a call is shown and counted exactly once. Clicking
+ *  opens the step drawer, which pairs the same run_id to show full request +
+ *  response. */
+function renderInvocationCard(inv) {
+  const dur = inv.durationMs != null ? `<span class="badge">${formatMs(inv.durationMs)}</span>` : '';
+  const tok = (inv.tokenIn != null || inv.tokenOut != null)
+    ? `<span class="badge">↑${inv.tokenIn ?? 0} ↓${inv.tokenOut ?? 0}</span>` : '';
+  const errCls = inv.status === 'error' ? ' error' : '';
+  const running = inv.status === 'running' ? '<span class="badge">running…</span>' : '';
+  // Open the drawer on the end event when present so its token line resolves;
+  // openStepDrawer re-pairs by run_id either way.
+  const clickId = inv.eventIds[inv.eventIds.length - 1] || inv.eventIds[0];
   return `
-    <article class="node-event-card${errCls}" data-event-id="${escapeHtml(ev.event_id)}">
+    <article class="node-event-card${errCls}" data-event-id="${escapeHtml(clickId)}">
       <header class="node-event-head">
-        <span class="node-event-type">${escapeHtml(ev.event_type)}</span>
-        <span class="node-event-time">${formatTs(ev.timestamp)}</span>
+        <span class="node-event-type">${escapeHtml(inv.eventType)}</span>
+        <span class="node-event-time">${formatTs(inv.timestamp)}</span>
       </header>
-      <div class="node-event-body">${escapeHtml(ev.summary || '(no summary)')}</div>
+      <div class="node-event-body">${escapeHtml(inv.summary || '(no summary)')}</div>
       <footer class="node-event-foot">
-        ${dur}${tok}
-        ${ev.error_message ? `<span class="badge error">${escapeHtml(ev.error_message).slice(0, 80)}</span>` : ''}
-        ${blobBtn}
+        ${dur}${tok}${running}
+        ${inv.error ? `<span class="badge error">${escapeHtml(inv.error).slice(0, 80)}</span>` : ''}
       </footer>
     </article>`;
 }
 
 function openNodeDrawer(nodeData) {
+  // Inspecting a node mid-replay pauses the run so you can study it; Continue
+  // resumes from where it stopped.
+  if (state.playback === 'playing') pauseReplay();
   const body = document.getElementById('drawer-body');
   const labelByType = {
     agent: 'Agent',
@@ -846,9 +923,21 @@ function openNodeDrawer(nodeData) {
 
   const matching = (state.journey || []).filter((ev) => eventMatchesNode(ev, nodeData));
   matching.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const visible = matching.slice(-12).reverse();
+  // Collapse each call's start (request) + end (response) into ONE logical
+  // invocation, keyed by run_id. Without this a single call shows up as two
+  // rows (a *_start card and a *_end card) and doubles the count.
+  const invocations = groupInvocations(matching);
+  const visible = invocations.slice(-12).reverse();
+
+  // Aggregate token usage across this node's invocations. finalizeInvocation
+  // takes tokens from the END event only, so summing per-invocation counts each
+  // call exactly once — no start/end double counting.
+  const tokenInvs = invocations.filter((inv) => inv.tokenIn != null || inv.tokenOut != null);
+  const tokenIn = tokenInvs.reduce((s, inv) => s + (inv.tokenIn || 0), 0);
+  const tokenOut = tokenInvs.reduce((s, inv) => s + (inv.tokenOut || 0), 0);
+  const showTokens = nodeData.type === 'llm' && tokenInvs.length > 0;
   const ctxLabel = state.selectedRunId
-    ? `Invocations in selected run (${matching.length})`
+    ? `Invocations in selected run (${invocations.length})`
     : 'Select a run to see invocations';
 
   // Connections derived from topology — what does this node call, and who calls it.
@@ -891,8 +980,17 @@ function openNodeDrawer(nodeData) {
           <span class="stat-label">P99 duration</span>
           <span class="stat-value">${formatMs(nodeData.p99Ms)}</span>
         </div>
+        ${showTokens ? `
+        <div class="stat">
+          <span class="stat-label">Tokens in</span>
+          <span class="stat-value">${tokenIn.toLocaleString()}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Tokens out</span>
+          <span class="stat-value">${tokenOut.toLocaleString()}</span>
+        </div>` : ''}
       </div>
-      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}</div>
+      <div class="hero-foot">Last seen: ${formatRelTime(nodeData.lastSeen)}${sourceFoot}${showTokens ? ` · Total tokens: <strong>${(tokenIn + tokenOut).toLocaleString()}</strong> across ${tokenInvs.length} call${tokenInvs.length === 1 ? '' : 's'}` : ''}</div>
     </section>
 
     ${renderCallsSection(nodeData, calls)}
@@ -903,14 +1001,28 @@ function openNodeDrawer(nodeData) {
     </section>
 
     <section class="drawer-section">
-      <h4>${escapeHtml(ctxLabel)} ${state.selectedRunId ? `<span class="count-pill">${matching.length}</span>` : ''}</h4>
-      <div class="node-events">
+      <button class="drawer-collapse-head" id="invocations-toggle" type="button" aria-expanded="false">
+        <span class="drawer-collapse-chevron" aria-hidden="true">▸</span>
+        <h4>${escapeHtml(ctxLabel)} ${state.selectedRunId ? `<span class="count-pill">${invocations.length}</span>` : ''}</h4>
+      </button>
+      <div class="node-events drawer-collapse-body hidden" id="invocations-body">
         ${visible.length
-          ? visible.map(renderEventCard).join('')
+          ? visible.map(renderInvocationCard).join('')
           : `<div class="dim">No invocations in the loaded journey.${state.selectedRunId ? '' : ' Click a run on the left first.'}</div>`}
       </div>
     </section>
   `;
+
+  // The invocations list is a collapsed dropdown — click the header to expand.
+  const invToggle = document.getElementById('invocations-toggle');
+  const invBody = document.getElementById('invocations-body');
+  if (invToggle && invBody) {
+    invToggle.addEventListener('click', () => {
+      const open = invBody.classList.toggle('hidden') === false;
+      invToggle.setAttribute('aria-expanded', String(open));
+      invToggle.querySelector('.drawer-collapse-chevron').textContent = open ? '▾' : '▸';
+    });
+  }
   // Connection-row click → navigate to that node (graph focus + drawer update).
   body.querySelectorAll('.connection-item').forEach((el) => {
     el.addEventListener('click', () => navigateToNode(el.dataset.nodeId));
@@ -936,6 +1048,7 @@ function openNodeDrawer(nodeData) {
 }
 
 function openEdgeDrawer(edgeData) {
+  if (state.playback === 'playing') pauseReplay();
   const body = document.getElementById('drawer-body');
   document.getElementById('drawer-title').textContent = `Edge: ${edgeData.source} → ${edgeData.target}`;
 
@@ -949,7 +1062,9 @@ function openEdgeDrawer(edgeData) {
   const targetNode = { type: tgtType, label: tgtName };
   const matching = (state.journey || []).filter((ev) => eventMatchesNode(ev, targetNode));
   matching.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const visible = matching.slice(-10).reverse();
+  // One entry per logical call (start+end merged), so counts aren't doubled.
+  const invocations = groupInvocations(matching);
+  const visible = invocations.slice(-10).reverse();
 
   body.innerHTML = `
     <section class="drawer-section">
@@ -960,10 +1075,10 @@ function openEdgeDrawer(edgeData) {
       <div class="kv"><span class="kv-key">last seen</span><span class="kv-val">${formatRelTime(edgeData.lastSeen)}</span></div>
     </section>
     <section class="drawer-section">
-      <h4>Invocations of target in selected run (${matching.length})</h4>
+      <h4>Invocations of target in selected run (${invocations.length})</h4>
       <div class="node-events">
         ${visible.length
-          ? visible.map(renderEventCard).join('')
+          ? visible.map(renderInvocationCard).join('')
           : `<div class="dim">No invocations in this run's journey.</div>`}
       </div>
     </section>
@@ -1060,21 +1175,52 @@ function openRunsWS() {
 
   ws.onopen = () => {
     wsRunsBackoff = 0;
+    wsRunsLastMsgAt = Date.now();
     setConnState('connected');
+    startRunsLiveness();
   };
   ws.onerror = () => { /* onclose will fire next */ };
   ws.onclose = () => {
+    stopRunsLiveness();
     setConnState('disconnected');
     if (!wsRunsCloseRequested) scheduleRunsReconnect();
   };
   ws.onmessage = (m) => {
+    wsRunsLastMsgAt = Date.now();   // any frame (incl. heartbeat ping) = alive
     try {
       const msg = JSON.parse(m.data);
+      if (msg && msg.msg_type === 'ping') return;   // heartbeat only — nothing to render
       handleRunsWsMessage(msg);
     } catch (e) {
       console.warn('bad ws msg', e);
     }
   };
+}
+
+/** Poll the time since the last /ws/runs frame; if the link has gone silent past
+ *  the liveness window, force it closed (which flips the header to disconnected
+ *  and schedules a reconnect) even though no `onclose` arrived. */
+function startRunsLiveness() {
+  stopRunsLiveness();
+  wsRunsLivenessTimer = setInterval(() => {
+    if (wsRunsCloseRequested) return;
+    if (Date.now() - wsRunsLastMsgAt <= WS_RUNS_LIVENESS_MS) return;
+    stopRunsLiveness();
+    // Detach the stale socket so its (possibly never-arriving, possibly late)
+    // onclose can't double-schedule a reconnect, then reconnect ourselves.
+    const stale = wsRuns;
+    wsRuns = null;
+    if (stale) {
+      stale.onclose = null; stale.onmessage = null; stale.onerror = null;
+      try { stale.close(); } catch { /* noop */ }
+    }
+    setConnState('disconnected');
+    if (!wsRunsCloseRequested) scheduleRunsReconnect();
+  }, 5000);
+}
+
+function stopRunsLiveness() {
+  if (wsRunsLivenessTimer) { clearInterval(wsRunsLivenessTimer); wsRunsLivenessTimer = null; }
 }
 
 function scheduleRunsReconnect() {
@@ -1089,7 +1235,19 @@ function scheduleRunsReconnect() {
 function handleRunsWsMessage(msg) {
   if (!msg || !msg.msg_type) return;
   if (msg.msg_type === 'run_update' && msg.payload?.run) {
-    upsertRun(msg.payload.run);
+    const incoming = msg.payload.run;
+    // Capture the prior status as a STRING before upsert — upsertRun does
+    // Object.assign(existing, run) (mutates in place), so holding the object
+    // reference would see the already-overwritten status. Toast on a
+    // running -> completed/failed transition so you don't have to watch the list.
+    const prevStatus = state.runsById.get(incoming.run_id)?.status;
+    upsertRun(incoming);
+    if (prevStatus === 'running' && incoming.status === 'completed') {
+      toast('Run completed', 'success', 3000);
+    } else if (prevStatus === 'running' && incoming.status === 'failed') {
+      const detail = incoming.error_message ? `: ${incoming.error_message.slice(0, 60)}` : '';
+      toast(`Run failed${detail}`, 'error', 5000);
+    }
   } else if (msg.msg_type === 'event' && msg.payload?.event_id) {
     // The global feed may not carry per-run events depending on backend wiring;
     // keep a defensive path that bumps run.total_steps when we see events.
@@ -1359,6 +1517,11 @@ function applyToolsCollapsed() {
  *  box. The pane has overflow:hidden, so any part pushed past an edge would be
  *  clipped ("hidden in the sidebar"); keeping the full width AND height in view
  *  prevents that. Safe to call any time the panel has an explicit left/top. */
+// Keep the panel clear of the graph-controls toolbar (Topology/Run-trace toggle,
+// scope, zoom) which sits across the top of the pane — so it can never be parked
+// (or restored from a stale saved position) on top of those controls.
+const TOOLS_PANEL_TOP_CLEARANCE = 52;
+
 function clampToolsPanel(panel) {
   const pane = panel.parentElement;
   if (!pane) return;
@@ -1368,9 +1531,9 @@ function clampToolsPanel(panel) {
   let left = pr.left - pb.left;
   let top = pr.top - pb.top;
   const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
-  const maxTop = Math.max(4, pb.height - panel.offsetHeight - 4);
+  const maxTop = Math.max(TOOLS_PANEL_TOP_CLEARANCE, pb.height - panel.offsetHeight - 4);
   left = Math.max(4, Math.min(left, maxLeft));
-  top = Math.max(4, Math.min(top, maxTop));
+  top = Math.max(TOOLS_PANEL_TOP_CLEARANCE, Math.min(top, maxTop));
   panel.style.left = `${left}px`;
   panel.style.top = `${top}px`;
   panel.style.right = 'auto';
@@ -1427,9 +1590,9 @@ function wireToolsPanel() {
     // Clamp the WHOLE panel (width and height) inside the pane so it can never be
     // dragged partially under the clipped edge.
     const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
-    const maxTop = Math.max(4, pb.height - panel.offsetHeight - 4);
+    const maxTop = Math.max(TOOLS_PANEL_TOP_CLEARANCE, pb.height - panel.offsetHeight - 4);
     const left = Math.max(4, Math.min(origLeft + dx, maxLeft));
-    const top = Math.max(4, Math.min(origTop + dy, maxTop));
+    const top = Math.max(TOOLS_PANEL_TOP_CLEARANCE, Math.min(origTop + dy, maxTop));
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
     panel.style.right = 'auto';
@@ -1487,15 +1650,15 @@ function setGraphMode(mode) {
     b.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
   if (mode === 'topology') {
-    // Stop any in-flight replay (auto or manual) so the graph doesn't keep
-    // animating after the user has explicitly asked to leave trace view.
+    // Stop any in-flight replay so the graph doesn't keep animating after the
+    // user has explicitly asked to leave trace view.
     if (state.autoReplayInProgress && graph?.isReady()) {
       graph.cancelReplay();
-      state.autoReplayInProgress = false;
     }
+    state.autoReplayInProgress = false;
+    state.playback = 'idle';
+    updatePlaybackUI();
     hideReplayStepBadge();
-    state.manualStepIdx = -1;
-    if (typeof updateManualStepUI === 'function') updateManualStepUI();
     clearTimelineEventHighlight();
     // Hide the replay controls bar entirely while in pure topology — there's
     // nothing to replay when the user is browsing the system architecture.
@@ -1571,10 +1734,8 @@ function scheduleGraphTopologyRefresh() {
       // setTopology rebuilds the node/edge elements, dropping all step-*
       // highlight classes — re-apply whatever should currently be showing.
       if (state.graphMode === 'trace') applyRunTraceToGraph();
-      if (state.replayMode === 'manual' && state.manualStepIdx >= 0 && graph?.isReady()) {
-        const step = state.replaySteps[state.manualStepIdx];
-        if (step) graph.highlightStep(step.source, step.target, { animate: false, pulse: false });
-      }
+      // A playing/paused replay holds the loop alive and is guarded above
+      // (we return early on autoReplayInProgress), so no manual re-apply is needed.
     } catch { /* swallow */ }
   }, 300);
 }
@@ -1614,110 +1775,114 @@ function buildReplaySteps() {
 
 /* ---- Replay: auto mode ---- */
 
+/** Start (or RESTART) the replay from the beginning. Works even while playing or
+ *  paused — it cancels the current run (resetting the cursor to 0) and plays
+ *  fresh, which is what distinguishes Start from Resume. */
 async function startReplay() {
   if (!state.selectedRunId || !graph?.isReady()) return;
-  if (state.autoReplayInProgress) return; // ignore re-entry while playing
   const speed = parseFloat(document.getElementById('replay-speed').value || '1');
   const edges = buildReplaySteps();
   if (edges.length === 0) {
     toast('Nothing to replay yet — no traversed edges.', 'info', 2500);
     return;
   }
+  // Cancel any in-flight/paused run and reset the cursor → restart from scratch.
+  if (graph.cancelReplay) graph.cancelReplay();
+  const gen = ++state.replayGen;
+  state.playback = 'playing';
   state.autoReplayInProgress = true;
+  updatePlaybackUI();
   toast(`Replaying ${edges.length} step${edges.length === 1 ? '' : 's'} at ${speed}x`, 'info', 2000);
   showReplayStepBadge(0, edges.length, '');
   try {
-    await graph.playRun(edges, speed);
+    await graph.playRun(edges, speed);   // resolves when finished OR superseded
   } finally {
-    state.autoReplayInProgress = false;
-    hideReplayStepBadge();
+    // Only the newest run resets shared state — a superseded run (Start pressed
+    // again) must not clobber the new run's 'playing' state.
+    if (state.replayGen === gen) {
+      state.autoReplayInProgress = false;
+      state.playback = 'idle';
+      updatePlaybackUI();
+      hideReplayStepBadge();
+    }
   }
 }
 
-/* ---- Replay: manual mode ---- */
+/** Pause the running replay (keeps the loop alive so Continue resumes here). */
+function pauseReplay() {
+  if (state.playback !== 'playing') return;
+  if (graph?.pauseReplay) graph.pauseReplay();
+  state.playback = 'paused';
+  updatePlaybackUI();
+}
 
-/** Switch between 'auto' and 'manual' replay UIs. If the user switches to
- *  manual while autoplay is in flight, we stop autoplay cleanly: cancel the
- *  loop in graph.playRun, drop any in-flight dot, hide the step badge. */
-function setReplayMode(mode) {
-  // If autoplay is running, stop it before swapping UIs.
-  if (state.autoReplayInProgress && graph?.isReady()) {
-    graph.cancelReplay();
-    state.autoReplayInProgress = false;
-    hideReplayStepBadge();
+/** Resume a paused replay from exactly where it stopped. */
+function resumeReplay() {
+  if (state.playback !== 'paused') return;
+  if (graph?.resumeReplay) graph.resumeReplay();
+  state.playback = 'playing';
+  updatePlaybackUI();
+}
+
+/** Manual stepping (prev/next). Works while idle (walk the trace by hand without
+ *  auto-play) and while paused (nudge the cursor, then Resume continues from
+ *  there). Disabled only while auto-play is running. */
+function stepReplay(delta) {
+  if (state.playback === 'playing' || !graph?.isReady() || !state.selectedRunId) return;
+  // First manual step from idle: load the step list (no auto-play) and show step 0.
+  const firstStep = graph.replayTotal === 0;
+  if (firstStep) {
+    const edges = buildReplaySteps();
+    if (edges.length === 0) return;
+    graph.primeReplay(edges);
   }
+  const info = graph.stepTo(firstStep ? 0 : graph.replayCursor + delta);
+  if (!info) return;
+  showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
+  if (info.eventId) highlightTimelineEvent(info.eventId);
+  updatePlaybackUI();
+}
 
-  state.replayMode = mode;
-  // Tab buttons
-  document.querySelectorAll('.replay-mode-btn').forEach((b) => {
-    const isActive = b.dataset.replayMode === mode;
-    b.classList.toggle('active', isActive);
-    b.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-  // Show/hide control groups
-  document.getElementById('replay-controls-auto').classList.toggle('hidden', mode !== 'auto');
-  document.getElementById('replay-controls-manual').classList.toggle('hidden', mode !== 'manual');
-  if (mode === 'manual') {
-    state.replaySteps = buildReplaySteps();
-    state.manualStepIdx = -1;
-    updateManualStepUI();
-    if (graph?.isReady()) graph.clearStepHighlight();
-    clearTimelineEventHighlight();
-  } else {
-    // Leaving manual mode — clear any per-step highlights so the user
-    // sees the calm trace view before pressing Play.
-    if (graph?.isReady()) graph.clearStepHighlight();
-    clearTimelineEventHighlight();
+/** Clicking a timeline step while a replay is running/paused stops it there and
+ *  jumps the graph trace to that step — regardless of where playback currently
+ *  is. No-op when not replaying (the click just opens the step drawer). */
+function seekReplayToEvent(eventId) {
+  if (state.playback !== 'playing' && state.playback !== 'paused') return;
+  if (!graph?.isReady()) return;
+  const steps = (state.replaySteps && state.replaySteps.length) ? state.replaySteps : buildReplaySteps();
+  if (!steps.length) return;
+  // A step's eventId is its target event; fall back to the first step landing on
+  // the clicked event's node (covers start/non-target events).
+  let idx = steps.findIndex((s) => s.eventId === eventId);
+  if (idx < 0) {
+    const ev = state.journey.find((e) => e.event_id === eventId);
+    const nodeId = ev ? nodeIdForEvent(ev) : null;
+    if (nodeId) idx = steps.findIndex((s) => s.target === nodeId);
+  }
+  if (idx < 0) return;
+  if (graph.replayTotal === 0) graph.primeReplay(steps);
+  if (state.playback === 'playing') pauseReplay();   // stop the run where clicked
+  const info = graph.stepTo(idx);                     // jump to the clicked element
+  if (info) {
+    showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
+    updatePlaybackUI();
   }
 }
 
-/** Move forward by one manual step. */
-function manualNext() {
-  if (state.replayMode !== 'manual') return;
-  if (state.replaySteps.length === 0) state.replaySteps = buildReplaySteps();
-  const next = state.manualStepIdx + 1;
-  if (next >= state.replaySteps.length) return; // already at end
-  applyManualStep(next, { reverse: false });
-}
-
-/** Move backward by one manual step. */
-function manualPrev() {
-  if (state.replayMode !== 'manual') return;
-  if (state.manualStepIdx <= 0) return; // already at start
-  applyManualStep(state.manualStepIdx - 1, { reverse: true });
-}
-
-/** Render manual step idx: highlight on graph + corresponding card in timeline.
- *  We animate the moving dot so the user can SEE the transition, but skip
- *  the target-node pulse so rapid prev/next clicks don't stack glow effects.
- *  The dot animation is cancellable in graph.js, so clicking fast never piles
- *  up multiple in-flight dots. Reverse=true makes the dot run target->source
- *  for the 'previous' action, which matches the user's expected direction. */
-function applyManualStep(idx, opts = {}) {
-  state.manualStepIdx = idx;
-  const step = state.replaySteps[idx];
-  if (!step) return;
-  if (graph?.isReady()) {
-    graph.highlightStep(step.source, step.target, {
-      animate: true,
-      pulse: false,
-      reverse: !!opts.reverse,
-    });
-  }
-  highlightTimelineEvent(step.eventId);
-  updateManualStepUI();
-}
-
-/** Update the prev/next disabled state and the step counter text. */
-function updateManualStepUI() {
-  const total = state.replaySteps.length;
-  const idx = state.manualStepIdx;
-  document.getElementById('manual-step-current').textContent = String(Math.max(0, idx + 1));
-  document.getElementById('manual-step-total').textContent = String(total);
-  // Previous disabled at start (idx 0 or before).
-  document.getElementById('replay-prev').disabled = idx <= 0;
-  // Next disabled at end (last step is idx total-1).
-  document.getElementById('replay-next').disabled = total === 0 || idx >= total - 1;
+/** Reflect playback state in the controls. All three buttons (Start/Pause/Resume)
+ *  are always visible; enable them per state so the user can navigate freely.
+ *  Resume is enabled ONLY when paused — you can't resume unless you've paused. */
+function updatePlaybackUI() {
+  const pb = state.playback;
+  const dis = (id, d) => { const e = document.getElementById(id); if (e) e.disabled = d; };
+  dis('replay-start', pb === 'playing');    // Start/restart unless already playing
+  dis('replay-pause', pb !== 'playing');    // Pause only while playing
+  dis('replay-continue', pb !== 'paused');  // Resume only while paused
+  // Manual prev/next: usable whenever a run with steps is loaded and we're not
+  // auto-playing (idle = manual walk; paused = nudge then Resume).
+  const hasSteps = !!(state.replaySteps && state.replaySteps.length);
+  dis('replay-prev', pb === 'playing' || !hasSteps);
+  dis('replay-next', pb === 'playing' || !hasSteps);
 }
 
 /** Apply 'current-step' highlight to the timeline card for this event id and
@@ -1962,12 +2127,11 @@ function wireUI() {
     state.layoutDir = state.layoutDir === 'LR' ? 'TD' : 'LR';
   });
 
-  document.getElementById('replay-btn').addEventListener('click', startReplay);
-  document.querySelectorAll('.replay-mode-btn').forEach((b) => {
-    b.addEventListener('click', () => setReplayMode(b.dataset.replayMode));
-  });
-  document.getElementById('replay-prev').addEventListener('click', manualPrev);
-  document.getElementById('replay-next').addEventListener('click', manualNext);
+  document.getElementById('replay-start').addEventListener('click', startReplay);
+  document.getElementById('replay-pause').addEventListener('click', pauseReplay);
+  document.getElementById('replay-continue').addEventListener('click', resumeReplay);
+  document.getElementById('replay-prev').addEventListener('click', () => stepReplay(-1));
+  document.getElementById('replay-next').addEventListener('click', () => stepReplay(1));
 
   // Pane collapse / expand. State persists in localStorage so the user's
   // preferred layout is remembered across reloads.

@@ -7,7 +7,7 @@
 **Local-first observability for LangChain & LangGraph multi-agent systems.**
 Drop in two lines, see live execution traces in your browser.
 
-[![PyPI](https://img.shields.io/badge/pypi-v0.2.1-3775A9)](https://pypi.org/project/tracesage/)
+[![PyPI](https://img.shields.io/badge/pypi-v0.3.0-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
 [![License: MIT](https://img.shields.io/pypi/l/tracesage)](LICENSE)
 [![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
@@ -241,19 +241,29 @@ topology piece by piece.
 
 ### Live interactive UI
 
-- **Run list** with status badges (running / completed / failed), search, status filter
-- **SVG graph** showing agents, tools, and execution paths — pulses as events arrive
+- **Run list** with status badges (running / completed / failed), search, status filter,
+  and a **toast** when a watched run finishes ("Run completed" / "Run failed: …")
+- **Topology vs. Run-trace** — one graph pane toggles between the all-up system
+  architecture (nodes in per-kind columns) and a single run laid out as a left → right
+  call tree in call order. Picking a run opens its trace; the Topology button returns.
+- **Step-through replay** — explicit **Start / Pause / Resume** plus **Prev / Next**
+  manual stepping walk a run on the graph (1x / 2x / 5x); clicking a timeline step during
+  replay pauses and jumps the cursor there
 - **Scoped topology** — the graph + "Tools by source" default to the *selected run*
   (a toolbar selector switches to last-N-runs / all-time), so removed tools, agents, or
   MCP servers don't linger across app versions as you iterate
-- **MCP attribution** — `mcp:` server nodes with per-server colors, agent→server and
-  server→tool edges, and a draggable "Tools by source" panel grouping tools by origin
-- **Timeline** with click-to-expand step cards — each step shows its full **request and
-  response** payloads (inputs/prompt + outputs/result) paired together, plus tokens,
-  duration, and errors; MCP-backed tools are tagged with their server
-- **Replay** mode that re-animates a run at 1x / 2x / 5x speed
+- **MCP attribution** — `mcp:` server nodes with **distinct per-server colors** (tools
+  tinted by source), agent→server and server→tool edges, and a draggable "Tools by source"
+  panel; a large tool fan-out wraps into columns and the graph caps its zoom so nodes stay
+  legible instead of shrinking to fit
+- **Timeline** with click-to-expand step cards — a `*_start` shows its **request**, a
+  `*_end` the full **request + response** payloads, plus tokens, duration, and errors;
+  MCP-backed tools are tagged with their server
+- **Node inspector** — click any node for its stats; LLM nodes show **token usage**
+  (in / out, total across N calls) and each node's invocations are grouped one-per-call
 - **Header stats** — `ev/s` (1-min rolling event rate), `running` (in-progress runs),
-  `dropped` (events lost to backpressure; red if non-zero), and the live connection dot
+  `dropped` (events lost to backpressure; red if non-zero), and a heartbeat-backed
+  connection dot that reflects a dropped link instead of going stale
 - **Dark / light themes**, persisted in `localStorage`
 - **Keyboard shortcuts:** `j`/`k` next/prev run, `/` focus search, `t` toggle theme, `Esc`, `?`
 
@@ -321,8 +331,14 @@ The [`examples/`](examples/) directory has three tiers:
 
 - **[`getting_started/`](examples/getting_started/)** — 3 standalone demos driven by
   `FakeListChatModel` (**no API key**): smart-search agent, research supervisor, RAG.
-- **[`mcp/`](examples/mcp/)** — tools from 2 local MCP servers + 2 hardcoded tools,
-  attributed by source in the topology (needs `tracesage[mcp]`).
+- **[`mcp/`](examples/mcp/)** — MCP attribution demos (needs `tracesage[mcp]`), including
+  two real-world before/after apps:
+    - **[`trip_demo/`](examples/mcp/trip_demo/)** — one agent over **three** bundled stdio
+      MCP servers (flights / weather / hotels, 7 tools each) + a local tool; **no external
+      installs**, just an LLM key. Best place to see multi-server topology + "Tools by source".
+    - **[`gmail_youtube_demo/`](examples/mcp/gmail_youtube_demo/)** — a ReAct agent that reads
+      a real Gmail inbox and summarises YouTube transcripts (YouTube needs no auth; Gmail is
+      optional, via Google ADC).
 - **[`showcase/`](examples/showcase/)** — **30 real before/after apps** across popular use
   cases (customer support, RAG, multi-agent, MCP, reasoning loops, finance/legal/insurance).
   Each ships a plain `before.py` and an `after.py` with tracesage added, so `diff` shows the

@@ -665,6 +665,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
             last = _safe_str(prompts[-1], 100) if prompts else ""
             ts = _utcnow()
             self._record_llm_start(run_id_s, ts)
+            # Carry the model name to the matching on_llm_end (which has no
+            # serialized info) so the end event — and its token usage — is
+            # attributed to the same node.
+            self._remember_name(run_id_s, agent_name)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.LLM_START,
@@ -712,6 +716,8 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                         last_content = _safe_str(getattr(last, "content", last), 100)
             ts = _utcnow()
             self._record_llm_start(run_id_s, ts)
+            # Carry the model name to the matching on_llm_end (see on_llm_start).
+            self._remember_name(run_id_s, agent_name)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.CHAT_MODEL_START,
@@ -766,6 +772,9 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
             parent_s = str(parent_run_id) if parent_run_id else None
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
             max_chars = self._tracer._config.summary_max_chars
+            # Recall the model name stashed by on_llm_start/on_chat_model_start so
+            # this event (which carries token usage) is attributed to the LLM node.
+            agent_name = self._recall_name(run_id_s)
             ti, to = _extract_token_usage(response)
             text = _safe_str(_llm_response_text(response), 200)
             tokens_label = (ti or 0) + (to or 0)
@@ -819,6 +828,7 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                 parent_run_id=parent_s,
                 root_run_id=root,
                 timestamp=ts_now,
+                agent_name=agent_name,
                 summary=_safe_str(summary_text, max_chars),
                 full_blob_eligible=EventType.LLM_END in BLOB_ELIGIBLE_EVENTS,
                 raw_payload=payload,
@@ -847,7 +857,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
             max_chars = self._tracer._config.summary_max_chars
             err_text = _safe_str(error, 400)
             # Free any pending start-ts / token state so the caches cannot leak
-            # on a failed LLM call (no on_llm_end fires in that case).
+            # on a failed LLM call (no on_llm_end fires in that case). Recall the
+            # name too — both to attribute the error to its LLM node and to free
+            # the name cache.
+            agent_name = self._recall_name(run_id_s)
             self._consume_llm_start(run_id_s)
             self._consume_token_state(run_id_s)
             event = RawEvent(
@@ -857,6 +870,7 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                 parent_run_id=parent_s,
                 root_run_id=root,
                 timestamp=_utcnow(),
+                agent_name=agent_name,
                 summary=_safe_str(f"ERROR: {err_text}", max_chars),
                 # Error events are blob-eligible so the full traceback (below) is
                 # retrievable in the UI drawer / /full endpoint for debugging.
