@@ -113,6 +113,7 @@ export class GraphView {
     this.focusedNodeId = null;    // node user clicked on (highlight neighborhood)
     this.hoveredNodeId = null;    // node user is currently hovering (ephemeral preview)
     this.activeDots = [];         // {dot, cancelled}[] — in-flight cursor dots
+    this._playToken = 0;          // generation guard for playRun (restart safety)
 
     this.viewBox = { x: 0, y: 0, w: 1400, h: 700 };
 
@@ -1412,6 +1413,9 @@ export class GraphView {
     this._replayCancelled = true;
     this._playPaused = false;
     this._playIdx = 0;
+    // Bump the play token so any loop still unwinding can't run another step
+    // (prevents a concurrent loop when Start restarts an in-flight/paused run).
+    this._playToken = (this._playToken || 0) + 1;
     this._cancelActiveDots();
     this.clearStepHighlight();
   }
@@ -1424,6 +1428,13 @@ export class GraphView {
   get isReplayPaused() { return !!this._playPaused; }
   get replayCursor() { return this._playIdx || 0; }
   get replayTotal() { return (this._playEdges || []).length; }
+
+  /** Load the step list for MANUAL stepping (prev/next) without starting the
+   *  auto-play loop. Idempotent; lets stepTo() work from an idle state. */
+  primeReplay(edges) {
+    this._playEdges = edges;
+    if (this._playIdx == null) this._playIdx = 0;
+  }
 
   /** While paused, jump the replay cursor to `idx` and render that step's
    *  highlight (no auto-advance), so a subsequent resume continues from here.
@@ -1453,6 +1464,9 @@ export class GraphView {
     // step + 1400 ms dot animation. Faster speeds compress predictably.
     const stepDur = Math.max(500, 2000 / speed);
     const dotDur  = Math.max(350, 1400 / speed);
+    // Token each run; an older loop bails once a newer playRun/cancelReplay wins.
+    const myToken = ++this._playToken;
+    const superseded = () => this._replayCancelled || this._playToken !== myToken;
     this._playEdges = edges;
     const total = edges.length;
     this._replayCancelled = false;
@@ -1462,12 +1476,12 @@ export class GraphView {
     // Cursor-based loop: `this._playIdx` is the single source of truth so pause
     // (wait) / resume / stepTo(jump) all work without restarting the loop.
     while (this._playIdx < total) {
-      if (this._replayCancelled) return;
+      if (superseded()) return;
       // Honor a pause between steps — wait here until resumed or cancelled.
-      while (this._playPaused && !this._replayCancelled) {
+      while (this._playPaused && !superseded()) {
         await new Promise(r => setTimeout(r, 120));
       }
-      if (this._replayCancelled) return;
+      if (superseded()) return;
 
       const i = this._playIdx;
       const e = edges[i];
@@ -1503,19 +1517,20 @@ export class GraphView {
 
       // Wait for the dot to reach target.
       await new Promise(r => setTimeout(r, dotDur));
-      if (this._replayCancelled) return;
+      if (superseded()) return;
 
       // Pulse the target node so the landing is dramatic.
       if (tgt) this.pulseNode(tgt.id);
 
       // Hold so the user can read the moment.
       await new Promise(r => setTimeout(r, Math.max(150, stepDur - dotDur)));
+      if (superseded()) return;
 
       // Advance the cursor (re-read at loop top, so a stepTo during pause wins).
       this._playIdx = i + 1;
     }
-    this._playIdx = 0;
-    if (!this._replayCancelled) {
+    if (!superseded()) {
+      this._playIdx = 0;
       this.handlers.onPlayDone && this.handlers.onPlayDone();
     }
   }

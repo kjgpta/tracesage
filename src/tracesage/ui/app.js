@@ -67,6 +67,7 @@ const state = {
   knownEventIds: new Set(),
   // Replay / playback
   playback: 'idle',            // 'idle' | 'playing' | 'paused'
+  replayGen: 0,                // generation guard so a restarted run's finally can't clobber
   replaySteps: [],             // [{source, target, eventId}, ...]
   autoReplayInProgress: false, // true while graph.playRun is alive (playing OR paused)
   // Timeline: which invocation rows are expanded (by run_id) + a cache of fetched
@@ -1485,6 +1486,11 @@ function applyToolsCollapsed() {
  *  box. The pane has overflow:hidden, so any part pushed past an edge would be
  *  clipped ("hidden in the sidebar"); keeping the full width AND height in view
  *  prevents that. Safe to call any time the panel has an explicit left/top. */
+// Keep the panel clear of the graph-controls toolbar (Topology/Run-trace toggle,
+// scope, zoom) which sits across the top of the pane — so it can never be parked
+// (or restored from a stale saved position) on top of those controls.
+const TOOLS_PANEL_TOP_CLEARANCE = 52;
+
 function clampToolsPanel(panel) {
   const pane = panel.parentElement;
   if (!pane) return;
@@ -1494,9 +1500,9 @@ function clampToolsPanel(panel) {
   let left = pr.left - pb.left;
   let top = pr.top - pb.top;
   const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
-  const maxTop = Math.max(4, pb.height - panel.offsetHeight - 4);
+  const maxTop = Math.max(TOOLS_PANEL_TOP_CLEARANCE, pb.height - panel.offsetHeight - 4);
   left = Math.max(4, Math.min(left, maxLeft));
-  top = Math.max(4, Math.min(top, maxTop));
+  top = Math.max(TOOLS_PANEL_TOP_CLEARANCE, Math.min(top, maxTop));
   panel.style.left = `${left}px`;
   panel.style.top = `${top}px`;
   panel.style.right = 'auto';
@@ -1553,9 +1559,9 @@ function wireToolsPanel() {
     // Clamp the WHOLE panel (width and height) inside the pane so it can never be
     // dragged partially under the clipped edge.
     const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
-    const maxTop = Math.max(4, pb.height - panel.offsetHeight - 4);
+    const maxTop = Math.max(TOOLS_PANEL_TOP_CLEARANCE, pb.height - panel.offsetHeight - 4);
     const left = Math.max(4, Math.min(origLeft + dx, maxLeft));
-    const top = Math.max(4, Math.min(origTop + dy, maxTop));
+    const top = Math.max(TOOLS_PANEL_TOP_CLEARANCE, Math.min(origTop + dy, maxTop));
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
     panel.style.right = 'auto';
@@ -1738,29 +1744,36 @@ function buildReplaySteps() {
 
 /* ---- Replay: auto mode ---- */
 
-/** Start a fresh replay from the beginning. */
+/** Start (or RESTART) the replay from the beginning. Works even while playing or
+ *  paused — it cancels the current run (resetting the cursor to 0) and plays
+ *  fresh, which is what distinguishes Start from Resume. */
 async function startReplay() {
   if (!state.selectedRunId || !graph?.isReady()) return;
-  if (state.playback === 'playing' || state.playback === 'paused') return;
   const speed = parseFloat(document.getElementById('replay-speed').value || '1');
   const edges = buildReplaySteps();
   if (edges.length === 0) {
     toast('Nothing to replay yet — no traversed edges.', 'info', 2500);
     return;
   }
-  if (graph.cancelReplay) graph.cancelReplay();   // reset cursor to 0
+  // Cancel any in-flight/paused run and reset the cursor → restart from scratch.
+  if (graph.cancelReplay) graph.cancelReplay();
+  const gen = ++state.replayGen;
   state.playback = 'playing';
   state.autoReplayInProgress = true;
   updatePlaybackUI();
   toast(`Replaying ${edges.length} step${edges.length === 1 ? '' : 's'} at ${speed}x`, 'info', 2000);
   showReplayStepBadge(0, edges.length, '');
   try {
-    await graph.playRun(edges, speed);   // resolves when finished OR cancelled
+    await graph.playRun(edges, speed);   // resolves when finished OR superseded
   } finally {
-    state.autoReplayInProgress = false;
-    state.playback = 'idle';
-    updatePlaybackUI();
-    hideReplayStepBadge();
+    // Only the newest run resets shared state — a superseded run (Start pressed
+    // again) must not clobber the new run's 'playing' state.
+    if (state.replayGen === gen) {
+      state.autoReplayInProgress = false;
+      state.playback = 'idle';
+      updatePlaybackUI();
+      hideReplayStepBadge();
+    }
   }
 }
 
@@ -1780,10 +1793,19 @@ function resumeReplay() {
   updatePlaybackUI();
 }
 
-/** Step the cursor while paused (delta -1 / +1); resume continues from here. */
+/** Manual stepping (prev/next). Works while idle (walk the trace by hand without
+ *  auto-play) and while paused (nudge the cursor, then Resume continues from
+ *  there). Disabled only while auto-play is running. */
 function stepReplay(delta) {
-  if (state.playback !== 'paused' || !graph?.isReady()) return;
-  const info = graph.stepTo(graph.replayCursor + delta);
+  if (state.playback === 'playing' || !graph?.isReady() || !state.selectedRunId) return;
+  // First manual step from idle: load the step list (no auto-play) and show step 0.
+  const firstStep = graph.replayTotal === 0;
+  if (firstStep) {
+    const edges = buildReplaySteps();
+    if (edges.length === 0) return;
+    graph.primeReplay(edges);
+  }
+  const info = graph.stepTo(firstStep ? 0 : graph.replayCursor + delta);
   if (!info) return;
   showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
   if (info.eventId) highlightTimelineEvent(info.eventId);
@@ -1799,12 +1821,11 @@ function updatePlaybackUI() {
   dis('replay-start', pb === 'playing');    // Start/restart unless already playing
   dis('replay-pause', pb !== 'playing');    // Pause only while playing
   dis('replay-continue', pb !== 'paused');  // Resume only while paused
-  const total = graph?.isReady() ? graph.replayTotal : 0;
-  const cur = graph?.isReady() ? graph.replayCursor : 0;
-  const prev = document.getElementById('replay-prev');
-  const next = document.getElementById('replay-next');
-  if (prev) prev.disabled = pb !== 'paused' || cur <= 0;
-  if (next) next.disabled = pb !== 'paused' || cur >= total - 1;
+  // Manual prev/next: usable whenever a run with steps is loaded and we're not
+  // auto-playing (idle = manual walk; paused = nudge then Resume).
+  const hasSteps = !!(state.replaySteps && state.replaySteps.length);
+  dis('replay-prev', pb === 'playing' || !hasSteps);
+  dis('replay-next', pb === 'playing' || !hasSteps);
 }
 
 /** Apply 'current-step' highlight to the invocation row containing this event id
