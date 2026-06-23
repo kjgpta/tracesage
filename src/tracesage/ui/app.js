@@ -683,14 +683,17 @@ function openStepDrawer(ev) {
   ].filter(([, v]) => v != null && v !== '');
 
   // A logical step is a request (*_start) + a response (*_end/_error) sharing the
-  // same run_id. Find both halves so the drawer can show the full REQUEST and
-  // RESPONSE payloads together, no matter which card was clicked.
+  // same run_id. Find both halves by run_id.
   const siblings = (state.journey || []).filter((e) => e.run_id === ev.run_id);
   const pickWithBlob = (phase) =>
     siblings.find((e) => stepPhase(e.event_type) === phase && e.blob_path)
     || (stepPhase(ev.event_type) === phase && ev.blob_path ? ev : null);
   const reqEv = pickWithBlob('request');
-  const resEv = pickWithBlob('response');
+  // A *_start card is a REQUEST — show only the request, never the response (the
+  // response belongs to the *_end half, and conflating them misleads). A *_end /
+  // *_error card shows request (context) + response: the full completed call,
+  // which is also what the merged invocation cards open.
+  const resEv = stepPhase(ev.event_type) === 'request' ? null : pickWithBlob('response');
 
   const payloadSection = (id, title, sourceEv) => sourceEv ? `
     <section class="drawer-section">
@@ -709,7 +712,7 @@ function openStepDrawer(ev) {
         </div>`).join('')}
     </section>
     <section class="drawer-section" id="drawer-summary-section">
-      <h4>Summary <span style="font-weight:400;font-size:11px;color:var(--text-dim);">— short one-line preview; full request/response below</span></h4>
+      <h4>Summary <span style="font-weight:400;font-size:11px;color:var(--text-dim);">— short one-line preview; full payload below</span></h4>
       <div style="white-space:pre-wrap; word-break:break-word; color:var(--text);">${escapeHtml(ev.summary || '(none)')}</div>
     </section>
     ${payloadSection('drawer-request', 'Request payload', reqEv)}
