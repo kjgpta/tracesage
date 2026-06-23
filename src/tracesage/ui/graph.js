@@ -28,9 +28,12 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // Deterministic per-MCP-server colour. The SAME function is imported by app.js so
 // the graph rings, the dynamic legend, and the "Tools by source" panel always agree
 // on a server's colour. Hash the name into a fixed, theme-friendly palette.
+// Warm reds/oranges/pinks/magentas only — deliberately NOT overlapping the
+// node-kind colors (agent green, tool amber, llm blue, retriever purple, chain
+// gray, mcp teal), so a server-colored node/tool is never confused with a kind.
 const MCP_PALETTE = [
-  '#58a6ff', '#3fb950', '#d29922', '#a371f7', '#ec6cb9',
-  '#39c5cf', '#ff7b72', '#bc8cff', '#7ee787', '#ffa657',
+  '#e6194B', '#f58231', '#f032e6', '#ff5cb5',
+  '#9A6324', '#800000', '#ff7f50', '#c2255c',
 ];
 export function mcpServerColor(name) {
   if (!name) return '';
@@ -452,30 +455,82 @@ export class GraphView {
 
   /** Position nodes in columns by kind, sorted alphabetically within each column. */
   _layoutColumns() {
+    const SUBCOL_W = 170;   // width of one tool sub-column (labels are short)
     const groups = {};
     for (const k of KIND_COLUMNS) groups[k] = [];
     for (const n of this.nodes) {
       groups[KIND_COLUMNS.includes(n.type) ? n.type : 'agent'].push(n);
     }
-    for (const k of KIND_COLUMNS) groups[k].sort((a, b) => a.name.localeCompare(b.name));
+    // Non-tool columns: simple alpha sort.
+    for (const k of KIND_COLUMNS) {
+      if (k !== 'tool') groups[k].sort((a, b) => a.name.localeCompare(b.name));
+    }
 
-    let maxRows = 0;
-    for (const k of KIND_COLUMNS) maxRows = Math.max(maxRows, groups[k].length);
-    if (maxRows === 0) maxRows = 1;
+    // Tool column: GROUP BY SOURCE SERVER (local/unsourced last), alpha within a
+    // group, so a server's tools are contiguous (and share the server colour).
+    const tools = groups.tool;
+    const bySource = new Map();
+    for (const t of tools) {
+      const key = t.source || '';                 // '' = local / unsourced
+      if (!bySource.has(key)) bySource.set(key, []);
+      bySource.get(key).push(t);
+    }
+    const sourceKeys = [...bySource.keys()].sort((a, b) => {
+      if (a === '') return 1;
+      if (b === '') return -1;
+      return a.localeCompare(b);
+    });
+    const orderedTools = [];
+    for (const k of sourceKeys) {
+      bySource.get(k).sort((a, b) => a.name.localeCompare(b.name));
+      for (const t of bySource.get(k)) orderedTools.push(t);
+    }
+
+    // Rows per sub-column: tall enough to match the other columns, but capped so
+    // a big tool list WRAPS into multiple sub-columns instead of one tall ribbon.
+    let otherMax = 1;
+    for (const k of KIND_COLUMNS) if (k !== 'tool') otherMax = Math.max(otherMax, groups[k].length);
+    const ROWS_CAP = Math.max(6, otherMax);
+    const toolSubCols = Math.max(1, Math.ceil(orderedTools.length / ROWS_CAP));
+    orderedTools.forEach((t, idx) => {
+      t._subCol = Math.floor(idx / ROWS_CAP);
+      t._subRow = idx % ROWS_CAP;
+    });
+
+    let maxRows = ROWS_CAP;
+    for (const k of KIND_COLUMNS) if (k !== 'tool') maxRows = Math.max(maxRows, groups[k].length);
+    maxRows = Math.max(1, Math.min(maxRows, Math.max(otherMax, Math.min(ROWS_CAP, orderedTools.length || 1))));
+
+    // Build per-kind bands: every kind is COLUMN_WIDTH wide except the tool band,
+    // which spans its sub-columns. Columns after tools shift right accordingly.
+    // _renderHeaders reads this map so headers/separators match the layout.
+    this._bands = {};
+    let bx = COLUMN_PAD_X;
+    for (const kind of KIND_COLUMNS) {
+      const width = kind === 'tool' ? Math.max(COLUMN_WIDTH, toolSubCols * SUBCOL_W) : COLUMN_WIDTH;
+      this._bands[kind] = { x: bx, width, subCols: kind === 'tool' ? toolSubCols : 1 };
+      bx += width;
+    }
 
     const totalH = HEADER_HEIGHT + TOP_PAD + maxRows * ROW_HEIGHT + 60;
     this.viewBox.h = Math.max(this.viewBox.h, totalH);
-    this.viewBox.w = Math.max(this.viewBox.w, COLUMN_PAD_X * 2 + KIND_COLUMNS.length * COLUMN_WIDTH);
+    this.viewBox.w = Math.max(this.viewBox.w, bx + COLUMN_PAD_X);
 
-    for (const [colIdx, kind] of KIND_COLUMNS.entries()) {
-      const col = groups[kind];
-      const colX = COLUMN_PAD_X + colIdx * COLUMN_WIDTH + COLUMN_WIDTH / 2;
-      // Center the column vertically against the tallest column.
-      const startY = HEADER_HEIGHT + TOP_PAD + ((maxRows - col.length) * ROW_HEIGHT) / 2 + ROW_HEIGHT / 2;
-      col.forEach((n, i) => {
-        n.x = colX;
-        n.y = startY + i * ROW_HEIGHT;
-      });
+    for (const kind of KIND_COLUMNS) {
+      const band = this._bands[kind];
+      if (kind === 'tool') {
+        const usedRows = Math.min(ROWS_CAP, Math.max(1, orderedTools.length));
+        const startY = HEADER_HEIGHT + TOP_PAD + ((maxRows - usedRows) * ROW_HEIGHT) / 2 + ROW_HEIGHT / 2;
+        orderedTools.forEach((t) => {
+          t.x = band.x + t._subCol * SUBCOL_W + SUBCOL_W / 2;
+          t.y = startY + t._subRow * ROW_HEIGHT;
+        });
+      } else {
+        const col = groups[kind];
+        const colX = band.x + band.width / 2;
+        const startY = HEADER_HEIGHT + TOP_PAD + ((maxRows - col.length) * ROW_HEIGHT) / 2 + ROW_HEIGHT / 2;
+        col.forEach((n, i) => { n.x = colX; n.y = startY + i * ROW_HEIGHT; });
+      }
     }
 
     this._applyViewBox();
@@ -505,14 +560,21 @@ export class GraphView {
     }
     const border = cssVar('--border') || '#30363d';
     const dim = cssVar('--text-dim') || '#8b949e';
+    // Use the band map built by _layoutColumns so headings/bands/separators line
+    // up with the (variable-width) tool band. Fall back to uniform columns if a
+    // layout hasn't run yet.
+    const bands = this._bands || {};
 
-    for (const [colIdx, kind] of KIND_COLUMNS.entries()) {
-      const colX = COLUMN_PAD_X + colIdx * COLUMN_WIDTH;
+    let colIdx = 0;
+    for (const kind of KIND_COLUMNS) {
+      const band = bands[kind] || { x: COLUMN_PAD_X + colIdx * COLUMN_WIDTH, width: COLUMN_WIDTH };
+      const colX = band.x;
+      const colW = band.width;
       // Subtle column band for visual grouping.
       this.bgLayer.appendChild(el('rect', {
         x: colX,
         y: HEADER_HEIGHT,
-        width: COLUMN_WIDTH,
+        width: colW,
         height: this.viewBox.h - HEADER_HEIGHT,
         fill: cssVar(`--node-${kind}`) || dim,
         'fill-opacity': 0.04,
@@ -528,9 +590,9 @@ export class GraphView {
           opacity: 0.4,
         }));
       }
-      // Column heading text.
+      // Column heading text (centered over the — possibly wide — band).
       const heading = el('text', {
-        x: colX + COLUMN_WIDTH / 2,
+        x: colX + colW / 2,
         y: HEADER_HEIGHT - 22,
         'text-anchor': 'middle',
         'font-size': 13,
@@ -542,7 +604,7 @@ export class GraphView {
       this.headersLayer.appendChild(heading);
       // Subtitle so users know what each column means at a glance.
       const subtitle = el('text', {
-        x: colX + COLUMN_WIDTH / 2,
+        x: colX + colW / 2,
         y: HEADER_HEIGHT - 6,
         'text-anchor': 'middle',
         'font-size': 10,
@@ -550,6 +612,7 @@ export class GraphView {
       });
       subtitle.textContent = KIND_SUBTITLE[kind] || '';
       this.headersLayer.appendChild(subtitle);
+      colIdx++;
     }
   }
 
@@ -677,18 +740,11 @@ export class GraphView {
     // chip is redundant (the connected mcp node labels the server), so the chip is
     // shown in TRACE mode — where each tool directly/distinctly carries its MCP
     // server, instead of a far-off mcp node + long edge across a multi-agent trace.
+    // The tool shape itself is now filled with the server colour (see
+    // _shapeForKind), so no separate ring is needed. In TRACE mode we still show
+    // a server-name chip above the tool, since the run trace has no mcp node.
     if (n.type === 'tool' && n.source) {
       const serverColor = mcpServerColor(n.source);
-      g.appendChild(el('rect', {
-        class: 'node-source-ring',
-        x: -NODE_HALF - 5, y: -NODE_HALF * 0.7 - 5,
-        width: NODE_HALF * 2 + 10, height: NODE_HALF * 1.4 + 10,
-        rx: 13, ry: 13,
-        fill: 'none',
-        stroke: serverColor,
-        'stroke-width': 2.5,
-        'stroke-dasharray': '4 3',
-      }));
       if (this.mode === 'trace') {
         const chipText = `mcp · ${this._truncate(n.source, 12)}`;
         const chipW = Math.max(40, chipText.length * 6.2 + 12);
@@ -977,9 +1033,10 @@ export class GraphView {
   getLayoutDir() { return 'LR'; }
 
   _shapeForKind(kind, n) {
-    // MCP server nodes are filled with their own per-server colour (matching the
-    // tool rings + legend); every other kind uses its --node-{kind} theme colour.
-    const fill = (kind === 'mcp' && n.source)
+    // MCP server nodes AND the tools they provide are filled with the server's
+    // per-server colour, so a server and its tools read as one group; every other
+    // kind (and local/unsourced tools) uses its --node-{kind} theme colour.
+    const fill = ((kind === 'mcp' || kind === 'tool') && n.source)
       ? mcpServerColor(n.source)
       : (cssVar(`--node-${kind}`) || cssVar('--accent'));
     const stroke = (this.runNodeIds && this.runNodeIds.has(n.id))
