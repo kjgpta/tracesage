@@ -81,6 +81,14 @@ let wsTraceBackoff = 0;
 let wsRunsCloseRequested = false;
 let wsTraceCloseRequested = false;
 
+// Liveness: the server pings /ws/runs every ~15s. If we hear nothing (ping or
+// real traffic) for this long, treat the link as dead — covers cases where the
+// socket never fires `onclose` (half-open connection, hung/suspended server,
+// dropped network) so the header doesn't get stuck on "connected".
+const WS_RUNS_LIVENESS_MS = 35000;
+let wsRunsLastMsgAt = 0;
+let wsRunsLivenessTimer = null;
+
 // Graph view instance — created after DOM ready.
 let graph;
 
@@ -1062,21 +1070,52 @@ function openRunsWS() {
 
   ws.onopen = () => {
     wsRunsBackoff = 0;
+    wsRunsLastMsgAt = Date.now();
     setConnState('connected');
+    startRunsLiveness();
   };
   ws.onerror = () => { /* onclose will fire next */ };
   ws.onclose = () => {
+    stopRunsLiveness();
     setConnState('disconnected');
     if (!wsRunsCloseRequested) scheduleRunsReconnect();
   };
   ws.onmessage = (m) => {
+    wsRunsLastMsgAt = Date.now();   // any frame (incl. heartbeat ping) = alive
     try {
       const msg = JSON.parse(m.data);
+      if (msg && msg.msg_type === 'ping') return;   // heartbeat only — nothing to render
       handleRunsWsMessage(msg);
     } catch (e) {
       console.warn('bad ws msg', e);
     }
   };
+}
+
+/** Poll the time since the last /ws/runs frame; if the link has gone silent past
+ *  the liveness window, force it closed (which flips the header to disconnected
+ *  and schedules a reconnect) even though no `onclose` arrived. */
+function startRunsLiveness() {
+  stopRunsLiveness();
+  wsRunsLivenessTimer = setInterval(() => {
+    if (wsRunsCloseRequested) return;
+    if (Date.now() - wsRunsLastMsgAt <= WS_RUNS_LIVENESS_MS) return;
+    stopRunsLiveness();
+    // Detach the stale socket so its (possibly never-arriving, possibly late)
+    // onclose can't double-schedule a reconnect, then reconnect ourselves.
+    const stale = wsRuns;
+    wsRuns = null;
+    if (stale) {
+      stale.onclose = null; stale.onmessage = null; stale.onerror = null;
+      try { stale.close(); } catch { /* noop */ }
+    }
+    setConnState('disconnected');
+    if (!wsRunsCloseRequested) scheduleRunsReconnect();
+  }, 5000);
+}
+
+function stopRunsLiveness() {
+  if (wsRunsLivenessTimer) { clearInterval(wsRunsLivenessTimer); wsRunsLivenessTimer = null; }
 }
 
 function scheduleRunsReconnect() {
