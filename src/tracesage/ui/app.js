@@ -276,6 +276,7 @@ function buildRunRow(run) {
   row.setAttribute('role', 'listitem');
   row.setAttribute('tabindex', '0');
   row.setAttribute('aria-label', `Run ${run.run_id} — ${run.status}`);
+  row.title = run.run_id;   // hovering anywhere on the row shows the full run id
 
   const tags = (run.tags || []).slice(0, 3)
     .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
@@ -366,7 +367,9 @@ async function selectRun(runId) {
   document.getElementById('replay-controls').classList.remove('hidden');
 
   const tlMeta = document.getElementById('timeline-meta');
-  tlMeta.textContent = runId.slice(0, 12) + '…';
+  // Short run id in brackets after the "Timeline" heading; full id on hover.
+  tlMeta.textContent = `(${runId.slice(0, 8)}…)`;
+  tlMeta.title = runId;
 
   showTimelineSkeleton();
   try {
