@@ -69,6 +69,10 @@ const state = {
   playback: 'idle',            // 'idle' | 'playing' | 'paused'
   replaySteps: [],             // [{source, target, eventId}, ...]
   autoReplayInProgress: false, // true while graph.playRun is alive (playing OR paused)
+  // Timeline: which invocation rows are expanded (by run_id) + a cache of fetched
+  // payload HTML (by event_id) so re-renders don't re-fetch/flicker.
+  expandedInvocations: new Set(),
+  payloadCache: new Map(),
   currentDrawerEventId: null,  // guards async blob fetch against a re-opened drawer
   timelineFilter: '',          // within-run timeline search query (lowercased on use)
 };
@@ -350,6 +354,7 @@ async function selectRun(runId) {
   state.selectedRunId = runId;
   state.journey = [];
   state.newEventCount = 0;
+  state.expandedInvocations.clear();   // a new run starts with all rows collapsed
   // Open at the FIRST step (top), not the latest. Live tailing re-enables itself
   // when the user scrolls to the bottom (see the timeline scroll listener).
   state.autoScrollTimeline = false;
@@ -435,31 +440,165 @@ function renderTimeline() {
     return;
   }
 
-  // Truncate to last TIMELINE_MAX, plus a "load earlier" stub if we cut.
-  const start = Math.max(0, events.length - TIMELINE_MAX);
-  const visible = events.slice(start);
+  // Collapse the raw event stream into one row per INVOCATION (a node's
+  // start→end share a run_id) so the timeline isn't a wall of start/end cards.
+  const invs = groupInvocations(events);
+  const startIdx = Math.max(0, invs.length - TIMELINE_MAX);
+  const visible = invs.slice(startIdx);
+  const prevScroll = tl.scrollTop;
   const frag = document.createDocumentFragment();
-  if (start > 0) {
+  if (startIdx > 0) {
     const btn = document.createElement('button');
     btn.className = 'load-earlier';
-    btn.textContent = `Load earlier (${start} hidden) — render all`;
+    btn.textContent = `Load earlier (${startIdx} hidden) — render all`;
     btn.addEventListener('click', () => {
-      // For now, expanding shows everything.  In huge runs this still gates re-render
-      // to a single click rather than continuous DOM growth on scroll.
       const allFrag = document.createDocumentFragment();
-      events.forEach((e) => allFrag.appendChild(buildStepCard(e)));
+      invs.forEach((inv) => allFrag.appendChild(buildInvocationRow(inv)));
       tl.innerHTML = '';
       tl.appendChild(allFrag);
     });
     frag.appendChild(btn);
   }
-  visible.forEach((e) => frag.appendChild(buildStepCard(e)));
+  visible.forEach((inv) => frag.appendChild(buildInvocationRow(inv)));
   tl.innerHTML = '';
   tl.appendChild(frag);
 
+  // Bottom for live tail; otherwise keep the user's scroll across a re-render.
   if (state.autoScrollTimeline) tl.scrollTop = tl.scrollHeight;
+  else tl.scrollTop = prevScroll;
   hideNewestPill();
   applyTimelineFilter();
+}
+
+/** Group an ordered event list into invocations keyed by run_id (preserving
+ *  first-seen order), merging each step's start (request) and end (response). */
+function groupInvocations(events) {
+  const order = [];
+  const byRun = new Map();
+  for (const ev of events) {
+    const rid = ev.run_id || ev.event_id;
+    let inv = byRun.get(rid);
+    if (!inv) { inv = { runId: rid, events: [], eventIds: [] }; byRun.set(rid, inv); order.push(inv); }
+    inv.events.push(ev);
+    inv.eventIds.push(ev.event_id);
+  }
+  for (const inv of order) finalizeInvocation(inv);
+  return order;
+}
+
+function finalizeInvocation(inv) {
+  const evs = inv.events;
+  const startEv = evs.find((e) => stepPhase(e.event_type) === 'request') || evs[0];
+  const endEv = [...evs].reverse().find((e) => stepPhase(e.event_type) === 'response');
+  const errEv = evs.find((e) => /_error$/.test(e.event_type) || e.error_message);
+  const ref = startEv || evs[0];
+  inv.name = ref.tool_name || ref.agent_name || ref.event_type;
+  inv.eventType = ref.event_type;
+  inv.icon = EVENT_ICONS[ref.event_type] || '•';
+  inv.source = (evs.find((e) => e.mcp_server) || {}).mcp_server || null;
+  inv.timestamp = (startEv || ref).timestamp;
+  inv.durationMs = (endEv && endEv.duration_ms != null)
+    ? endEv.duration_ms
+    : ((evs.find((e) => e.duration_ms != null) || {}).duration_ms ?? null);
+  const tokEv = (endEv && (endEv.token_input != null || endEv.token_output != null))
+    ? endEv : evs.find((e) => e.token_input != null || e.token_output != null);
+  inv.tokenIn = tokEv ? (tokEv.token_input || 0) : null;
+  inv.tokenOut = tokEv ? (tokEv.token_output || 0) : null;
+  inv.error = errEv ? (errEv.error_message || 'error') : null;
+  inv.status = errEv ? 'error' : (endEv ? 'done' : 'running');
+  inv.summary = (endEv && endEv.summary) || (startEv && startEv.summary) || ref.summary || '';
+  inv.startEv = (stepPhase(startEv?.event_type) === 'request' && startEv?.blob_path)
+    ? startEv : (evs.find((e) => stepPhase(e.event_type) === 'request' && e.blob_path) || null);
+  inv.endEv = (endEv && endEv.blob_path)
+    ? endEv : (evs.find((e) => stepPhase(e.event_type) === 'response' && e.blob_path) || null);
+  inv.search = `${inv.eventType} ${inv.name} ${inv.summary} ${inv.error || ''}`.toLowerCase();
+}
+
+/** A collapsed, expandable timeline row for one invocation. Click to reveal the
+ *  full summary + request/response payloads inline (lazily fetched). */
+function buildInvocationRow(inv) {
+  const row = document.createElement('article');
+  row.className = 'invocation-row';
+  if (inv.error) row.classList.add('error');
+  if (inv.status === 'running') row.classList.add('running');
+  row.dataset.runId = inv.runId;
+  row.dataset.eventIds = inv.eventIds.join(' ');
+  row.dataset.search = inv.search;
+  row.setAttribute('role', 'listitem');
+
+  const expanded = state.expandedInvocations.has(inv.runId);
+  const dur = inv.durationMs != null ? `<span class="badge duration">${formatMs(inv.durationMs)}</span>` : '';
+  const tokens = (inv.tokenIn != null || inv.tokenOut != null)
+    ? `<span class="badge tokens">↑${inv.tokenIn || 0} ↓${inv.tokenOut || 0}</span>` : '';
+  const err = inv.error ? `<span class="badge error">error</span>` : '';
+  const src = inv.source ? `<span class="badge mcp">mcp:${escapeHtml(inv.source)}</span>` : '';
+
+  row.innerHTML = `
+    <div class="inv-head" role="button" tabindex="0" aria-expanded="${expanded}">
+      <span class="inv-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
+      <span class="inv-kind ${inv.error ? 'error' : ''}">${inv.icon}</span>
+      <span class="inv-name" title="${escapeHtml(inv.name)}">${escapeHtml(inv.name)}</span>
+      <span class="inv-badges">${src}${dur}${tokens}${err}</span>
+      <span class="inv-ts">${formatTs(inv.timestamp)}</span>
+    </div>
+    <div class="inv-detail ${expanded ? '' : 'hidden'}"></div>
+  `;
+
+  const head = row.querySelector('.inv-head');
+  const detail = row.querySelector('.inv-detail');
+  const toggle = () => {
+    const willExpand = !state.expandedInvocations.has(inv.runId);
+    if (willExpand) { state.expandedInvocations.add(inv.runId); fillInvocationDetail(detail, inv); }
+    else state.expandedInvocations.delete(inv.runId);
+    detail.classList.toggle('hidden', !willExpand);
+    row.querySelector('.inv-chevron').textContent = willExpand ? '▾' : '▸';
+    head.setAttribute('aria-expanded', String(willExpand));
+  };
+  head.addEventListener('click', toggle);
+  head.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
+  if (expanded) fillInvocationDetail(detail, inv);
+  return row;
+}
+
+/** Fill an invocation's expanded panel: full summary + request/response payloads,
+ *  fetched lazily and cached by event_id so re-renders don't re-fetch. */
+function fillInvocationDetail(container, inv) {
+  const sec = (phase, title, ev) => ev
+    ? `<div class="inv-payload" data-phase="${phase}"><h5>${title}</h5>
+         <div class="pl-status dim">Loading…</div>
+         <pre class="json-pre pl-pre hidden"></pre></div>`
+    : '';
+  container.innerHTML = `
+    ${inv.summary ? `<div class="inv-summary">${escapeHtml(inv.summary)}</div>` : ''}
+    ${sec('req', 'Request payload', inv.startEv)}
+    ${sec('res', 'Response payload', inv.endEv)}
+    ${(!inv.startEv && !inv.endEv)
+      ? `<div class="dim">No full payload captured for this step.</div>` : ''}
+  `;
+  const load = (ev, phase) => {
+    if (!ev) return;
+    const box = container.querySelector(`.inv-payload[data-phase="${phase}"]`);
+    if (!box) return;
+    const status = box.querySelector('.pl-status');
+    const pre = box.querySelector('.pl-pre');
+    const cached = state.payloadCache.get(ev.event_id);
+    if (cached != null) {
+      status.classList.add('hidden'); pre.classList.remove('hidden'); pre.innerHTML = cached;
+      return;
+    }
+    apiGet(`/runs/${encodeURIComponent(ev.run_id)}/steps/${encodeURIComponent(ev.event_id)}/full`)
+      .then((data) => {
+        const html = highlightJson(data.full_payload);
+        state.payloadCache.set(ev.event_id, html);
+        if (!box.isConnected) return;
+        status.classList.add('hidden'); pre.classList.remove('hidden'); pre.innerHTML = html;
+      })
+      .catch((err) => { if (status) status.textContent = `Failed: ${err.message}`; });
+  };
+  load(inv.startEv, 'req');
+  load(inv.endEv, 'res');
 }
 
 /** Show/hide timeline step cards based on `state.timelineFilter`. Matches against
@@ -468,61 +607,20 @@ function applyTimelineFilter() {
   const q = (state.timelineFilter || '').trim().toLowerCase();
   const tl = document.getElementById('timeline');
   if (!tl) return;
-  const cards = tl.querySelectorAll('.step-card');
+  const rows = tl.querySelectorAll('.invocation-row');
   const countEl = document.getElementById('timeline-search-count');
   if (!q) {
-    cards.forEach((c) => c.classList.remove('filtered-out'));
+    rows.forEach((c) => c.classList.remove('filtered-out'));
     if (countEl) countEl.textContent = '';
     return;
   }
   let shown = 0;
-  cards.forEach((c) => {
+  rows.forEach((c) => {
     const hit = (c.dataset.search || '').includes(q);
     c.classList.toggle('filtered-out', !hit);
     if (hit) shown += 1;
   });
-  if (countEl) countEl.textContent = `${shown} / ${cards.length}`;
-}
-
-function buildStepCard(ev) {
-  const card = document.createElement('article');
-  card.className = 'step-card';
-  if (ev.error_message) card.classList.add('error');
-  card.dataset.eventId = ev.event_id;
-  card.setAttribute('role', 'listitem');
-
-  const icon = EVENT_ICONS[ev.event_type] || '•';
-  const ts = formatTs(ev.timestamp);
-  const name = ev.tool_name || ev.agent_name || ev.event_type;
-  const summary = ev.summary || '';
-  // Pre-computed haystack for the timeline filter (kind/name/summary/error).
-  card.dataset.search = `${ev.event_type} ${name} ${summary} ${ev.error_message || ''}`.toLowerCase();
-  const dur = ev.duration_ms != null ? `<span class="badge duration">${formatMs(ev.duration_ms)}</span>` : '';
-  const tokens = (ev.token_input != null || ev.token_output != null)
-    ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}</span>`
-    : '';
-  const errorBadge = ev.error_message ? `<span class="badge error">error</span>` : '';
-  const openBtn = ev.blob_path ? `<button class="open-btn" data-event-id="${escapeHtml(ev.event_id)}" aria-label="Open step details">Open</button>` : '';
-
-  card.innerHTML = `
-    <div class="row-1">
-      <span class="icon ${ev.error_message ? 'error' : ''}" aria-hidden="true">${icon}</span>
-      <span class="ts">${ts}</span>
-      <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-      ${openBtn}
-    </div>
-    ${summary ? `<div class="summary" title="${escapeHtml(summary)}">${escapeHtml(summary)}</div>` : ''}
-    ${(dur || tokens || errorBadge) ? `<div class="badges">${dur}${tokens}${errorBadge}</div>` : ''}
-  `;
-
-  if (ev.blob_path) {
-    card.querySelector('.open-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openStepDrawer(ev);
-    });
-  }
-  card.addEventListener('click', () => openStepDrawer(ev));
-  return card;
+  if (countEl) countEl.textContent = `${shown} / ${rows.length}`;
 }
 
 function appendStepCard(ev) {
@@ -530,24 +628,11 @@ function appendStepCard(ev) {
   state.knownEventIds.add(ev.event_id);
   state.journey.push(ev);
 
-  const tl = document.getElementById('timeline');
-  // If we're showing the empty/skeleton placeholder, full re-render.
-  if (!tl.querySelector('.step-card') && !tl.querySelector('.load-earlier')) {
-    renderTimeline();
-    return;
-  }
-  // If we're at TIMELINE_MAX cap, drop the oldest visible card.
-  const cards = tl.querySelectorAll('.step-card');
-  if (cards.length >= TIMELINE_MAX) {
-    cards[0].remove();
-  }
-
-  tl.appendChild(buildStepCard(ev));
-  if (state.timelineFilter) applyTimelineFilter();
-
-  if (state.autoScrollTimeline) {
-    tl.scrollTop = tl.scrollHeight;
-  } else {
+  // Re-group + re-render (invocation rows merge a step's start/end, so a single
+  // append can update an existing row rather than add one). renderTimeline keeps
+  // scroll position when not auto-scrolling and preserves the expanded set.
+  renderTimeline();
+  if (!state.autoScrollTimeline) {
     state.newEventCount += 1;
     showNewestPill();
   }
@@ -1721,24 +1806,26 @@ function updatePlaybackUI() {
   if (next) next.disabled = pb !== 'paused' || cur >= total - 1;
 }
 
-/** Apply 'current-step' highlight to the timeline card for this event id and
- *  scroll it into view. Removes the highlight from any previously-current card. */
+/** Apply 'current-step' highlight to the invocation row containing this event id
+ *  and scroll it into view. Removes the highlight from any previously-current row. */
 function highlightTimelineEvent(eventId) {
   const tl = document.getElementById('timeline');
   if (!tl) return;
-  tl.querySelectorAll('.step-card.current-step').forEach((el) => el.classList.remove('current-step'));
+  tl.querySelectorAll('.invocation-row.current-step').forEach((el) => el.classList.remove('current-step'));
   if (!eventId) return;
-  const card = tl.querySelector(`.step-card[data-event-id="${cssEscapeAttr(eventId)}"]`);
-  if (card) {
-    card.classList.add('current-step');
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const row = [...tl.querySelectorAll('.invocation-row')].find(
+    (r) => (r.dataset.eventIds || '').split(' ').includes(eventId),
+  );
+  if (row) {
+    row.classList.add('current-step');
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 
 function clearTimelineEventHighlight() {
   const tl = document.getElementById('timeline');
   if (!tl) return;
-  tl.querySelectorAll('.step-card.current-step').forEach((el) => el.classList.remove('current-step'));
+  tl.querySelectorAll('.invocation-row.current-step').forEach((el) => el.classList.remove('current-step'));
 }
 
 /** Escape an event id (uuid) for use in an attribute selector. UUIDs are
