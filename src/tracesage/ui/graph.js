@@ -640,7 +640,7 @@ export class GraphView {
       'font-size': 11,
       fill: dim,
     });
-    sub.textContent = 'Agents in time order  ·  resources stacked beneath the agent that called them';
+    sub.textContent = 'Left → right by call order  ·  each caller’s tools sit to its right';
     this.headersLayer.appendChild(sub);
 
     // Swimlane labels at the very left margin.
@@ -1406,13 +1406,46 @@ export class GraphView {
 
   /* ----------------------------------------------------------- replay */
 
-  /** Cancel an in-flight playRun. Sets the cancellation flag the loop checks
-   *  between steps and tears down any active dot/edge highlight so the
-   *  user doesn't see ghost animations after they've switched to manual. */
+  /** Cancel an in-flight playRun entirely (full stop + cursor reset). Tears down
+   *  any active dot/edge highlight so no ghost animation lingers. */
   cancelReplay() {
     this._replayCancelled = true;
+    this._playPaused = false;
+    this._playIdx = 0;
     this._cancelActiveDots();
     this.clearStepHighlight();
+  }
+
+  /** Pause an in-flight playRun after the current step; resume continues from
+   *  exactly where it paused. The loop keeps awaiting (does not unwind), so the
+   *  caller's `await playRun(...)` promise stays pending until resume/cancel. */
+  pauseReplay() { this._playPaused = true; }
+  resumeReplay() { this._playPaused = false; }
+  get isReplayPaused() { return !!this._playPaused; }
+  get replayCursor() { return this._playIdx || 0; }
+  get replayTotal() { return (this._playEdges || []).length; }
+
+  /** While paused, jump the replay cursor to `idx` and render that step's
+   *  highlight (no auto-advance), so a subsequent resume continues from here.
+   *  Returns step info for the badge/timeline, or null. */
+  stepTo(idx) {
+    const edges = this._playEdges || [];
+    if (edges.length === 0) return null;
+    const clamped = Math.max(0, Math.min(idx, edges.length - 1));
+    this._playIdx = clamped;
+    const e = edges[clamped];
+    const src = this.nodesById.get(e.source);
+    const tgt = this.nodesById.get(e.target);
+    this.highlightStep(e.source, e.target, { animate: true, pulse: false });
+    return {
+      index: clamped,
+      total: edges.length,
+      source: e.source,
+      target: e.target,
+      sourceLabel: src ? src.name : e.source,
+      targetLabel: tgt ? tgt.name : e.target,
+      eventId: e.eventId || null,
+    };
   }
 
   async playRun(edges, speed = 1) {
@@ -1420,11 +1453,23 @@ export class GraphView {
     // step + 1400 ms dot animation. Faster speeds compress predictably.
     const stepDur = Math.max(500, 2000 / speed);
     const dotDur  = Math.max(350, 1400 / speed);
+    this._playEdges = edges;
     const total = edges.length;
     this._replayCancelled = false;
+    this._playPaused = false;
+    if (this._playIdx == null || this._playIdx >= total) this._playIdx = 0;
 
-    for (let i = 0; i < total; i++) {
+    // Cursor-based loop: `this._playIdx` is the single source of truth so pause
+    // (wait) / resume / stepTo(jump) all work without restarting the loop.
+    while (this._playIdx < total) {
       if (this._replayCancelled) return;
+      // Honor a pause between steps — wait here until resumed or cancelled.
+      while (this._playPaused && !this._replayCancelled) {
+        await new Promise(r => setTimeout(r, 120));
+      }
+      if (this._replayCancelled) return;
+
+      const i = this._playIdx;
       const e = edges[i];
       const tgt = this.nodesById.get(e.target);
       const src = this.nodesById.get(e.source);
@@ -1465,7 +1510,11 @@ export class GraphView {
 
       // Hold so the user can read the moment.
       await new Promise(r => setTimeout(r, Math.max(150, stepDur - dotDur)));
+
+      // Advance the cursor (re-read at loop top, so a stepTo during pause wins).
+      this._playIdx = i + 1;
     }
+    this._playIdx = 0;
     if (!this._replayCancelled) {
       this.handlers.onPlayDone && this.handlers.onPlayDone();
     }

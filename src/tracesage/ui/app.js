@@ -65,11 +65,10 @@ const state = {
   serverVersion: '?',
   // event_id set so we never duplicate when both REST catchup and WS catchup land.
   knownEventIds: new Set(),
-  // Replay
-  replayMode: 'auto',          // 'auto' | 'manual'
+  // Replay / playback
+  playback: 'idle',            // 'idle' | 'playing' | 'paused'
   replaySteps: [],             // [{source, target, eventId}, ...]
-  manualStepIdx: -1,           // -1 = nothing yet selected, 0..N-1 = current step
-  autoReplayInProgress: false, // true while graph.playRun is running
+  autoReplayInProgress: false, // true while graph.playRun is alive (playing OR paused)
   currentDrawerEventId: null,  // guards async blob fetch against a re-opened drawer
   timelineFilter: '',          // within-run timeline search query (lowercased on use)
 };
@@ -372,15 +371,15 @@ async function selectRun(runId) {
   // When the topology is scoped to "this run", refresh it for the new selection.
   if (state.topologyScope === 'run') loadTopology();
 
-  // Reset manual replay state for the new run; if user is in manual mode,
-  // refresh the step list against the new journey.
+  // Reset replay/playback for the new run: cancel any in-flight replay, rebuild
+  // the step list against the new journey, and reset the controls to idle.
+  if (graph?.isReady() && graph.cancelReplay) graph.cancelReplay();
+  state.autoReplayInProgress = false;
+  state.playback = 'idle';
   state.replaySteps = buildReplaySteps();
-  state.manualStepIdx = -1;
-  if (state.replayMode === 'manual') {
-    updateManualStepUI();
-    if (graph?.isReady()) graph.clearStepHighlight();
-    clearTimelineEventHighlight();
-  }
+  if (graph?.isReady()) graph.clearStepHighlight();
+  clearTimelineEventHighlight();
+  updatePlaybackUI();
 
   openTraceWS(runId);
   setGraphMode('trace');
@@ -548,12 +547,11 @@ function appendStepCard(ev) {
   // Pulse graph node + flash edge from previous event's node.
   pulseGraphForEvent(ev);
 
-  // Keep the manual-replay step list current as live events stream in, so the
-  // "Step X / N" total and prev/next reach later-arriving events without the
-  // user re-selecting the run. manualStepIdx is preserved.
-  if (state.replayMode === 'manual') {
+  // Keep the replay step list current as live events stream in, so step-back/
+  // forward reach later-arriving events — but only while idle (don't mutate the
+  // edge list under an in-flight or paused replay).
+  if (state.playback === 'idle') {
     state.replaySteps = buildReplaySteps();
-    updateManualStepUI();
   }
 }
 
@@ -832,6 +830,9 @@ function renderEventCard(ev) {
 }
 
 function openNodeDrawer(nodeData) {
+  // Inspecting a node mid-replay pauses the run so you can study it; Continue
+  // resumes from where it stopped.
+  if (state.playback === 'playing') pauseReplay();
   const body = document.getElementById('drawer-body');
   const labelByType = {
     agent: 'Agent',
@@ -936,6 +937,7 @@ function openNodeDrawer(nodeData) {
 }
 
 function openEdgeDrawer(edgeData) {
+  if (state.playback === 'playing') pauseReplay();
   const body = document.getElementById('drawer-body');
   document.getElementById('drawer-title').textContent = `Edge: ${edgeData.source} → ${edgeData.target}`;
 
@@ -1487,15 +1489,15 @@ function setGraphMode(mode) {
     b.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
   if (mode === 'topology') {
-    // Stop any in-flight replay (auto or manual) so the graph doesn't keep
-    // animating after the user has explicitly asked to leave trace view.
+    // Stop any in-flight replay so the graph doesn't keep animating after the
+    // user has explicitly asked to leave trace view.
     if (state.autoReplayInProgress && graph?.isReady()) {
       graph.cancelReplay();
-      state.autoReplayInProgress = false;
     }
+    state.autoReplayInProgress = false;
+    state.playback = 'idle';
+    updatePlaybackUI();
     hideReplayStepBadge();
-    state.manualStepIdx = -1;
-    if (typeof updateManualStepUI === 'function') updateManualStepUI();
     clearTimelineEventHighlight();
     // Hide the replay controls bar entirely while in pure topology — there's
     // nothing to replay when the user is browsing the system architecture.
@@ -1571,10 +1573,8 @@ function scheduleGraphTopologyRefresh() {
       // setTopology rebuilds the node/edge elements, dropping all step-*
       // highlight classes — re-apply whatever should currently be showing.
       if (state.graphMode === 'trace') applyRunTraceToGraph();
-      if (state.replayMode === 'manual' && state.manualStepIdx >= 0 && graph?.isReady()) {
-        const step = state.replaySteps[state.manualStepIdx];
-        if (step) graph.highlightStep(step.source, step.target, { animate: false, pulse: false });
-      }
+      // A playing/paused replay holds the loop alive and is guarded above
+      // (we return early on autoReplayInProgress), so no manual re-apply is needed.
     } catch { /* swallow */ }
   }, 300);
 }
@@ -1614,110 +1614,72 @@ function buildReplaySteps() {
 
 /* ---- Replay: auto mode ---- */
 
+/** Start a fresh replay from the beginning. */
 async function startReplay() {
   if (!state.selectedRunId || !graph?.isReady()) return;
-  if (state.autoReplayInProgress) return; // ignore re-entry while playing
+  if (state.playback === 'playing' || state.playback === 'paused') return;
   const speed = parseFloat(document.getElementById('replay-speed').value || '1');
   const edges = buildReplaySteps();
   if (edges.length === 0) {
     toast('Nothing to replay yet — no traversed edges.', 'info', 2500);
     return;
   }
+  if (graph.cancelReplay) graph.cancelReplay();   // reset cursor to 0
+  state.playback = 'playing';
   state.autoReplayInProgress = true;
+  updatePlaybackUI();
   toast(`Replaying ${edges.length} step${edges.length === 1 ? '' : 's'} at ${speed}x`, 'info', 2000);
   showReplayStepBadge(0, edges.length, '');
   try {
-    await graph.playRun(edges, speed);
+    await graph.playRun(edges, speed);   // resolves when finished OR cancelled
   } finally {
     state.autoReplayInProgress = false;
+    state.playback = 'idle';
+    updatePlaybackUI();
     hideReplayStepBadge();
   }
 }
 
-/* ---- Replay: manual mode ---- */
-
-/** Switch between 'auto' and 'manual' replay UIs. If the user switches to
- *  manual while autoplay is in flight, we stop autoplay cleanly: cancel the
- *  loop in graph.playRun, drop any in-flight dot, hide the step badge. */
-function setReplayMode(mode) {
-  // If autoplay is running, stop it before swapping UIs.
-  if (state.autoReplayInProgress && graph?.isReady()) {
-    graph.cancelReplay();
-    state.autoReplayInProgress = false;
-    hideReplayStepBadge();
-  }
-
-  state.replayMode = mode;
-  // Tab buttons
-  document.querySelectorAll('.replay-mode-btn').forEach((b) => {
-    const isActive = b.dataset.replayMode === mode;
-    b.classList.toggle('active', isActive);
-    b.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-  // Show/hide control groups
-  document.getElementById('replay-controls-auto').classList.toggle('hidden', mode !== 'auto');
-  document.getElementById('replay-controls-manual').classList.toggle('hidden', mode !== 'manual');
-  if (mode === 'manual') {
-    state.replaySteps = buildReplaySteps();
-    state.manualStepIdx = -1;
-    updateManualStepUI();
-    if (graph?.isReady()) graph.clearStepHighlight();
-    clearTimelineEventHighlight();
-  } else {
-    // Leaving manual mode — clear any per-step highlights so the user
-    // sees the calm trace view before pressing Play.
-    if (graph?.isReady()) graph.clearStepHighlight();
-    clearTimelineEventHighlight();
-  }
+/** Pause the running replay (keeps the loop alive so Continue resumes here). */
+function pauseReplay() {
+  if (state.playback !== 'playing') return;
+  if (graph?.pauseReplay) graph.pauseReplay();
+  state.playback = 'paused';
+  updatePlaybackUI();
 }
 
-/** Move forward by one manual step. */
-function manualNext() {
-  if (state.replayMode !== 'manual') return;
-  if (state.replaySteps.length === 0) state.replaySteps = buildReplaySteps();
-  const next = state.manualStepIdx + 1;
-  if (next >= state.replaySteps.length) return; // already at end
-  applyManualStep(next, { reverse: false });
+/** Resume a paused replay from exactly where it stopped. */
+function resumeReplay() {
+  if (state.playback !== 'paused') return;
+  if (graph?.resumeReplay) graph.resumeReplay();
+  state.playback = 'playing';
+  updatePlaybackUI();
 }
 
-/** Move backward by one manual step. */
-function manualPrev() {
-  if (state.replayMode !== 'manual') return;
-  if (state.manualStepIdx <= 0) return; // already at start
-  applyManualStep(state.manualStepIdx - 1, { reverse: true });
+/** Step the cursor while paused (delta -1 / +1); resume continues from here. */
+function stepReplay(delta) {
+  if (state.playback !== 'paused' || !graph?.isReady()) return;
+  const info = graph.stepTo(graph.replayCursor + delta);
+  if (!info) return;
+  showReplayStepBadge(info.index + 1, info.total, `${info.sourceLabel} → ${info.targetLabel}`);
+  if (info.eventId) highlightTimelineEvent(info.eventId);
+  updatePlaybackUI();
 }
 
-/** Render manual step idx: highlight on graph + corresponding card in timeline.
- *  We animate the moving dot so the user can SEE the transition, but skip
- *  the target-node pulse so rapid prev/next clicks don't stack glow effects.
- *  The dot animation is cancellable in graph.js, so clicking fast never piles
- *  up multiple in-flight dots. Reverse=true makes the dot run target->source
- *  for the 'previous' action, which matches the user's expected direction. */
-function applyManualStep(idx, opts = {}) {
-  state.manualStepIdx = idx;
-  const step = state.replaySteps[idx];
-  if (!step) return;
-  if (graph?.isReady()) {
-    graph.highlightStep(step.source, step.target, {
-      animate: true,
-      pulse: false,
-      reverse: !!opts.reverse,
-    });
-  }
-  highlightTimelineEvent(step.eventId);
-  updateManualStepUI();
-}
-
-/** Update the prev/next disabled state and the step counter text. */
-function updateManualStepUI() {
-  const total = state.replaySteps.length;
-  const idx = state.manualStepIdx;
-  document.getElementById('manual-step-current').textContent = String(Math.max(0, idx + 1));
-  document.getElementById('manual-step-total').textContent = String(total);
-  // Previous disabled at start (idx 0 or before).
-  document.getElementById('replay-prev').disabled = idx <= 0;
-  // Next disabled at end (last step is idx total-1).
-  document.getElementById('replay-next').disabled = total === 0 || idx >= total - 1;
+/** Reflect the playback state in the controls: which of Start/Pause/Continue is
+ *  shown, and whether step-back/forward are enabled (only while paused). */
+function updatePlaybackUI() {
+  const pb = state.playback;
+  const show = (id, on) => { const e = document.getElementById(id); if (e) e.classList.toggle('hidden', !on); };
+  show('replay-start', pb === 'idle');
+  show('replay-pause', pb === 'playing');
+  show('replay-continue', pb === 'paused');
+  const total = graph?.isReady() ? graph.replayTotal : 0;
+  const cur = graph?.isReady() ? graph.replayCursor : 0;
+  const prev = document.getElementById('replay-prev');
+  const next = document.getElementById('replay-next');
+  if (prev) prev.disabled = pb !== 'paused' || cur <= 0;
+  if (next) next.disabled = pb !== 'paused' || cur >= total - 1;
 }
 
 /** Apply 'current-step' highlight to the timeline card for this event id and
@@ -1962,12 +1924,11 @@ function wireUI() {
     state.layoutDir = state.layoutDir === 'LR' ? 'TD' : 'LR';
   });
 
-  document.getElementById('replay-btn').addEventListener('click', startReplay);
-  document.querySelectorAll('.replay-mode-btn').forEach((b) => {
-    b.addEventListener('click', () => setReplayMode(b.dataset.replayMode));
-  });
-  document.getElementById('replay-prev').addEventListener('click', manualPrev);
-  document.getElementById('replay-next').addEventListener('click', manualNext);
+  document.getElementById('replay-start').addEventListener('click', startReplay);
+  document.getElementById('replay-pause').addEventListener('click', pauseReplay);
+  document.getElementById('replay-continue').addEventListener('click', resumeReplay);
+  document.getElementById('replay-prev').addEventListener('click', () => stepReplay(-1));
+  document.getElementById('replay-next').addEventListener('click', () => stepReplay(1));
 
   // Pane collapse / expand. State persists in localStorage so the user's
   // preferred layout is remembered across reloads.
