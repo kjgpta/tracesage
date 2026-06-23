@@ -202,7 +202,7 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
 
 ### Watch a trace stream in
 
-[![tracesage trace demo — run-trace timeline and replay](assets/ui-run-trace.png)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
+[![tracesage trace demo — topology, run-trace replay, timeline logs and token usage](assets/tracesage-demo.gif)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
 
 _Sped-up preview — [watch the full-quality clip](docs/assets/tracesage-demo.mp4), or see it play inline on the [docs site](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)._
 
