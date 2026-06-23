@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import sys
 import sysconfig
 from pathlib import Path
@@ -58,28 +59,54 @@ QUERY = (
 )
 
 
-def _script(name: str) -> str:
-    """Find an installed console script using sysconfig scripts dir."""
-    return str(Path(sysconfig.get_path("scripts")) / name)
+# External MCP servers this demo drives — each a PyPI package whose console
+# script we launch over stdio (falling back to `uvx <pkg>` if uv is installed).
+MCP_SERVERS = {
+    "gmail":   {"script": "mcp-google-gmail",       "pkg": "mcp-google-gmail"},
+    "youtube": {"script": "mcp-youtube-transcript", "pkg": "mcp-youtube-transcript"},
+}
+
+
+def _resolve_server_cmd(script: str, pkg: str) -> list[str] | None:
+    """argv to launch an MCP server: prefer an installed console script (this
+    venv, then PATH); fall back to `uvx <pkg>` if uv is available; else None."""
+    venv_script = Path(sysconfig.get_path("scripts")) / script
+    if venv_script.exists():
+        return [str(venv_script)]
+    on_path = shutil.which(script)
+    if on_path:
+        return [on_path]
+    uvx = shutil.which("uvx")
+    if uvx:
+        return [uvx, pkg]
+    return None
 
 
 def make_mcp_client() -> MultiServerMCPClient:
-    return MultiServerMCPClient(
-        {
-            "gmail": {
-                "command": _script("mcp-google-gmail"),
-                "args": [],
-                "transport": "stdio",
-                "env": {**os.environ},
-            },
-            "youtube": {
-                "command": _script("mcp-youtube-transcript"),
-                "args": [],
-                "transport": "stdio",
-                "env": {**os.environ},
-            },
+    """Build the client, exiting with clear setup instructions if a server isn't
+    installed — rather than silently running a tool-less agent."""
+    servers, missing = {}, []
+    for name, spec in MCP_SERVERS.items():
+        cmd = _resolve_server_cmd(spec["script"], spec["pkg"])
+        if cmd is None:
+            missing.append(spec["pkg"])
+            continue
+        servers[name] = {
+            "command": cmd[0],
+            "args": cmd[1:],
+            "transport": "stdio",
+            "env": {**os.environ},
         }
-    )
+    if missing:
+        sys.exit(
+            f"\nThis demo needs external MCP servers that aren't installed: {', '.join(missing)}\n\n"
+            "Install them into this environment, then re-run:\n"
+            f"    pip install {' '.join(missing)}\n"
+            "    mcp-google-gmail auth        # one-time Gmail OAuth (opens a browser)\n\n"
+            "(Or install uv — https://astral.sh/uv — and they'll run via uvx automatically.)\n"
+            "Full setup: examples/mcp/gmail_youtube_demo/README.md\n"
+        )
+    return MultiServerMCPClient(servers)
 
 
 def make_llm():
