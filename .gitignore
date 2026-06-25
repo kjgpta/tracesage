@@ -77,3 +77,6 @@ tracesage-substack-article.md
 *.mov
 credentials.json
 token.json
+
+# Demo prep files — local only
+demo files/
