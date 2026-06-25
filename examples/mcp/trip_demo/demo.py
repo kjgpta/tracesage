@@ -5,7 +5,7 @@ local formatting tool. tracesage records which tool call came from which server,
 visible in the topology graph and "Tools by source" panel.
 
 Demo arc (3 steps for the recording):
-  Step 1 — Two lines of setup: TraceSage.create() + register_mcp_client()
+  Step 1 — Minimal setup: TraceSage.create() + register_mcp_client() + a callback
   Step 2 — Run it: watch the agent reason and tool calls fire across 3 servers
   Step 3 — Explore the UI: topology, tools-by-source panel, MCP server drawer
 
@@ -52,8 +52,8 @@ except ImportError:
 
 from langgraph.prebuilt import create_react_agent
 
-from tracesage import TraceSage, TraceSageConfig  # ← tracesage (line 1 of 2)
-from tracesage.adapters.mcp import register_mcp_client  # ← tracesage (line 2 of 2)
+from tracesage import TraceSage, TraceSageConfig  # ← tracesage
+from tracesage.adapters.mcp import register_mcp_client  # ← tracesage
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = Path.home() / ".tracesage" / "trip-demo"
@@ -123,7 +123,7 @@ def make_mcp_client() -> MultiServerMCPClient:
 async def main(*, check: bool = False, open_browser: bool = False) -> None:
     llm = make_llm()  # preflight: exits with setup steps if no LLM API key is set
 
-    # ── tracesage: two lines, that's it ──────────────────────────────────────
+    # ── tracesage: minimal wiring, that's it ─────────────────────────────────
     tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
     mcp_tools = await register_mcp_client(tracer, make_mcp_client())
     # ─────────────────────────────────────────────────────────────────────────

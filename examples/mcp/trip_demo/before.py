@@ -19,8 +19,8 @@ you have a paragraph of text and a pile of questions:
 
 Your options today: bolt on `print()`s and re-run, crank up LangChain debug
 logging and drown in noise, or wire up a heavyweight tracing stack. Run `demo.py`
-next to see the same agent with tracesage added — five lines — answering every
-question above in a live local UI.
+next to see the same agent with tracesage added — a minimal change — answering
+every question above in a live local UI.
 
 Run it (same setup as demo.py):
     pip install 'tracesage[mcp]'

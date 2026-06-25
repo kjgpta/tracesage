@@ -5,7 +5,7 @@
 # tracesage
 
 **Local-first observability for LangChain & LangGraph multi-agent systems.**
-Drop in two lines, see live execution traces in your browser.
+Drop it in with a minimal change, see live execution traces in your browser.
 
 ```python
 from tracesage import TraceSage
@@ -34,7 +34,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
   The UI is fully self-contained (assets vendored, no CDN) and works offline.
-- **Two-line integration.** One callback added to your existing `ainvoke`.
+- **Minimal-change integration.** Add one callback to your existing `ainvoke` — no rewrites.
 - **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
