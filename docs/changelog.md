@@ -33,8 +33,8 @@ token attribution.
   per logical call (counted once, from each call's end event).
 - **Gmail + YouTube demo** (`examples/mcp/gmail_youtube_demo/`) — a ReAct agent
   that reads a real Gmail inbox, pulls YouTube transcripts from linked videos, and
-  summarises them. Ships `before.py` / `after.py` so the exact tracesage diff (two
-  imports, two setup lines, one `callbacks=` kwarg) is obvious. Gmail is optional
+  summarises them. Ships `before.py` / `after.py` so the minimal tracesage diff (a
+  couple of imports, the setup calls, and a `callbacks=` kwarg) is obvious. Gmail is optional
   (needs Google Application Default Credentials); without it the agent runs with
   YouTube only. `credentials.json` / `token.json` are gitignored.
 - **Trip Planner demo** (`examples/mcp/trip_demo/`) — a single agent planning a trip

@@ -38,7 +38,7 @@ sweet spot. Here's when to pick which.
 ## Why tracesage exists
 
 `tracesage` aims to be the **smallest possible thing** that gives you a useful
-trace UI for a LangChain app — pip install, two lines of code, browser open.
+trace UI for a LangChain app — pip install, a minimal code change, browser open.
 
 It is intentionally NOT trying to be:
 

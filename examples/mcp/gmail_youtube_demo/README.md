@@ -38,7 +38,8 @@ mcp_tools = await register_mcp_client(tracer, make_mcp_client())
 config={"callbacks": [tracer.handler], "recursion_limit": 25}
 ```
 
-5 lines. The agent, query, MCP config, and LLM are byte-for-byte identical.
+A minimal, mechanical change — the agent, query, MCP config, and LLM are
+byte-for-byte identical.
 
 ## Prerequisites
 

@@ -1,36 +1,44 @@
-"""Trip Planner MCP demo — three MCP servers, one agent, full tracesage attribution.
+"""Trip Planner MCP demo — WITHOUT tracesage (the "before" picture).
 
-A single ReAct agent queries three MCP servers (flights, weather, hotels) plus one
-local formatting tool. tracesage records which tool call came from which server,
-visible in the topology graph and "Tools by source" panel.
+A single ReAct agent plans a trip across three MCP servers (flights, weather,
+hotels) plus one local formatting tool, then prints the final travel brief.
 
-Demo arc (3 steps for the recording):
-  Step 1 — Minimal setup: TraceSage.create() + register_mcp_client() + a callback
-  Step 2 — Run it: watch the agent reason and tool calls fire across 3 servers
-  Step 3 — Explore the UI: topology, tools-by-source panel, MCP server drawer
+That's all you get: the answer at the end. This is the everyday reality of
+running an agent over MCP servers with no observability — and the whole point of
+the demo. While it runs you're staring at a silent terminal, and when it finishes
+you have a paragraph of text and a pile of questions:
 
-Run:
+  • Which tools actually fired? In what order? Did it call all three servers, or
+    silently skip one?
+  • What did each tool RETURN? If the brief is wrong, was it a bad flight result,
+    a stale forecast, or the LLM ignoring a correct tool result?
+  • How many LLM round-trips did this take? How many tokens did it burn? Where did
+    the time go — the model, or a slow MCP server?
+  • Which server does `get_hotel_details` even come from when something errors?
+  • A tool raised — where, and with what inputs? (Re-run and hope it repeats?)
+
+Your options today: bolt on `print()`s and re-run, crank up LangChain debug
+logging and drown in noise, or wire up a heavyweight tracing stack. Run `demo.py`
+next to see the same agent with tracesage added — a minimal change — answering
+every question above in a live local UI.
+
+Run it (same setup as demo.py):
     pip install 'tracesage[mcp]'
     export ANTHROPIC_API_KEY=...              # default: Anthropic claude-haiku-4-5
-    python examples/mcp/trip_demo/demo.py
-    python examples/mcp/trip_demo/demo.py --open   # auto-open browser
+    python examples/mcp/trip_demo/before.py
 
     (A .env file in the repo root is loaded automatically, so ANTHROPIC_API_KEY /
     OPENAI_API_KEY can live there instead of being exported.)
 
 Switch to OpenAI:
     export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...
-    python examples/mcp/trip_demo/demo.py
-
-Smoke test (run agent then exit — useful for CI):
-    python examples/mcp/trip_demo/demo.py --check
+    python examples/mcp/trip_demo/before.py
 """
 from __future__ import annotations
 
 import asyncio
 import os
 import sys
-import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -52,12 +60,10 @@ except ImportError:
 
 from langgraph.prebuilt import create_react_agent
 
-from tracesage import TraceSage, TraceSageConfig  # ← tracesage
-from tracesage.adapters.mcp import register_mcp_client  # ← tracesage
-
 HERE = Path(__file__).resolve().parent
-DATA_DIR = Path.home() / ".tracesage" / "trip-demo"
 
+# Identical query to demo.py — the only difference between the two files is that
+# demo.py adds tracesage. Everything else is byte-for-byte the same.
 QUERY = (
     "I'm planning a weekend trip from NYC to Tokyo next month. "
     "Search for a good flight and get its baggage policy. "
@@ -67,7 +73,7 @@ QUERY = (
 )
 
 
-# ── Local tool (shows up as "Local" in the Tools by source panel) ────────────
+# ── Local tool ────────────────────────────────────────────────────────────────
 
 @tool
 def format_travel_brief(summary: str) -> str:
@@ -76,7 +82,7 @@ def format_travel_brief(summary: str) -> str:
     return f"\n{border}\n  TRAVEL BRIEF — NYC → Tokyo\n{border}\n{summary}\n{border}"
 
 
-# ── Setup helpers ─────────────────────────────────────────────────────────────
+# ── Setup helpers (identical to demo.py) ───────────────────────────────────────
 
 _PROVIDER_KEY = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 
@@ -89,7 +95,7 @@ def make_llm() -> Runnable:
         sys.exit(
             f"\nNo LLM API key found. This demo defaults to '{provider}' and needs ${key_var}.\n\n"
             f"    export {key_var}=...\n"
-            "    python examples/mcp/trip_demo/demo.py\n\n"
+            "    python examples/mcp/trip_demo/before.py\n\n"
             "(Or add it to a .env file in the repo root — this script loads .env automatically.)\n"
             "Use a different provider: export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...\n"
         )
@@ -120,60 +126,34 @@ def make_mcp_client() -> MultiServerMCPClient:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-async def main(*, check: bool = False, open_browser: bool = False) -> None:
+async def main() -> None:
     llm = make_llm()  # preflight: exits with setup steps if no LLM API key is set
 
-    # ── tracesage: minimal wiring, that's it ─────────────────────────────────
-    tracer = await TraceSage.create(TraceSageConfig(data_dir=DATA_DIR))
-    mcp_tools = await register_mcp_client(tracer, make_mcp_client())
-    # ─────────────────────────────────────────────────────────────────────────
-
-    all_tools = [*mcp_tools, format_travel_brief]
+    client = make_mcp_client()
+    tools = await client.get_tools()        # no tracesage — plain MCP tools
+    all_tools = [*tools, format_travel_brief]
     agent = create_react_agent(llm, all_tools)
 
     print(f"Q: {QUERY}\n")
+    print("…running (no trace, no tool log — just wait for the answer)…\n")
     result = await agent.ainvoke(
         {"messages": [("user", QUERY)]},
-        config={"callbacks": [tracer.handler], "recursion_limit": 20},
+        config={"recursion_limit": 20},      # no callbacks=[tracer.handler]
     )
     print(result["messages"][-1].content)
 
-    await asyncio.sleep(0.5)  # let the worker batch drain to DB
-
-    # Print the same breakdown the UI shows in "Tools by source"
-    inv = await tracer.db.get_tool_inventory()
-    print("\nTools attributed by tracesage:")
-    for s in inv["sources"]:
-        kind = "MCP  " if s["kind"] == "mcp" else "Local"
-        names = [t["name"] for t in s["tools"]]
-        print(f"  {kind}  {s['source']:<12} → {s['tool_count']} tools   {names}")
-
-    if check:
-        await tracer.stop()
-        return
-
-    # tracesage defaults to :7842 and auto-picks the next free port if it's busy —
-    # print the URL it actually bound.
-    url = tracer.ui_url or "http://localhost:7842/ui"
-    print(f"\ntracesage UI → {url}")
-    print("  Topology tab   — 1 agent node fanning out to 3 coloured MCP server nodes")
-    print("  Tools panel    — flights(7)  weather(7)  hotels(7)  Local(1)")
-    print("  MCP server node — click any server to see its full tool list + call history")
-
-    if open_browser:
-        webbrowser.open(url)
-
-    print("\nCtrl+C to stop.")
-    await asyncio.Event().wait()
+    # That's it. Final answer only — no idea which of the 22 tools fired, what they
+    # returned, how many LLM calls/tokens it took, or where the time went.
+    print(
+        "\n"
+        "↑ That's everything you get without tracesage: the final text.\n"
+        "  No tool call log, no per-server attribution, no token counts, no timeline.\n"
+        "  Run `python examples/mcp/trip_demo/demo.py` to see the same run, traced.\n"
+    )
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(
-            main(
-                check="--check" in sys.argv,
-                open_browser="--open" in sys.argv or "-o" in sys.argv,
-            )
-        )
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("\nstopped.")

@@ -5,7 +5,7 @@
 # tracesage
 
 **Local-first observability for LangChain & LangGraph multi-agent systems.**
-Drop in two lines, see live execution traces in your browser.
+Drop it in with a minimal change, see live execution traces in your browser.
 
 [![PyPI](https://img.shields.io/badge/pypi-v0.3.0-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
@@ -60,7 +60,7 @@ and renders it in an interactive graph + timeline UI in real time.
 
 - **Zero infrastructure.** No Docker. No Postgres. No external services. `pip install`.
   The UI is fully self-contained (assets vendored, no CDN) and works offline.
-- **Two-line integration.** One callback added to your existing `ainvoke`.
+- **Minimal-change integration.** Add one callback to your existing `ainvoke` — no rewrites.
 - **Crash-safe by design.** The handler never raises and the tracer never crashes
   your pipeline.
 - **Interactive graph view.** Custom SVG graph (no framework), auto-laid-out. Hover, click, replay any run.
@@ -320,18 +320,43 @@ never affected.
 
 ### CLI
 
+The `tracesage` command ships with the package — a **viewer + utilities** over a
+data directory. It never ingests events; ingestion happens only when your code calls
+`TraceSage.create()`. The fastest way to see it working, with zero code:
+
 ```bash
-tracesage serve  --data-dir ~/.tracesage          # read-only viewer
-tracesage export --run-id RUN_ID -o trace.jsonl   # export to JSONL
-tracesage import -i trace.jsonl                   # import a JSONL export
-tracesage stats  --data-dir ~/.tracesage          # summary stats
-tracesage runs   --status failed --limit 20       # list runs
-tracesage gc     --max-runs 10000                 # retention cleanup
-tracesage doctor --data-dir ~/.tracesage          # data-dir diagnostics
-tracesage version
+tracesage demo                                    # seed a sample trace, serve + open the UI
 ```
 
-See [`docs/cli.md`](docs/cli.md) for full reference.
+**Inspect traces in the browser:**
+
+| Command | What it does |
+|---|---|
+| `tracesage serve -d ~/.tracesage [--open]` | Read-only viewer over an existing data dir (auto-picks the next free port; `--auth-token` to gate it) |
+| `tracesage view trace.jsonl [--open]` | Open an exported JSONL trace directly in the UI |
+
+**Inspect traces in the terminal (no server):**
+
+| Command | What it does |
+|---|---|
+| `tracesage runs --status failed --limit 20` | List root runs (filter by `--status` / `--tag`, `--json` for NDJSON) |
+| `tracesage show <run_id>` | Render a run as a colour-coded indented call tree (MCP tools tagged `mcp:<server>`) |
+| `tracesage watch <run_id>` | Live-tail a run's events as they're written (`--once` to print and exit) |
+| `tracesage diff <run_a> <run_b>` | Compare two runs side by side — status, steps, tokens, tools, errors |
+| `tracesage stats [--json]` | Summary stats — run counts by status, avg duration, token totals, DB size |
+
+**Move, retain, diagnose:**
+
+| Command | What it does |
+|---|---|
+| `tracesage export [RUN_ID] --all -o trace.jsonl` | Dump one run or `--all` to JSONL (`-o -` for stdout) |
+| `tracesage import -i trace.jsonl -d DIR` | Read a JSONL export back into a data dir (backups / move between machines) |
+| `tracesage gc --max-runs 10000 [--dry-run]` | Retention — delete oldest runs/blobs beyond a count or `--max-blob-size-gb` |
+| `tracesage doctor -d ~/.tracesage` | Read-only diagnostics — schema version, run counts, orphan/missing-blob checks |
+| `tracesage version` | Print the installed version |
+
+Most commands take `--data-dir, -d` (default `~/.tracesage`). See
+[`docs/cli.md`](docs/cli.md) for the full per-command reference.
 
 ## Examples
 
