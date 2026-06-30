@@ -71,7 +71,8 @@ site/
 # Local drafts / articles — kept out of the public repo
 drafts/
 *.draft.md
-tracesage-substack-article.md
+article/tracesage-substack-article.md
+article/you-dont-need-langsmith-to-trace-langgraph.mdyou
 
 # Raw screen recordings (commit the web-friendly .mp4 under docs/assets/ instead)
 *.mov
@@ -79,3 +80,6 @@ tracesage-substack-article.md
 # MCP demo OAuth secrets (examples/mcp/gmail_youtube_demo)
 credentials.json
 token.json
+
+video/
+video-new

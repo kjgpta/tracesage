@@ -49,17 +49,17 @@ export ANTHROPIC_API_KEY=...      # default provider
 python examples/mcp/trip_demo/before.py
 
 # 2. The "after" — same agent + tracesage; keeps the UI server alive for exploration
-python examples/mcp/trip_demo/demo.py
+python examples/mcp/trip_demo/after.py
 
 # Auto-open browser once the trace is written
-python examples/mcp/trip_demo/demo.py --open
+python examples/mcp/trip_demo/after.py --open
 
 # Switch to OpenAI
 export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...
-python examples/mcp/trip_demo/demo.py
+python examples/mcp/trip_demo/after.py
 
 # Smoke test — run agent then exit (needs API key)
-python examples/mcp/trip_demo/demo.py --check
+python examples/mcp/trip_demo/after.py --check
 ```
 
 Then open **http://localhost:7842/ui**.

@@ -28,12 +28,14 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // Deterministic per-MCP-server colour. The SAME function is imported by app.js so
 // the graph rings, the dynamic legend, and the "Tools by source" panel always agree
 // on a server's colour. Hash the name into a fixed, theme-friendly palette.
-// Warm reds/oranges/pinks/magentas only — deliberately NOT overlapping the
-// node-kind colors (agent green, tool amber, llm blue, retriever purple, chain
-// gray, mcp teal), so a server-colored node/tool is never confused with a kind.
+// Magentas / pinks / violets / browns / one clear orange — deliberately NOT
+// overlapping the node-kind colors (agent green, tool amber, llm blue, retriever
+// purple, chain gray, mcp teal) NOR the error red (--error #f85149) / success
+// green, so a server-colored node is never confused with a kind OR with a failed
+// node. Red is reserved exclusively for errors (see _shapeForKind).
 const MCP_PALETTE = [
-  '#e6194B', '#f58231', '#f032e6', '#ff5cb5',
-  '#9A6324', '#800000', '#ff7f50', '#c2255c',
+  '#f032e6', '#ff5cb5', '#9A6324', '#e8731c',
+  '#c956d9', '#d4477a', '#7d5fff', '#b5179e',
 ];
 export function mcpServerColor(name) {
   if (!name) return '';
@@ -1046,15 +1048,22 @@ export class GraphView {
   getLayoutDir() { return 'LR'; }
 
   _shapeForKind(kind, n) {
+    // A node that errored is filled SOLID red — red is reserved for failure, so a
+    // broken node is unmistakable regardless of its kind/server colour. Otherwise:
     // MCP server nodes AND the tools they provide are filled with the server's
-    // per-server colour, so a server and its tools read as one group; every other
-    // kind (and local/unsourced tools) uses its --node-{kind} theme colour.
-    const fill = ((kind === 'mcp' || kind === 'tool') && n.source)
-      ? mcpServerColor(n.source)
-      : (cssVar(`--node-${kind}`) || cssVar('--accent'));
-    const stroke = (this.runNodeIds && this.runNodeIds.has(n.id))
-      ? cssVar('--success')
-      : ((n.errors || 0) > 0 ? cssVar('--error') : cssVar('--border'));
+    // per-server colour (server + its tools read as one group); every other kind
+    // (and local/unsourced tools) uses its --node-{kind} theme colour.
+    const hasError = (n.errors || 0) > 0;
+    const fill = hasError
+      ? cssVar('--error')
+      : (((kind === 'mcp' || kind === 'tool') && n.source)
+          ? mcpServerColor(n.source)
+          : (cssVar(`--node-${kind}`) || cssVar('--accent')));
+    const stroke = hasError
+      ? cssVar('--error')
+      : ((this.runNodeIds && this.runNodeIds.has(n.id))
+          ? cssVar('--success')
+          : cssVar('--border'));
     const strokeW =
       (this.runNodeIds && this.runNodeIds.has(n.id)) ? 4
       : (this.runNodeIds && !this.runNodeIds.has(n.id)) ? 1

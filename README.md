@@ -4,8 +4,8 @@
 
 # tracesage
 
-**Local-first observability for LangChain & LangGraph multi-agent systems.**
-Drop it in with a minimal change, see live execution traces in your browser.
+**See what your LangChain & LangGraph agents actually did.**
+Local-first observability — drop in one line, watch every run live in your browser.
 
 [![PyPI](https://img.shields.io/badge/pypi-v0.3.0-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
@@ -14,22 +14,38 @@ Drop it in with a minimal change, see live execution traces in your browser.
 [![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://kjgpta.github.io/tracesage/)
 [![Status: beta](https://img.shields.io/badge/status-beta-blue)](#status)
 
+<a href="docs/assets/tracesage-demo.mp4"><img src="docs/assets/tracesage-demo.gif" alt="tracesage UI — topology, run trace, token usage, and a failed run pinpointed to the exact tool" width="100%"></a>
+
+<sub><a href="docs/assets/tracesage-demo.mp4">▶ Watch the full 1-minute demo</a></sub>
+
 </div>
 
+### Try it in 30 seconds
+
+```bash
+pip install "tracesage[langchain]"
+tracesage demo        # seeds a sample run and opens the live UI in your browser
+```
+
+No API key, no config, no code — `tracesage demo` opens a real trace so you can click
+around the graph immediately. Then add **one line** to your own agent:
+
 ```python
-from tracesage import TraceSage
-
-# Illustrative only — `await` runs inside an async function. See Quick start
-# below for a complete, runnable `async def main()`.
-tracer = await TraceSage.create()                          # one-time setup
-
 result = await graph.ainvoke(
     {"input": payload},
-    config={"callbacks": [tracer.handler]},                # only line you add
+    config={"callbacks": [tracer.handler]},   # ← the only line you add
 )
-
-# Open http://localhost:7842/ui to see the trace live
+# tracesage prints a link: 🔍 http://localhost:7842/ui  — open it to watch the run live
 ```
+
+### When a run breaks, see exactly where
+
+A failed tool call shows up as a **red node on the exact step that broke** — the tool,
+its input, and the error — instead of a stack trace buried in your logs.
+
+<div align="center">
+<img src="docs/assets/ui-failed-run.png" alt="A failed run: the look_up_order tool node is red, pinpointing exactly where and why the run broke" width="90%">
+</div>
 
 ---
 
@@ -174,43 +190,29 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
 <table>
   <tr>
     <td width="50%"><img src="docs/assets/ui-topology.png" alt="Live topology graph"></td>
-    <td width="50%"><img src="docs/assets/ui-run-trace.png" alt="Run trace and timeline"></td>
+    <td width="50%"><img src="docs/assets/ui-run-list.png" alt="Run list — completed and failed runs"></td>
   </tr>
   <tr>
     <td align="center"><em>Live topology — agents, tools, LLMs and MCP servers across a run.</em></td>
-    <td align="center"><em>Run trace — the path a run took, with a step-by-step timeline you can replay.</em></td>
+    <td align="center"><em>Run list — every run at a glance: <strong>green completed, red failed</strong>.</em></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/assets/ui-run-trace.png" alt="Run trace and timeline"></td>
     <td width="50%"><img src="docs/assets/ui-step-payload.png" alt="Step request and response payloads"></td>
-    <td width="50%"><img src="docs/assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
   </tr>
   <tr>
-    <td align="center"><em>Click any step for its full <strong>request and response</strong> payloads, duration and errors.</em></td>
-    <td align="center"><em>“Tools by source” — every tool grouped by origin (MCP servers vs. local).</em></td>
+    <td align="center"><em>Run trace — the path a run took, with a step-by-step timeline you can replay.</em></td>
+    <td align="center"><em>Click any step for its full <strong>request and response</strong> payloads, tokens and errors.</em></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/assets/ui-llm-drawer.png" alt="LLM inspector with token usage"></td>
-    <td width="50%"><img src="docs/assets/ui-mcp-drawer.png" alt="MCP server inspector"></td>
+    <td width="50%"><img src="docs/assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
   </tr>
   <tr>
     <td align="center"><em>Inspect an <strong>LLM</strong> — token usage (in / out, total across calls) and latency.</em></td>
-    <td align="center"><em>…an <strong>MCP server</strong> — invocations, errors, and the tools it provides.</em></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/ui-agent-drawer.png" alt="Agent inspector"></td>
-    <td width="50%"><img src="docs/assets/ui-chain-drawer.png" alt="Chain inspector"></td>
-  </tr>
-  <tr>
-    <td align="center"><em>…an <strong>agent</strong> — its tools, the servers it uses, and its callers.</em></td>
-    <td align="center"><em>…or a <strong>chain</strong> — the LangGraph/LCEL plumbing, with what it calls.</em></td>
+    <td align="center"><em>“Tools by source” — every tool grouped by origin (MCP servers vs. local).</em></td>
   </tr>
 </table>
-
-### Watch a trace stream in
-
-[![tracesage trace demo — topology, run-trace replay, timeline logs and token usage](docs/assets/tracesage-demo.gif)](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)
-
-_Sped-up preview — [watch the full-quality clip](docs/assets/tracesage-demo.mp4), or see it play inline on the [docs site](https://kjgpta.github.io/tracesage/#watch-a-trace-stream-in)._
 
 ## Concepts: topology node kinds
 

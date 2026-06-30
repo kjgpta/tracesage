@@ -4,24 +4,28 @@
 
 # tracesage
 
-**Local-first observability for LangChain & LangGraph multi-agent systems.**
-Drop it in with a minimal change, see live execution traces in your browser.
+**See what your LangChain & LangGraph agents actually did.**
+Local-first observability — drop in one line, watch every run live in your browser.
 
-```python
-from tracesage import TraceSage
+## Try it in 30 seconds
 
-tracer = await TraceSage.create()                          # one-time setup
-
-result = await graph.ainvoke(
-    {"input": payload},
-    config={"callbacks": [tracer.handler]},                # only line you add
-)
-
-# Open the URL tracesage prints (default http://localhost:7842/ui) to see it live
+```bash
+pip install "tracesage[langchain]"
+tracesage demo        # seeds a sample run and opens the live UI immediately
 ```
 
-[Get started in 5 minutes →](quickstart.md){ .md-button .md-button--primary }
-[Browse the examples →](examples.md){ .md-button }
+No API key. No config. No code. `tracesage demo` opens a real trace so you can
+click around the graph right away. Then add **one line** to your own agent:
+
+```python
+result = await graph.ainvoke(
+    {"input": payload},
+    config={"callbacks": [tracer.handler]},   # ← the only line you add
+)
+```
+
+[Get started →](quickstart.md){ .md-button .md-button--primary }
+[Browse examples →](examples.md){ .md-button }
 
 ---
 
@@ -86,12 +90,20 @@ and renders it in an interactive graph + timeline UI in real time.
 
 <table>
   <tr>
-    <td width="50%"><img src="assets/ui-topology.png" alt="Topology view"></td>
-    <td width="50%"><img src="assets/ui-run-trace.png" alt="Run-trace view with timeline and replay"></td>
+    <td width="50%"><img src="assets/ui-topology.png" alt="Live topology — agents, MCP servers, tools, and LLM nodes colour-coded by kind"></td>
+    <td width="50%"><img src="assets/ui-run-list.png" alt="Run list — green completed runs, red failed runs at a glance"></td>
   </tr>
   <tr>
-    <td align="center"><em>Topology — the system architecture by node kind.</em></td>
-    <td align="center"><em>Run-trace — one run as a call tree, with the step timeline and replay controls.</em></td>
+    <td align="center"><em>Live topology — agents, MCP servers, tools and LLMs, colour-coded by kind.</em></td>
+    <td align="center"><em>Run list — every run at a glance. <strong>Green = completed, red = failed.</strong></em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-run-trace.png" alt="Run trace — execution path with step-by-step timeline and replay"></td>
+    <td width="50%"><img src="assets/ui-failed-run.png" alt="Failed run — the broken tool node highlighted in red, with the exact error"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Run-trace — the exact path a run took, with timeline and step-through replay.</em></td>
+    <td align="center"><em>When something breaks, a <strong>red node</strong> pins the exact tool and error.</em></td>
   </tr>
 </table>
 

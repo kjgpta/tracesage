@@ -17,7 +17,7 @@ If you opened the UI after running an example and wondered "what does
 
 ## At a glance
 
-![tracesage topology graph with the node-kind legend](assets/ui-topology.png)
+![tracesage topology graph — agent, MCP server, tool, LLM and chain nodes colour-coded by kind, with the legend bottom-left](assets/ui-topology.png)
 
 *Every node in the graph is one of the kinds below; the legend (bottom-left) colour-codes them, and MCP servers are listed separately.*
 
@@ -45,7 +45,7 @@ Select a run and the graph switches to the **run-trace** view — that one run l
 as a left → right call tree in execution order, with a step timeline you can step
 through or replay:
 
-![tracesage run-trace view with the step timeline and replay controls](assets/ui-run-trace.png)
+![tracesage run-trace view — execution path laid out left-to-right with the step timeline and replay controls](assets/ui-run-trace.png)
 
 ### Scope: the topology reflects one version of your app
 
@@ -331,7 +331,7 @@ Each step in the timeline has two levels of detail:
   shows just the request; opening a `*_end` shows the full request **and** response,
   plus tokens, duration, and any error.
 
-![step drawer showing the full request and response payloads with token usage](assets/ui-step-payload.png)
+![step drawer showing the full request and response payloads with token counts](assets/ui-step-payload.png)
 
 ---
 

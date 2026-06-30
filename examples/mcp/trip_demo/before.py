@@ -18,11 +18,11 @@ you have a paragraph of text and a pile of questions:
   • A tool raised — where, and with what inputs? (Re-run and hope it repeats?)
 
 Your options today: bolt on `print()`s and re-run, crank up LangChain debug
-logging and drown in noise, or wire up a heavyweight tracing stack. Run `demo.py`
+logging and drown in noise, or wire up a heavyweight tracing stack. Run `after.py`
 next to see the same agent with tracesage added — a minimal change — answering
 every question above in a live local UI.
 
-Run it (same setup as demo.py):
+Run it (same setup as after.py):
     pip install 'tracesage[mcp]'
     export ANTHROPIC_API_KEY=...              # default: Anthropic claude-haiku-4-5
     python examples/mcp/trip_demo/before.py
@@ -37,8 +37,10 @@ Switch to OpenAI:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -62,8 +64,25 @@ from langgraph.prebuilt import create_react_agent
 
 HERE = Path(__file__).resolve().parent
 
-# Identical query to demo.py — the only difference between the two files is that
-# demo.py adds tracesage. Everything else is byte-for-byte the same.
+# ── Developer-rolled "observability" ─────────────────────────────────────────
+# Without a tracing tool, this is what you end up doing: sprinkle ad-hoc logging
+# and hope it tells you enough. It's noisy, it only shows what THIS developer
+# thought to log, and it still can't answer the real questions (which server?
+# how many tokens? full payloads?). Crank LANGCHAIN debug for even more noise:
+#   import langchain; langchain.debug = True   # then drown in output
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("trip_agent")
+# turn up the underlying libraries too — this is the "just log everything" reflex
+logging.getLogger("langchain").setLevel(logging.DEBUG)
+logging.getLogger("langgraph").setLevel(logging.DEBUG)
+logging.getLogger("httpx").setLevel(logging.INFO)
+
+# Identical query to after.py — the only difference between the two files is that
+# after.py adds tracesage. Everything else is byte-for-byte the same.
 QUERY = (
     "I'm planning a weekend trip from NYC to Tokyo next month. "
     "Search for a good flight and get its baggage policy. "
@@ -82,7 +101,7 @@ def format_travel_brief(summary: str) -> str:
     return f"\n{border}\n  TRAVEL BRIEF — NYC → Tokyo\n{border}\n{summary}\n{border}"
 
 
-# ── Setup helpers (identical to demo.py) ───────────────────────────────────────
+# ── Setup helpers (identical to after.py) ───────────────────────────────────────
 
 _PROVIDER_KEY = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 
@@ -127,28 +146,47 @@ def make_mcp_client() -> MultiServerMCPClient:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main() -> None:
+    log.debug("make_llm(): provider=%s model=%s", os.environ.get("LLM_PROVIDER", "anthropic"),
+              os.environ.get("LLM_MODEL", "claude-haiku-4-5-20251001"))
     llm = make_llm()  # preflight: exits with setup steps if no LLM API key is set
 
+    log.debug("connecting MCP client (flights, weather, hotels) over stdio…")
     client = make_mcp_client()
     tools = await client.get_tools()        # no tracesage — plain MCP tools
+    # We can log that N tools loaded — but NOT which server each came from. Once
+    # they're in one flat list, the per-server provenance is already lost.
+    log.info("loaded %d MCP tools (which server is which? no idea from here): %s",
+             len(tools), [getattr(t, "name", "?") for t in tools])
     all_tools = [*tools, format_travel_brief]
     agent = create_react_agent(llm, all_tools)
+    log.info("agent built with %d total tools; invoking…", len(all_tools))
 
     print(f"Q: {QUERY}\n")
-    print("…running (no trace, no tool log — just wait for the answer)…\n")
+    print("…running (hand-rolled DEBUG logs below — noisy, and still not enough)…\n")
+    t0 = time.perf_counter()
     result = await agent.ainvoke(
         {"messages": [("user", QUERY)]},
         config={"recursion_limit": 20},      # no callbacks=[tracer.handler]
     )
-    print(result["messages"][-1].content)
+    elapsed = time.perf_counter() - t0
+    # We can time the WHOLE call, but not the individual tool calls or LLM rounds
+    # inside it — so "where did the time go?" stays unanswered.
+    log.info("agent.ainvoke() returned after %.2fs (total only — no per-step timing)", elapsed)
+    msgs = result.get("messages", [])
+    log.debug("result carried %d messages (we'd have to hand-parse these to guess "
+              "the tool calls — and tokens aren't in here at all)", len(msgs))
+
+    print("\n" + result["messages"][-1].content)
 
     # That's it. Final answer only — no idea which of the 22 tools fired, what they
     # returned, how many LLM calls/tokens it took, or where the time went.
     print(
         "\n"
-        "↑ That's everything you get without tracesage: the final text.\n"
-        "  No tool call log, no per-server attribution, no token counts, no timeline.\n"
-        "  Run `python examples/mcp/trip_demo/demo.py` to see the same run, traced.\n"
+        "↑ That's everything you get without tracesage — plus a wall of DEBUG logs.\n"
+        "  Those logs only show what THIS developer thought to print: no per-server\n"
+        "  attribution, no token counts, no full payloads, no timeline. Every answer\n"
+        "  depends on someone having logged the right thing in the right place.\n"
+        "  Run `python examples/mcp/trip_demo/after.py` to see the same run, traced.\n"
     )
 
 

@@ -1,42 +1,52 @@
 # Quickstart
 
-Run any LangChain or LangGraph workflow with full observability in under a minute.
-
-## Install
+## See it in 30 seconds (no API key needed)
 
 ```bash
 pip install "tracesage[langchain]"
+tracesage demo        # seeds a sample trace and opens the live UI
 ```
 
-(Quote the extra — `pip install "tracesage[langchain]"` — so zsh, the default macOS
-shell, doesn't try to glob the brackets and fail with `no matches found`.)
+That's it. `tracesage demo` opens a real trace in your browser with no API key, no
+config, and no agent code to write. Click around the topology graph, open a step's
+payload, inspect token usage — then come back here to wire it into your own agent.
 
-`tracesage` requires Python 3.11+ and pulls `langchain-core` as the only mandatory
-external dependency for the LangChain adapter. If your app uses **LangGraph**, also
-`pip install langgraph` (tracesage doesn't pull it). tracesage is **provider-agnostic** —
-it traces the LangChain callback stream, so OpenAI, Anthropic, local models, etc. are all
-captured automatically; there is no provider setting in tracesage.
+## Add it to your own agent
+
+```python
+result = await graph.ainvoke(
+    {"input": payload},
+    config={"callbacks": [tracer.handler]},   # ← the only line you add
+)
+# tracesage prints: 🔍 http://localhost:7842/ui  — open it to watch live
+```
+
+Full setup (one-time, at the start of your `async def main()`):
+
+```python
+from tracesage import TraceSage
+tracer = await TraceSage.create()   # starts the UI server, returns the handler
+```
+
+## Install details
+
+(Quote the extra on zsh — the default macOS shell — or the brackets glob and you get
+`no matches found`. Double quotes work: `pip install "tracesage[langchain]"`.)
+
+`tracesage` requires Python 3.11+ and pulls `langchain-core`. If your app uses
+**LangGraph**, also `pip install langgraph` (tracesage doesn't pull it).
+tracesage is **provider-agnostic** — it traces the LangChain callback stream, so
+OpenAI, Anthropic, and local models are all captured automatically.
 
 ### Using a real provider
 
-The examples use a fake model so they need no key. For your own app, install a provider
-and set its key:
+The examples use a fake model so they need no key. For your own app:
 
 ```bash
 # OpenAI
 pip install langchain-openai      && export OPENAI_API_KEY=...
 # or Anthropic
 pip install langchain-anthropic   && export ANTHROPIC_API_KEY=...
-```
-
-You construct the model exactly as you normally would (`ChatOpenAI(...)`,
-`ChatAnthropic(...)`, or `init_chat_model("anthropic:claude-...")`) — tracesage captures it
-whichever you choose.
-
-## See it in 5 seconds
-
-```bash
-tracesage demo      # seeds a sample trace, opens the UI
 ```
 
 ## A complete runnable example (no API key)

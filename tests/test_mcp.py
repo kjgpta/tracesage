@@ -162,9 +162,10 @@ async def test_register_mcp_client_persists_full_tool_list() -> None:
     assert t.db.calls["math"] == ["add"]
 
 
-async def test_load_server_tools_session_fallback(monkeypatch) -> None:
+async def test_load_server_tools_connection_fallback(monkeypatch) -> None:
     """Older langchain-mcp-adapters lack get_tools(server_name=...); _load_server_tools
-    must fall back to opening a per-server session() + load_mcp_tools."""
+    must fall back to load_mcp_tools(None, connection=<config>) so each tool call opens
+    its own fresh session (binding to an open session() would close it on exit)."""
     import pytest
 
     pytest.importorskip("langchain_mcp_adapters")
@@ -172,9 +173,13 @@ async def test_load_server_tools_session_fallback(monkeypatch) -> None:
 
     from tracesage.adapters.mcp import _load_server_tools
 
-    captured = {"session_opened": False}
+    captured: dict[str, object] = {"session_opened": False}
 
-    async def _fake_load(session: object) -> list[object]:
+    async def _fake_load(
+        session: object, *, connection: object = None, handle_tool_errors: bool = True
+    ) -> list[object]:
+        captured["connection"] = connection
+        captured["handle_tool_errors"] = handle_tool_errors
         return [_fake_tool("alpha"), _fake_tool("beta")]
 
     monkeypatch.setattr(lmt, "load_mcp_tools", _fake_load)
@@ -189,7 +194,7 @@ async def test_load_server_tools_session_fallback(monkeypatch) -> None:
 
     class _FallbackClient:
         def __init__(self) -> None:
-            self.connections = {"srv": {}}
+            self.connections = {"srv": {"transport": "stdio"}}
 
         async def get_tools(self, server_name: str | None = None) -> list[object]:
             raise TypeError("got an unexpected keyword argument 'server_name'")
@@ -197,7 +202,52 @@ async def test_load_server_tools_session_fallback(monkeypatch) -> None:
         def session(self, server: str) -> _Ctx:
             return _Ctx()
 
-    tools = await _load_server_tools(_FallbackClient(), "srv")
+    # handle_tool_errors=False must reach load_mcp_tools, and the connection (not a
+    # to-be-closed session) is what's passed.
+    tools = await _load_server_tools(_FallbackClient(), "srv", handle_tool_errors=False)
+    assert captured["session_opened"] is False
+    assert captured["connection"] == {"transport": "stdio"}
+    assert captured["handle_tool_errors"] is False
+    assert {getattr(t, "name", None) for t in tools} == {"alpha", "beta"}
+
+
+async def test_load_server_tools_session_last_resort(monkeypatch) -> None:
+    """When no connection config is discoverable, _load_server_tools opens a
+    per-server session() as the genuine last resort."""
+    import pytest
+
+    pytest.importorskip("langchain_mcp_adapters")
+    import langchain_mcp_adapters.tools as lmt
+
+    from tracesage.adapters.mcp import _load_server_tools
+
+    captured = {"session_opened": False}
+
+    async def _fake_load(
+        session: object, *, connection: object = None, handle_tool_errors: bool = True
+    ) -> list[object]:
+        return [_fake_tool("alpha"), _fake_tool("beta")]
+
+    monkeypatch.setattr(lmt, "load_mcp_tools", _fake_load)
+
+    class _Ctx:
+        async def __aenter__(self) -> object:
+            captured["session_opened"] = True
+            return object()
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+    class _NoConnClient:
+        """No connections/_connections/server_name_to_config → session last resort."""
+
+        async def get_tools(self, server_name: str | None = None) -> list[object]:
+            raise TypeError("got an unexpected keyword argument 'server_name'")
+
+        def session(self, server: str) -> _Ctx:
+            return _Ctx()
+
+    tools = await _load_server_tools(_NoConnClient(), "srv")
     assert captured["session_opened"] is True
     assert {getattr(t, "name", None) for t in tools} == {"alpha", "beta"}
 
@@ -232,3 +282,47 @@ async def test_register_mcp_client_real_stdio_server() -> None:
     assert {"get_weather", "get_forecast", "severe_alerts"} <= names
     assert t.tool_source("get_weather") == "weather"
     assert t.tool_source("severe_alerts") == "weather"
+
+
+async def test_register_mcp_client_handle_tool_errors_false_raises() -> None:
+    """With handle_tool_errors=False, a tool that errors server-side must RAISE
+    (so the run fails) instead of returning the error as tool content. Exercised
+    against the support_demo orders server, whose look_up_order raises for A1044."""
+    import sys
+    from pathlib import Path
+
+    import pytest
+
+    pytest.importorskip("langchain_mcp_adapters")
+    pytest.importorskip("mcp")
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    server = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "mcp"
+        / "support_demo"
+        / "orders_server.py"
+    )
+    if not server.exists():
+        pytest.skip("support_demo orders server not found")
+
+    t = _StubTracer()
+    client = MultiServerMCPClient(
+        {"orders": {"command": sys.executable, "args": [str(server)], "transport": "stdio"}}
+    )
+
+    # Default (handle_tool_errors=True): the error comes back as tool *content*.
+    tools_ok = await register_mcp_client(t, client)
+    look_ok = next(x for x in tools_ok if getattr(x, "name", None) == "look_up_order")
+    out = await look_ok.ainvoke({"order_id": "A1044"})
+    assert "shard" in str(out)  # error surfaced as content, no raise
+
+    # handle_tool_errors=False: the same call must RAISE so the run fails.
+    tools_raise = await register_mcp_client(t, client, handle_tool_errors=False)
+    look_raise = next(x for x in tools_raise if getattr(x, "name", None) == "look_up_order")
+    with pytest.raises(Exception, match="shard"):
+        await look_raise.ainvoke({"order_id": "A1044"})
+
+    # A valid order still returns normally under the raising loader.
+    assert "A1043" in str(await look_raise.ainvoke({"order_id": "A1043"}))
