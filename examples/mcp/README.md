@@ -54,16 +54,18 @@ python examples/mcp/main.py --check
 
 ## Real-world demos (need an LLM API key)
 
-Two production-like MCP apps with explicit tracesage integration:
+Three production-like MCP apps with explicit tracesage integration:
 
 | Demo | What it shows |
 |---|---|
+| [`support_demo/`](support_demo/) | **Simplest start — one agent, two MCP servers, 2 tools each.** A customer-support assistant that answers "where's my order + what's your policy?" via `orders` + `kb` servers, then drafts a reply. Clean 5-node topology — the easiest to follow on screen. Ships `before.py` / `after.py`. |
 | [`trip_demo/`](trip_demo/) | **One agent, three MCP servers.** A trip planner over flights / weather / hotels (7 tools each) plus a local formatting tool. Bundles all three stdio servers — **no external installs**, just an LLM key. Best place to see multi-server topology, per-server colours, and the "Tools by source" panel at scale. |
 | [`gmail_youtube_demo/`](gmail_youtube_demo/) | **Gmail + YouTube research agent.** Reads a real Gmail inbox, pulls YouTube transcripts from linked videos, and summarises them. Ships `before.py` / `after.py` so the exact tracesage diff is obvious. YouTube needs no auth; Gmail is optional (Google Application Default Credentials). |
 
 ```bash
 export ANTHROPIC_API_KEY=...                     # or OPENAI_API_KEY / OPENROUTER_API_KEY
-python examples/mcp/trip_demo/demo.py            # zero external setup
+python examples/mcp/support_demo/after.py         # simplest — 2 servers, zero external setup
+python examples/mcp/trip_demo/after.py            # larger — 3 servers, zero external setup
 python examples/mcp/gmail_youtube_demo/after.py  # see gmail_youtube_demo/README.md for Gmail auth
 ```
 

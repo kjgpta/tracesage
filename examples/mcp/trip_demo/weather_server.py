@@ -3,7 +3,7 @@
 Seven tools: get_weather, get_7day_forecast, get_hourly_forecast, get_air_quality,
 get_uv_index, get_sun_times, get_travel_advisory.
 Data is realistic-looking but fully hardcoded — no external API calls.
-Run indirectly by demo.py via MultiServerMCPClient.
+Run indirectly by after.py via MultiServerMCPClient.
 """
 from __future__ import annotations
 

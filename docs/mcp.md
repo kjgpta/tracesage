@@ -74,11 +74,11 @@ auto-detection is a fallback.
 - **Storage** — provenance is persisted on each tool event (`events.mcp_server`),
   so it survives restarts and is visible in `tracesage serve` mode.
 
-![Tools by source panel](assets/ui-tools-by-source.png)
+![Tools by source panel — tools grouped by MCP server origin versus local](assets/ui-tools-by-source.png)
 
-*The "Tools by source" panel groups every tool as MCP `math`, MCP `weather`, or `Local`.*
+*The "Tools by source" panel groups every tool by its MCP server (e.g. `orders`, `kb`) or marks it as `Local`.*
 
-![MCP server inspector](assets/ui-mcp-drawer.png)
+![MCP server inspector — invocations, errors, the tools it provides, and which agents call it](assets/ui-mcp-drawer.png)
 
 *Clicking an MCP server node shows its invocations, errors, the tools it provides, and which agents use it.*
 
@@ -97,7 +97,7 @@ python examples/mcp/main.py    # then open http://localhost:7842/ui
 
 ```bash
 # Trip Planner — one agent over 3 bundled MCP servers (flights, weather, hotels) + a local tool
-python examples/mcp/trip_demo/demo.py
+python examples/mcp/trip_demo/after.py
 
 # Gmail + YouTube — a ReAct agent; before.py/after.py show the exact tracesage diff
 python examples/mcp/gmail_youtube_demo/after.py

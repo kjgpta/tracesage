@@ -3,7 +3,7 @@
 Seven tools: search_flights, get_baggage_policy, check_flight_status, get_seat_map,
 compare_fares, get_layover_options, estimate_carbon_footprint.
 Data is realistic-looking but fully hardcoded — no external API calls.
-Run indirectly by demo.py via MultiServerMCPClient.
+Run indirectly by after.py via MultiServerMCPClient.
 """
 from __future__ import annotations
 

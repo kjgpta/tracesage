@@ -3,7 +3,7 @@
 Seven tools: search_hotels, get_hotel_details, check_availability, get_room_rates,
 get_cancellation_policy, list_nearby_attractions, get_loyalty_benefits.
 Data is realistic-looking but fully hardcoded — no external API calls.
-Run indirectly by demo.py via MultiServerMCPClient.
+Run indirectly by after.py via MultiServerMCPClient.
 """
 from __future__ import annotations
 

@@ -12,18 +12,18 @@ Demo arc (3 steps for the recording):
 Run:
     pip install 'tracesage[mcp]'
     export ANTHROPIC_API_KEY=...              # default: Anthropic claude-haiku-4-5
-    python examples/mcp/trip_demo/demo.py
-    python examples/mcp/trip_demo/demo.py --open   # auto-open browser
+    python examples/mcp/trip_demo/after.py
+    python examples/mcp/trip_demo/after.py --open   # auto-open browser
 
     (A .env file in the repo root is loaded automatically, so ANTHROPIC_API_KEY /
     OPENAI_API_KEY can live there instead of being exported.)
 
 Switch to OpenAI:
     export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...
-    python examples/mcp/trip_demo/demo.py
+    python examples/mcp/trip_demo/after.py
 
 Smoke test (run agent then exit — useful for CI):
-    python examples/mcp/trip_demo/demo.py --check
+    python examples/mcp/trip_demo/after.py --check
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def make_llm() -> Runnable:
         sys.exit(
             f"\nNo LLM API key found. This demo defaults to '{provider}' and needs ${key_var}.\n\n"
             f"    export {key_var}=...\n"
-            "    python examples/mcp/trip_demo/demo.py\n\n"
+            "    python examples/mcp/trip_demo/after.py\n\n"
             "(Or add it to a .env file in the repo root — this script loads .env automatically.)\n"
             "Use a different provider: export LLM_PROVIDER=openai LLM_MODEL=gpt-4o-mini OPENAI_API_KEY=...\n"
         )

@@ -704,7 +704,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   stroke-width: 3 !important;
   filter: drop-shadow(0 0 6px var(--accent));
 }
-.node-group.error .node-shape { stroke: var(--error) !important; stroke-width: 3 !important; }
+/* A failed node is RED, full stop. This must beat the trace-mode glows
+   (.step-target / .path / .pulse use a green/accent drop-shadow), otherwise a
+   red fill under a green glow reads as orange. Override stroke AND filter, and
+   keep it last so it wins on specificity-equal rules. */
+.node-group.error .node-shape,
+.node-group.error.step-target .node-shape,
+.node-group.error.step-source .node-shape,
+.node-group.error.path .node-shape {
+  stroke: var(--error) !important;
+  stroke-width: 4 !important;
+  filter: drop-shadow(0 0 12px var(--error)) !important;
+}
 .node-group.pulse .node-shape {
   animation: at-node-pulse 1100ms ease-out;
 }
