@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.3.1] — 2026-07-01
+
+A focused release that makes failed runs unmistakable in the UI and lets MCP tool
+errors surface as real failures.
+
+### Added
+- **`register_mcp_client(..., handle_tool_errors=False)`.** New keyword on the MCP
+  adapter (`tracesage.adapters.mcp`). By default (`True`) an MCP tool that errors
+  server-side returns the error as tool content — the model sees it and can recover,
+  matching langchain-mcp-adapters' behaviour. Pass `False` to make MCP tool errors
+  **raise** instead, so a broken tool call fails the run and shows up as a red error
+  node on the exact tool. Mirrors `ToolNode(handle_tool_errors=...)` for local tools.
+  The loader now binds tools to the server's connection config (not a transient
+  session) so each call opens its own session — fixing a `ClosedResourceError` when
+  errors propagate.
+
+### Changed
+- **Failed nodes render solid red.** In the topology / run-trace graph, a node that
+  errored is now filled solid `--error` red with a matching red glow — not just a red
+  outline. The error styling overrides the trace-mode success/step glows, so a broken
+  node reads unambiguously as red instead of blending toward orange.
+- **MCP server palette recoloured.** The per-server colour palette (`mcpServerColor`)
+  no longer includes red-family hues, so a healthy MCP server/tool is never confused
+  with a failed (red) node. Red is now reserved exclusively for errors.
+
+### Fixed
+- **`register_mcp_client` across langchain-mcp-adapters API variants.** The tool
+  loader falls back cleanly (`get_tools(server_name=...)` → connection config →
+  per-server session) and no longer leaks a closed session.
+- **Example `11_supervisor_research_team`** no longer raises `KeyError: 'next'` — the
+  supervisor's stop branch now always emits a routing key.
+
 ## [0.3.0] — 2026-06-23
 
 A major UI overhaul (topology vs. run-trace, step-through replay, readable

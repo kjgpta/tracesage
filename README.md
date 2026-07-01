@@ -7,7 +7,7 @@
 **See what your LangChain & LangGraph agents actually did.**
 Local-first observability — drop in one line, watch every run live in your browser.
 
-[![PyPI](https://img.shields.io/badge/pypi-v0.3.0-3775A9)](https://pypi.org/project/tracesage/)
+[![PyPI](https://img.shields.io/badge/pypi-v0.3.1-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
 [![License: MIT](https://img.shields.io/pypi/l/tracesage)](LICENSE)
 [![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)

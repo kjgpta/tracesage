@@ -78,7 +78,9 @@ def build_graph() -> Runnable:
 
     async def supervise(state: TeamState) -> TeamState:
         if state["steps"] >= 4:
-            return {**state, "verdict": state.get("verdict") or "stopped"}
+            # Stop condition: always emit next="done" so pick() can route to END
+            # (a missing "next" key would KeyError in the conditional edge).
+            return {**state, "next": "done", "verdict": state.get("verdict") or "stopped"}
         route: Route = await router.ainvoke(
             f"Topic: {state['topic']}. Notes done={bool(state['notes'])}, "
             f"draft done={bool(state['draft'])}, checked={bool(state['verdict'])}. "
@@ -96,7 +98,8 @@ def build_graph() -> Runnable:
         return {**state, "verdict": await checker.ainvoke(state)}
 
     def pick(state: TeamState) -> str:
-        return END if state.get("next") == "done" else state["next"]
+        nxt = state.get("next", "done")
+        return END if nxt == "done" else nxt
 
     builder = StateGraph(TeamState)
     builder.add_node("supervisor", supervise)
