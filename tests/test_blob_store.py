@@ -169,3 +169,19 @@ def test_write_blob_sync_cleans_tmp_on_failure(tmp_data_dir: Path, monkeypatch) 
         bs._write_blob_sync(tmp_data_dir, "r-fail", "e1", {"k": "v"})
     assert list(run_dir.glob("*.tmp")) == []  # orphan cleaned up
     assert not (run_dir / "e1.json.gz").exists()  # final never created
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_id", ["..", ".", "", "a/b", "../x", "/tmp/victim", "C:evil"])  # noqa: S108
+async def test_delete_and_size_reject_unsafe_run_id(tmp_data_dir: Path, bad_id: str) -> None:
+    base = tmp_data_dir / "blobs"
+    store = BlobStore(base)
+    sentinel = tmp_data_dir / "sentinel.txt"
+    sentinel.write_text("keep")
+
+    with pytest.raises(ValueError, match="unsafe run_id"):
+        await store.delete_run(bad_id)
+    with pytest.raises(ValueError, match="unsafe run_id"):
+        store.get_size_bytes(bad_id)
+    assert sentinel.exists()
+    assert base.exists()

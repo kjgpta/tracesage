@@ -58,7 +58,11 @@ def config(tmp_data_dir):
 
 @pytest.fixture
 def config_with_token(tmp_data_dir):
-    return TraceSageConfig(data_dir=tmp_data_dir, auth_token="secret-test-token")
+    return TraceSageConfig(
+        data_dir=tmp_data_dir,
+        auth_token="secret-test-token",
+        cors_origins=["http://example.com"],
+    )
 
 
 @pytest.fixture
@@ -194,6 +198,37 @@ async def test_list_runs_pagination(client, db):
     assert body["limit"] == 10
     assert body["offset"] == 10
     assert len(body["runs"]) == 10
+
+
+@pytest.mark.asyncio
+async def test_list_filters_and_sort_over_http(client, db):
+    now = datetime.now(UTC)
+    rows = [
+        ("a", ["source:cursor"], "tc", 3),
+        ("b", ["source:cursor"], "tc", 9),
+        ("c", [], "ty", 5),
+    ]
+    for i, (rid, tags, thread, steps) in enumerate(rows):
+        await db.upsert_run(Run(
+            run_id=rid, root_run_id=rid, tags=tags, thread_id=thread, total_steps=steps,
+            status=RunStatus.COMPLETED, started_at=now + timedelta(seconds=i),
+        ))
+
+    async def ids(path: str, **params: object) -> list[str]:
+        r = await client.get(path, params=params)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        return [x.get("run_id") or x["thread_id"] for x in body.get("runs") or body["threads"]]
+
+    assert await ids("/api/runs", no_source="true") == ["c"]
+    assert await ids("/api/runs", tag="source:cursor", sort="steps") == ["b", "a"]
+    assert await ids("/api/runs", tag="source:cursor", sort="oldest") == ["a", "b"]
+    assert await ids("/api/threads", no_source="true") == ["ty"]
+    assert await ids("/api/threads", min_turns=2) == ["tc"]
+    assert await ids("/api/threads", sort="turns") == ["tc", "ty"]
+    assert (await client.get("/api/runs", params={"sort": "bogus"})).status_code == 422
+    assert (await client.get("/api/threads", params={"sort": "bogus"})).status_code == 422
+    assert (await client.get("/api/threads", params={"min_turns": 0})).status_code == 422
 
 
 # ---------- 404 paths ----------
@@ -364,9 +399,10 @@ async def test_ui_static_paths_skip_auth(auth_client):
 
 @pytest.mark.asyncio
 async def test_root_path_skips_auth(auth_client):
-    """The root path / is treated as public (typically a redirect to /ui/)."""
-    r = await auth_client.get("/")
-    assert r.status_code != 401
+    """`/` is public and redirects to the UI, including when a token is set."""
+    r = await auth_client.get("/", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/ui/"
 
 
 @pytest.mark.asyncio
@@ -422,6 +458,125 @@ async def test_ws_accepts_with_query_token(app_with_auth, db):
         first = ws.receive_json()
         assert first["msg_type"] == "catchup"
         assert first["run_id"] == "ws-auth-ok"
+
+
+@pytest.mark.asyncio
+async def test_ws_accepts_bearer_subprotocol(app_with_auth, db):
+    """The UI's scheme: token as base64url in a subprotocol, server echoes
+    `tracesage.v1` (never the token) so browsers complete the handshake."""
+    import base64
+
+    await db.upsert_run(_make_run("ws-sub"))
+    enc = base64.urlsafe_b64encode(b"secret-test-token").decode().rstrip("=")
+    with (
+        TestClient(app_with_auth) as tclient,
+        tclient.websocket_connect(
+            "/ws/trace/ws-sub", subprotocols=["tracesage.v1", f"tracesage.bearer.{enc}"]
+        ) as ws,
+    ):
+        assert ws.accepted_subprotocol == "tracesage.v1"
+        assert ws.receive_json()["msg_type"] == "catchup"
+
+
+@pytest.mark.asyncio
+async def test_ws_rejects_wrong_bearer_subprotocol(app_with_auth):
+    from fastapi import WebSocketDisconnect
+
+    with (
+        TestClient(app_with_auth) as tclient,
+        pytest.raises(WebSocketDisconnect) as exc,
+        tclient.websocket_connect(
+            "/ws/trace/x", subprotocols=["tracesage.v1", "tracesage.bearer.d3Jvbmc"]
+        ),
+    ):
+        pass
+    assert exc.value.code == 4401
+
+
+@pytest.mark.asyncio
+async def test_ws_rejects_foreign_origin(app, db):
+    """Browsers skip CORS for WS, so a malicious page must be refused by Origin."""
+    from fastapi import WebSocketDisconnect
+
+    await db.upsert_run(_make_run("ws-origin"))
+    with (
+        TestClient(app) as tclient,
+        pytest.raises(WebSocketDisconnect) as exc,
+        tclient.websocket_connect(
+            "/ws/trace/ws-origin", headers={"origin": "https://evil.example"}
+        ),
+    ):
+        pass
+    assert exc.value.code == 4403
+
+    with (
+        TestClient(app) as tclient,
+        tclient.websocket_connect(
+            "/ws/trace/ws-origin", headers={"origin": "http://testserver"}
+        ) as ws,
+    ):
+        assert ws.receive_json()["msg_type"] == "catchup"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/ui/../api/runs", "/ui/./../api/runs", "/ui/..\\api/runs"])
+async def test_ui_dot_segments_are_not_public(app_with_auth, path):
+    from starlette.requests import Request
+
+    from tracesage.server.auth import auth_middleware
+
+    scope = {
+        "type": "http", "method": "GET", "path": path, "raw_path": path.encode(),
+        "query_string": b"", "headers": [], "app": app_with_auth,
+    }
+
+    async def _should_not_be_called(_req):  # pragma: no cover - must not run
+        raise AssertionError("auth must not be skipped")
+
+    resp = await auth_middleware(Request(scope), _should_not_be_called)
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_default_config_sends_no_wildcard_cors(client):
+    r = await client.get("/api/runs", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in {k.lower() for k in r.headers}
+
+
+@pytest.mark.asyncio
+async def test_delete_dotdot_run_id_does_not_escape(client, db, blob_store, tmp_data_dir):
+    sentinel = tmp_data_dir / "keep.txt"
+    sentinel.write_text("x")
+    await db.upsert_run(_make_run(".."))
+    r = await client.delete("/api/runs/%2e%2e")
+    assert r.status_code in (200, 404)
+    assert sentinel.exists()
+    assert blob_store.base_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_journey_limit_returns_latest_steps_and_flags_truncation(client, db):
+    await db.upsert_run(_make_run("big"))
+    for i in range(5):
+        await db.upsert_event(_make_event(f"e{i}", run_id="big", seconds_offset=i))
+
+    r = await client.get("/api/runs/big/journey?limit=3")
+    body = r.json()
+    assert [s["event_id"] for s in body["steps"]] == ["e2", "e3", "e4"]
+    assert body["truncated"] is True
+
+    body = (await client.get("/api/runs/big/journey")).json()
+    assert len(body["steps"]) == 5
+    assert body["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_export_content_disposition_is_sanitized(client, db):
+    await db.upsert_run(_make_run('evil"\r\nX-Injected: yes'))
+    r = await client.get("/api/runs/evil%22%0D%0AX-Injected%3A%20yes/export")
+    assert r.status_code == 200
+    assert "x-injected" not in {k.lower() for k in r.headers}
+    assert r.headers["content-disposition"] == 'attachment; filename="evil___X-Injected__yes.jsonl"'
 
 
 # ---------- Topology ----------
@@ -480,7 +635,7 @@ async def test_topology_endpoint(client, db):
 async def test_topology_scope_param(client, db):
     """/api/topology accepts ?scope= and rejects malformed values."""
     # Valid scopes pass through (empty DB → empty/valid topology, status 200).
-    for scope in ("all", "last_n:5", "run:abc"):
+    for scope in ("all", "last_n:5", "run:abc", "thread:chat-1"):
         r = await client.get("/api/topology", params={"scope": scope})
         assert r.status_code == 200, scope
     # Malformed scope is rejected by the query-pattern validator.

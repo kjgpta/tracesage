@@ -16,7 +16,7 @@ from tracesage.storage import SQLiteBackend
 
 
 def _now() -> datetime:
-    # CLAUDE.md mandates timezone.utc spelling, not datetime.UTC alias.
+    # The project uses the timezone.utc spelling, not the datetime.UTC alias.
     return datetime.now(timezone.utc)
 
 
@@ -105,6 +105,17 @@ async def test_upsert_run_idempotent(backend: SQLiteBackend) -> None:
     assert got is not None
     assert got.status == RunStatus.COMPLETED
     assert got.total_steps == 7
+
+    # A late auto-create upsert (RUNNING, zero counters, later start) must not
+    # resurrect the finished run or wipe its counters.
+    late = _make_run("r1", status=RunStatus.RUNNING, started_at=_now())
+    await backend.upsert_run(late)
+    got = await backend.get_run("r1")
+    assert got is not None
+    assert got.status == RunStatus.COMPLETED
+    assert got.completed_at is not None
+    assert got.total_steps == 7
+    assert got.started_at == started
 
     # Still only one row.
     runs, total = await backend.list_runs()
@@ -603,10 +614,12 @@ async def test_delete_run_removes_whole_tree(backend: SQLiteBackend) -> None:
 # ---------- MCP tool-source attribution ----------
 
 
-async def test_schema_v1_to_v3_migration(tmp_data_dir: Path) -> None:
-    """A pre-v2 DB (events table without mcp_server, user_version=1) must be upgraded
-    in place by init() straight to the current schema: the mcp_server column is added,
-    the v3 mcp_tools table is created and usable, and existing rows survive."""
+@pytest.mark.parametrize("legacy_version", [0, 1])
+async def test_schema_v1_to_v3_migration(tmp_data_dir: Path, legacy_version: int) -> None:
+    """A pre-v2 DB (events table without mcp_server) must be upgraded in place by
+    init() straight to the current schema: the mcp_server column is added, the v3
+    mcp_tools table is created and usable, and existing rows survive. Covers both
+    user_version=1 and unversioned (0) legacy DBs created before stamping existed."""
     db_path = tmp_data_dir / "v1.db"
     # Hand-build a v1 database: old events schema (no mcp_server), user_version=1.
     async with aiosqlite.connect(db_path) as conn:
@@ -634,7 +647,8 @@ async def test_schema_v1_to_v3_migration(tmp_data_dir: Path) -> None:
             "tool_name, summary) VALUES (?, ?, ?, ?, ?, ?, ?)",
             ("e0", "old", "old", "tool_start", _now().isoformat(), "legacy_tool", "s"),
         )
-        await conn.execute("PRAGMA user_version = 1")
+        if legacy_version:
+            await conn.execute("PRAGMA user_version = 1")
         await conn.commit()
 
     be = SQLiteBackend(db_path)
@@ -654,7 +668,10 @@ async def test_schema_v1_to_v3_migration(tmp_data_dir: Path) -> None:
             cur = await conn.execute("PRAGMA user_version")
             ver = (await cur.fetchone())[0]
             await cur.close()
-        assert ver == 3  # v1 DB upgrades straight to the current schema version
+        assert ver == 6  # v1 DB upgrades straight to the current schema version
+        old = await be.get_run("old")
+        assert old is not None
+        assert old.thread_id is None  # v4 column added to the legacy runs table
         # The v3 mcp_tools table must exist AND be usable post-migration — a
         # regression that bumped the version without creating it would fail here.
         await be.upsert_mcp_tools("weather", ["get_weather", "air_quality"])
@@ -712,9 +729,181 @@ async def test_schema_v2_to_v3_migration_adds_mcp_tools(tmp_data_dir: Path) -> N
             cur = await conn.execute("PRAGMA user_version")
             ver = (await cur.fetchone())[0]
             await cur.close()
-        assert ver == 3
+        assert ver == 6
     finally:
         await be.close()
+
+
+async def test_thread_id_persisted_and_filterable(backend: SQLiteBackend) -> None:
+    for rid, thread in (("a", "t1"), ("b", "t1"), ("c", "t2"), ("d", None)):
+        await backend.upsert_run(
+            Run(run_id=rid, root_run_id=rid, started_at=_now(), thread_id=thread)
+        )
+    runs, total = await backend.list_runs(thread_id="t1")
+    assert total == 2
+    assert {r.run_id for r in runs} == {"a", "b"}
+    # A later upsert without a thread_id (e.g. a sub-event's run row) keeps it.
+    await backend.upsert_run(Run(run_id="a", root_run_id="a", started_at=_now()))
+    run_a = await backend.get_run("a")
+    assert run_a is not None
+    assert run_a.thread_id == "t1"
+
+
+async def test_list_runs_sort(backend: SQLiteBackend) -> None:
+    base = _now()
+    for i, (rid, steps) in enumerate((("old", 9), ("mid", 1), ("new", 4))):
+        run = Run(run_id=rid, root_run_id=rid, started_at=base + timedelta(seconds=i),
+                  total_steps=steps)
+        await backend.upsert_run(run)
+    order = {}
+    for sort in ("recent", "oldest", "steps"):
+        runs, total = await backend.list_runs(sort=sort)
+        assert total == 3
+        order[sort] = [r.run_id for r in runs]
+    assert order == {
+        "recent": ["new", "mid", "old"],
+        "oldest": ["old", "mid", "new"],
+        "steps": ["old", "new", "mid"],
+    }
+
+
+async def test_list_threads_sort_min_turns_and_text_search(backend: SQLiteBackend) -> None:
+    base = _now()
+    turns = (("a1", "long", 0), ("a2", "long", 1), ("a3", "long", 2), ("b1", "short", 5))
+    for rid, thread, offset in turns:
+        await backend.upsert_run(Run(run_id=rid, root_run_id=rid, thread_id=thread,
+                                     started_at=base + timedelta(seconds=offset)))
+    await backend.upsert_event(StoredEvent(
+        event_id="e", run_id="a2", root_run_id="a2", event_type=EventType.CHAIN_START,
+        timestamp=base, summary="hello", search_text="walrus-needle",
+    ))
+    recent, _ = await backend.list_threads()
+    assert [t.thread_id for t in recent] == ["short", "long"]
+    by_turns, _ = await backend.list_threads(sort="turns")
+    assert [t.thread_id for t in by_turns] == ["long", "short"]
+    longer, total = await backend.list_threads(min_turns=2)
+    assert ([t.thread_id for t in longer], total) == (["long"], 1)
+    found, total = await backend.list_threads(q="walrus-needle")
+    assert ([t.thread_id for t in found], total) == (["long"], 1)
+
+
+async def _seed_filter_matrix(backend: SQLiteBackend) -> list[Run]:
+    """Runs across sources, statuses and threads, with distinct sizes and times."""
+    base = _now()
+    spec = [
+        # run_id, tags, status, thread, steps
+        ("c1", ["source:cursor"], RunStatus.COMPLETED, "tc", 5),
+        ("c2", ["source:cursor"], RunStatus.FAILED, "tc", 9),
+        ("c3", ["source:cursor"], RunStatus.COMPLETED, "tc", 2),
+        ("d1", ["source:claude-desktop"], RunStatus.COMPLETED, "td", 7),
+        ("d2", ["source:claude-desktop"], RunStatus.INTERRUPTED, "td", 1),
+        ("k1", ["source:claude-code"], RunStatus.COMPLETED, "tk", 3),
+        ("y1", [], RunStatus.COMPLETED, "ty", 4),
+        ("y2", ["mine"], RunStatus.FAILED, "ty", 8),
+        ("y3", [], RunStatus.COMPLETED, None, 6),
+    ]
+    runs = []
+    for i, (rid, tags, status, thread, steps) in enumerate(spec):
+        run = Run(run_id=rid, root_run_id=rid, tags=tags, status=status, thread_id=thread,
+                  started_at=base + timedelta(seconds=i), total_steps=steps)
+        runs.append(run)
+        await backend.upsert_run(run)
+        await backend.update_run_status(rid, status, completed_at=base + timedelta(seconds=i))
+    await backend.upsert_event(StoredEvent(
+        event_id="ev", run_id="c2", root_run_id="c2", event_type=EventType.CHAIN_START,
+        timestamp=base, summary="s", search_text="zebra-needle",
+    ))
+    await backend.upsert_event(StoredEvent(
+        event_id="ev2", run_id="y2", root_run_id="y2", event_type=EventType.CHAIN_START,
+        timestamp=base, summary="s", search_text="zebra-needle",
+    ))
+    return runs
+
+
+def _has_source(run: Run) -> bool:
+    return any(t.startswith("source:") for t in run.tags)
+
+
+async def test_list_runs_filter_combinations(backend: SQLiteBackend) -> None:
+    runs = await _seed_filter_matrix(backend)
+    sources = {"all": None, "cursor": "source:cursor", "claude-desktop": "source:claude-desktop",
+               "codex": "source:codex", "yours": "yours"}
+    statuses = ["all", "completed", "failed", "interrupted", "running"]
+    sorts = {
+        "recent": lambda r: [x.run_id for x in sorted(r, key=lambda x: x.started_at, reverse=True)],
+        "oldest": lambda r: [x.run_id for x in sorted(r, key=lambda x: x.started_at)],
+        "steps": lambda r: [x.run_id for x in sorted(
+            r, key=lambda x: (x.total_steps, x.started_at), reverse=True)],
+    }
+    for source, tag in sources.items():
+        for status in statuses:
+            for query in (None, "zebra-needle"):
+                for sort, expected_order in sorts.items():
+                    want = [
+                        r for r in runs
+                        if (tag is None
+                            or (not _has_source(r) if tag == "yours" else tag in r.tags))
+                        and (status == "all" or r.status.value == status)
+                        and (query is None or r.run_id in {"c2", "y2"})
+                    ]
+                    got, total = await backend.list_runs(
+                        status=status,
+                        tag=None if tag in (None, "yours") else tag,
+                        no_source=tag == "yours",
+                        q=query,
+                        sort=sort,
+                    )
+                    label = (source, status, query, sort)
+                    assert total == len(want), label
+                    assert [r.run_id for r in got] == expected_order(want), label
+
+
+async def test_list_threads_filter_combinations(backend: SQLiteBackend) -> None:
+    runs = await _seed_filter_matrix(backend)
+    in_threads = [r for r in runs if r.thread_id]
+    sources = {"all": None, "cursor": "source:cursor", "codex": "source:codex", "yours": "yours"}
+    for source, tag in sources.items():
+        for min_turns in (1, 2, 3):
+            for query in (None, "zebra-needle", "tc"):
+                for sort in ("recent", "oldest", "turns"):
+                    pool = [
+                        r for r in in_threads
+                        if tag is None or (not _has_source(r) if tag == "yours" else tag in r.tags)
+                    ]
+                    by_thread: dict[str, list[Run]] = {}
+                    for r in pool:
+                        by_thread.setdefault(str(r.thread_id), []).append(r)
+                    if query == "zebra-needle":
+                        hit = {"tc", "ty"}
+                    elif query == "tc":
+                        hit = {"tc"}
+                    else:
+                        hit = None
+                    want = {
+                        t: rs for t, rs in by_thread.items()
+                        if len(rs) >= min_turns and (hit is None or t in hit)
+                    }
+                    got, total = await backend.list_threads(
+                        tag=None if tag in (None, "yours") else tag,
+                        no_source=tag == "yours",
+                        min_turns=min_turns,
+                        q=query,
+                        sort=sort,
+                    )
+                    label = (source, min_turns, query, sort)
+                    assert total == len(want), label
+                    assert {t.thread_id for t in got} == set(want), label
+                    if sort == "turns":
+                        counts = [t.run_count for t in got]
+                        assert counts == sorted(counts, reverse=True), label
+
+
+async def test_interrupted_status_counted_in_stats(backend: SQLiteBackend) -> None:
+    await backend.upsert_run(Run(run_id="p", root_run_id="p", started_at=_now()))
+    await backend.update_run_status("p", RunStatus.INTERRUPTED, completed_at=_now())
+    runs, _ = await backend.list_runs(status="interrupted")
+    assert [r.run_id for r in runs] == ["p"]
+    assert (await backend.get_stats())["interrupted"] == 1
 
 
 async def test_get_topology_sets_tool_source(backend: SQLiteBackend) -> None:
@@ -789,6 +978,15 @@ async def test_topology_scope_excludes_stale_runs(backend: SQLiteBackend) -> Non
     assert servers(await backend.get_topology(scope="last_n:1")) == {"news"}     # latest run
     assert servers(await backend.get_topology(scope="run:run1")) == {"weather"}  # that run
     assert servers(await backend.get_topology(scope="run:run2")) == {"news"}     # stale gone
+    await backend.upsert_run(Run(
+        run_id="run1", root_run_id="run1", started_at=t0, thread_id="chat-a",
+    ))
+    await backend.upsert_run(Run(
+        run_id="run2", root_run_id="run2", started_at=t0 + timedelta(seconds=100),
+        thread_id="chat-a",
+    ))
+    assert servers(await backend.get_topology(scope="thread:chat-a")) == {"weather", "news"}
+    assert (await backend.get_topology(scope="thread:missing")).nodes == []
 
     # Tools-by-source scopes the same way.
     inv = await backend.get_tool_inventory(scope="run:run2")
@@ -876,3 +1074,80 @@ async def test_get_tool_inventory_groups_by_source(backend: SQLiteBackend) -> No
     assert by_source["local"]["error_count"] == 1
     # local bucket sorts last.
     assert inv["sources"][-1]["source"] == "local"
+
+
+async def test_schema_v4_to_v5_flags_reindex_and_indexes_summaries(tmp_data_dir: Path) -> None:
+    """A v4 database gains cost columns and an FTS index of existing summaries."""
+    db_path = tmp_data_dir / "v4.db"
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, root_run_id TEXT NOT NULL, "
+            "tags TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'running', "
+            "started_at TEXT NOT NULL, completed_at TEXT, total_steps INTEGER NOT NULL "
+            "DEFAULT 0, total_tokens_input INTEGER NOT NULL DEFAULT 0, "
+            "total_tokens_output INTEGER NOT NULL DEFAULT 0, graph_definition TEXT, "
+            "error_message TEXT, thread_id TEXT)"
+        )
+        await conn.execute(
+            "CREATE TABLE events (event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, "
+            "parent_run_id TEXT, root_run_id TEXT NOT NULL, event_type TEXT NOT NULL, "
+            "timestamp TEXT NOT NULL, agent_name TEXT, tool_name TEXT, summary TEXT "
+            "NOT NULL, blob_path TEXT, duration_ms INTEGER, token_input INTEGER, "
+            "token_output INTEGER, error_message TEXT, mcp_server TEXT)"
+        )
+        await conn.execute(
+            "INSERT INTO events (event_id, run_id, root_run_id, event_type, timestamp, "
+            "summary) VALUES ('e1', 'r1', 'r1', 'llm_end', '2026-01-01T00:00:00+00:00', "
+            "'book the seaside hotel')"
+        )
+        await conn.execute("PRAGMA user_version = 4")
+        await conn.commit()
+
+    be = SQLiteBackend(db_path)
+    await be.init()
+    try:
+        assert await be.needs_reindex()
+        hits = await be.search_events("seaside")
+        assert hits
+        assert hits[0].event_id == "e1"
+        async with be._conn() as conn:
+            cur = await conn.execute("PRAGMA user_version")
+            ver = (await cur.fetchone())[0]
+            await cur.close()
+        assert ver == 6
+    finally:
+        await be.close()
+
+
+async def test_schema_v5_to_v6_keeps_indexed_payload_and_upserts_by_rowid(tmp_path) -> None:
+    db_path = tmp_path / "v5.db"
+    be = SQLiteBackend(db_path)
+    await be.init()
+    await be.upsert_run(_make_run("r1"))
+    async with be._conn() as conn:
+        await conn.execute(
+            "INSERT INTO events (event_id, run_id, root_run_id, event_type, timestamp, summary) "
+            "VALUES ('e1', 'r1', 'r1', 'llm_end', '2026-01-01T00:00:00+00:00', 'plain')"
+        )
+        await conn.execute("DELETE FROM events_fts")
+        await conn.execute(
+            "INSERT INTO events_fts(rowid, name, summary, error, payload, event_id, root_run_id) "
+            "VALUES (999, '', 'plain', '', 'lighthouse keeper', 'e1', 'r1')"
+        )
+        await conn.execute("PRAGMA user_version = 5")
+        await conn.commit()
+    await be.close()
+
+    be = SQLiteBackend(db_path)
+    await be.init()
+    try:
+        hits = await be.search_events("lighthouse")
+        assert [hit.event_id for hit in hits] == ["e1"]
+        async with be._conn() as conn:
+            cur = await conn.execute(
+                "SELECT f.rowid = e.rowid FROM events_fts f JOIN events e USING(event_id)"
+            )
+            assert (await cur.fetchone())[0] == 1
+            await cur.close()
+    finally:
+        await be.close()
