@@ -294,6 +294,7 @@ export class GraphView {
     }
     this.nodes = [...nextNodes.values()];
     this.nodesById = nextNodes;
+    knownNodeIds = new Set(nextNodes.keys());
 
     // Build edges.
     const nextEdges = new Map();
@@ -395,7 +396,7 @@ export class GraphView {
       if (!node) continue;
       const t = ev.event_type;
       const isStart = t.endsWith('_start') || t === 'run_start' || t === 'agent_action';
-      const isEnd = t.endsWith('_end') || t.endsWith('_error');
+      const isEnd = t.endsWith('_end') || t.endsWith('_error') || t === 'chain_interrupt';
       const isContainer = node.type === 'chain' || node.type === 'agent';
 
       if (isStart) {
@@ -437,7 +438,9 @@ export class GraphView {
     // Tidy-tree Y assignment: leaves take sequential rows; a parent centers on
     // the vertical span of its children.
     const TOP = 110;
-    const ROW_DY = 96;
+    // Must clear a node's label (~NODE_HALF + 18 below centre) plus the next
+    // node's MCP source chip (~NODE_HALF * 0.7 + 23 above centre).
+    const ROW_DY = 124;
     const COL_W = 230;
     const PAD_LEFT = 90;
     const yOf = new Map();
@@ -707,6 +710,8 @@ export class GraphView {
     if (isFocused) g.classList.add('focused');
     if (isNeighbor) g.classList.add('neighbor');
     if ((n.errors || 0) > 0) g.classList.add('error');
+    const isPaused = inRunMode && !!this.runPausedIds?.has(n.id);
+    if (isPaused) g.classList.add('paused');
 
     // Invisible hitbox so the entire labeled area registers clicks reliably,
     // even on empty space between the shape and the text label.
@@ -797,6 +802,26 @@ export class GraphView {
     });
     label.textContent = this._truncate(n.name, 22);
     g.appendChild(label);
+
+    if (isPaused) {
+      const pill = el('g', { class: 'node-paused-pill' });
+      const pillY = NODE_HALF + 26;
+      pill.appendChild(el('rect', {
+        x: -46, y: pillY, width: 92, height: 17, rx: 8.5, ry: 8.5,
+        fill: cssVar('--warning'),
+      }));
+      const pillTxt = el('text', {
+        x: 0, y: pillY + 12, 'text-anchor': 'middle',
+        'font-size': 9.5, 'font-weight': 700, 'letter-spacing': 0.6,
+        fill: '#0d1117',
+      });
+      pillTxt.textContent = 'PAUSED · INPUT';
+      pill.appendChild(pillTxt);
+      const tip = el('title');
+      tip.textContent = 'interrupt(): waiting for human input. Resuming starts a new run on the same thread.';
+      pill.appendChild(tip);
+      g.appendChild(pill);
+    }
 
     // Invocation count bubble.
     const countBubble = el('g', { class: 'node-count' });
@@ -1297,17 +1322,21 @@ export class GraphView {
     this.runNodeIds = new Set(nodeIds);
     this.runEdges = new Set(traversedEdges.map(e => `${e.source}->${e.target}`));
     this.runJourney = journey;
+    // A focus left over from another view would fade every node of this run.
+    if (this.focusedNodeId && !this.runNodeIds.has(this.focusedNodeId)) this.focusedNodeId = null;
 
     // Per-trace counts (THIS run only) so node/edge badges in trace mode reflect
     // this run — not the topology's scoped all-runs aggregate.
     this.runCounts = new Map();
     this.runEdgeCounts = new Map();
+    this.runPausedIds = new Set();   // nodes that called a LangGraph interrupt()
     if (journey) {
       let prevId = null;
       for (const ev of journey) {
         const id = this._eventNodeId(ev);
         if (!id) continue;
         const t = ev.event_type;
+        if (t === 'chain_interrupt') this.runPausedIds.add(id);
         if (t.endsWith('_start') || t === 'run_start' || t === 'agent_action') {
           this.runCounts.set(id, (this.runCounts.get(id) || 0) + 1);
         }
@@ -1355,6 +1384,7 @@ export class GraphView {
     this.runJourney = null;
     this.runCounts = null;
     this.runEdgeCounts = null;
+    this.runPausedIds = null;
     // Back to topology layout.
     this.mode = 'topology';
     this._layout();
@@ -1639,8 +1669,17 @@ export function nodeIdForEvent(ev) {
   if (!kind) return null;
   const name = ev.tool_name || ev.agent_name;
   if (!name) return null;
+  // The backend demotes a leaf 'agent' (no descendant events, e.g. a plain-Python
+  // graph node or a human-approval node) to 'chain', which the event alone can't
+  // tell. Prefer whichever id the current topology actually has.
+  if (kind === 'agent' && !knownNodeIds.has(`agent:${name}`) && knownNodeIds.has(`chain:${name}`)) {
+    return `chain:${name}`;
+  }
   return `${kind}:${name}`;
 }
+
+// Node ids of the most recent topology passed to setTopology().
+let knownNodeIds = new Set();
 
 export function escapeHtml(s) {
   if (s == null) return '';

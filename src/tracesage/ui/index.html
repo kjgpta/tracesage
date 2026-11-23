@@ -48,15 +48,6 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="search-box">
-        <input
-          type="search"
-          id="search-input"
-          placeholder="Search runs, tags... (press /)"
-          aria-label="Search runs by id or tag"
-          autocomplete="off"
-        >
-      </div>
       <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme (t)">
         <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <circle cx="12" cy="12" r="4"/>
@@ -83,6 +74,10 @@
   </header>
 
   <main class="app-main">
+    <div class="pane-resizer" id="resize-runs" data-pane="runs" role="separator"
+         aria-orientation="vertical" aria-label="Resize run list" title="Drag to resize · double-click to reset" tabindex="0"></div>
+    <div class="pane-resizer" id="resize-timeline" data-pane="timeline" role="separator"
+         aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize · double-click to reset" tabindex="0"></div>
     <aside class="pane pane-runs" aria-label="Run list">
       <button class="pane-collapse-btn pane-collapse-left" id="collapse-runs" type="button"
               aria-label="Collapse run list" title="Collapse runs panel">
@@ -99,13 +94,50 @@
       </button>
       <div class="pane-content">
         <div class="pane-header">
-          <h2>Runs</h2>
-          <select id="status-filter" aria-label="Filter by status">
-            <option value="all">all</option>
-            <option value="running">running</option>
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
-          </select>
+          <h2 class="sr-only">Runs</h2>
+          <div class="list-toggle" role="tablist" aria-label="List mode">
+            <button class="list-toggle-btn active" data-list="runs" type="button" role="tab" aria-selected="true">Runs</button>
+            <button class="list-toggle-btn" data-list="threads" type="button" role="tab" aria-selected="false">Threads</button>
+          </div>
+          <input type="search" id="search-input" class="list-search"
+                 placeholder="Search runs…" title="Press / to focus"
+                 aria-label="Search runs" autocomplete="off" spellcheck="false">
+          <div class="list-filters" role="group" aria-label="Filters">
+            <select id="source-filter" class="list-filter" aria-label="Filter by source" data-source="all">
+              <option value="all">All sources</option>
+              <option value="claude-code">Claude Code</option>
+              <option value="claude-desktop">Claude Desktop</option>
+              <option value="cursor">Cursor</option>
+              <option value="codex">Codex</option>
+              <option value="yours">Your agents</option>
+            </select>
+            <select id="status-filter" class="list-filter runs-only" aria-label="Filter by status">
+              <option value="all">Any status</option>
+              <option value="running">Running</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="interrupted">Interrupted</option>
+            </select>
+            <select id="turns-filter" class="list-filter threads-only" aria-label="Filter by length">
+              <option value="1">Any length</option>
+              <option value="2">2+ turns</option>
+              <option value="5">5+ turns</option>
+              <option value="20">20+ turns</option>
+            </select>
+            <select id="runs-sort" class="list-filter runs-only" aria-label="Sort runs">
+              <option value="recent">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="steps">Most steps</option>
+              <option value="tokens">Most tokens</option>
+              <option value="cost">Highest cost</option>
+            </select>
+            <select id="threads-sort" class="list-filter threads-only" aria-label="Sort threads">
+              <option value="recent">Latest activity</option>
+              <option value="oldest">Oldest activity</option>
+              <option value="turns">Most turns</option>
+              <option value="tokens">Most tokens</option>
+            </select>
+          </div>
         </div>
         <div class="run-list" id="run-list" role="list" tabindex="0" aria-label="Runs">
           <div class="skeleton-list" aria-hidden="true">
@@ -128,6 +160,8 @@
           <div class="seg-toggle" role="tablist" aria-label="Graph mode">
             <button class="seg-btn active" data-mode="topology" role="tab" aria-selected="true">Topology</button>
             <button class="seg-btn" data-mode="trace" role="tab" aria-selected="false" disabled>Run trace</button>
+            <button class="seg-btn" data-mode="waterfall" role="tab" aria-selected="false" disabled>Waterfall</button>
+            <button class="seg-btn" data-mode="conversation" role="tab" aria-selected="false" disabled>Conversation</button>
           </div>
           <span class="topology-scope-wrap" id="topology-scope-wrap">
             <select id="topology-scope" class="topology-scope" aria-label="Topology scope"
@@ -185,6 +219,8 @@
         </div>
       </div>
       <div id="graph-container" class="graph-container" role="img" aria-label="Agent topology graph"></div>
+      <div id="waterfall" class="waterfall hidden" aria-label="Latency waterfall"></div>
+      <div id="conversation" class="conversation hidden" aria-label="Conversation"></div>
       <div id="graph-tooltip" class="graph-tooltip hidden" role="tooltip"></div>
       <div id="replay-step-badge" class="replay-step-badge" aria-live="polite">
         <span class="step-label">Replay step <span id="replay-step-current">0</span> / <span id="replay-step-total">0</span></span>
@@ -201,15 +237,9 @@
         </div>
         <div id="legend-mcp-servers" class="legend-section legend-mcp hidden"></div>
       </div>
-      <div id="tools-panel" class="tools-panel" aria-label="Tools by source">
-        <div class="tools-panel-header" title="Drag to move · click to collapse">
-          <span class="tools-panel-title">Tools by source</span>
-          <button class="tools-panel-toggle" id="tools-panel-toggle" type="button"
-                  aria-label="Collapse tools panel" aria-expanded="true">&#x2212;</button>
-        </div>
-        <div class="tools-panel-body" id="tools-panel-body">
-          <div class="tools-panel-empty">No tools yet</div>
-        </div>
+      <div id="center-overlay" class="center-overlay hidden" aria-live="polite">
+        <div class="spinner" id="center-spinner" aria-hidden="true"></div>
+        <p id="center-overlay-text">Loading…</p>
       </div>
       <div id="graph-empty" class="graph-empty hidden">
         <div class="empty-card">
@@ -243,25 +273,38 @@ result = await graph.ainvoke(
              stroke-width="2.5" aria-hidden="true">
           <path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span class="pane-expand-label">Timeline</span>
+        <span class="pane-expand-label" id="expand-timeline-label">Timeline</span>
       </button>
       <div class="pane-content">
         <div class="pane-header">
-          <h2>Timeline</h2>
+          <h2 class="sr-only">Details</h2>
+          <div class="list-toggle right-toggle" role="tablist" aria-label="Side panel">
+            <button class="list-toggle-btn active" data-right="timeline" type="button" role="tab" aria-selected="true">Timeline</button>
+            <button class="list-toggle-btn" data-right="tools" type="button" role="tab" aria-selected="false">Tools</button>
+          </div>
           <span class="timeline-meta" id="timeline-meta">no run selected</span>
         </div>
-        <div class="timeline-search">
-          <input type="search" id="timeline-search" class="timeline-search-input"
-                 placeholder="Filter steps… (tool, agent, text, type)"
-                 aria-label="Filter timeline steps" autocomplete="off" spellcheck="false" />
-          <span class="timeline-search-count" id="timeline-search-count" aria-live="polite"></span>
+        <div class="right-view" id="timeline-view">
+          <div id="run-notes" class="run-notes hidden" aria-label="Run notes"></div>
+          <div class="timeline-search">
+            <input type="search" id="timeline-search" class="timeline-search-input"
+                   placeholder="Filter steps… (tool, agent, text, type)"
+                   aria-label="Filter timeline steps" autocomplete="off" spellcheck="false" />
+            <span class="timeline-search-count" id="timeline-search-count" aria-live="polite"></span>
+          </div>
+          <div class="timeline" id="timeline" role="list" aria-live="polite">
+            <div class="timeline-empty">
+              <p>Select a run to inspect its timeline.</p>
+            </div>
+          </div>
+          <button id="newest-pill" class="newest-pill hidden" aria-label="Jump to newest events">↓ <span id="newest-count">0</span> new</button>
         </div>
-        <div class="timeline" id="timeline" role="list" aria-live="polite">
-          <div class="timeline-empty">
-            <p>Select a run to inspect its timeline.</p>
+        <div class="right-view hidden" id="tools-view" aria-label="Tools by source">
+          <p class="tools-view-scope" id="tools-view-scope">Tools used in this run, grouped by MCP server.</p>
+          <div class="tools-panel-body" id="tools-panel-body">
+            <div class="tools-panel-empty">No tools yet</div>
           </div>
         </div>
-        <button id="newest-pill" class="newest-pill hidden" aria-label="Jump to newest events">↓ <span id="newest-count">0</span> new</button>
       </div>
     </aside>
   </main>
