@@ -71,7 +71,7 @@ def test_start_and_stop_use_launchctl_without_running_it(tmp_path: Path, monkeyp
     plist.parent.mkdir(parents=True)
     plist.write_text("<plist/>", encoding="utf-8")
     monkeypatch.setattr("tracesage.service.platform_name", lambda: "launchd")
-    monkeypatch.setattr("tracesage.service.os.getuid", lambda: 501)
+    monkeypatch.setattr("tracesage.service.os.getuid", lambda: 501, raising=False)
     monkeypatch.setattr("tracesage.service.subprocess.run", fake_run)
     code, message = start_service(
         tmp_path,
