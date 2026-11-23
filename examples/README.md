@@ -5,6 +5,7 @@ Three tiers, from a 30-second first taste to a 30-app real-world gallery.
 | Tier | Folder | Needs | What it is |
 |---|---|---|---|
 | **Getting started** | [`getting_started/`](getting_started/) | no API key | 3 standalone demos driven by `FakeListChatModel` — run instantly, see your first trace |
+| **Frameworks** | [`frameworks/`](frameworks/) | no key for Pydantic AI / manual spans | Pydantic AI, OpenAI Agents SDK, CrewAI, OpenAI / Anthropic clients, manual span API, `serve --ingest` |
 | **MCP tools** | [`mcp/`](mcp/) | `tracesage[mcp]` | tools from local MCP servers attributed by source, plus hardcoded tools |
 | **Showcase** | [`showcase/`](showcase/) | an LLM API key | **30 real before/after apps** across popular use cases — the integration gallery |
 

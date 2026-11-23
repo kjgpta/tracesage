@@ -2,11 +2,12 @@
 
 tracesage ships a gallery of **runnable** examples in the
 [`examples/`](https://github.com/kjgpta/tracesage/tree/main/examples) directory,
-in three tiers — from a 30-second first taste to a 30-app before/after gallery.
+in four tiers — from a 30-second first taste to a 30-app before/after gallery.
 
 | Tier | Folder | Needs | What it is |
 |---|---|---|---|
 | **Getting started** | [`examples/getting_started/`](https://github.com/kjgpta/tracesage/tree/main/examples/getting_started) | no API key | 3 standalone demos driven by `FakeListChatModel` — run instantly |
+| **Frameworks** | [`examples/frameworks/`](https://github.com/kjgpta/tracesage/tree/main/examples/frameworks) | no key for Pydantic AI / manual; LLM key for the rest | Pydantic AI, OpenAI Agents SDK, CrewAI, OpenAI / Anthropic clients, manual spans, OTLP collector |
 | **MCP tools** | [`examples/mcp/`](https://github.com/kjgpta/tracesage/tree/main/examples/mcp) | `tracesage[mcp]` (+ LLM key for the real-world demos) | intro scenarios + two real-world demos (Trip Planner, Gmail+YouTube) — tools attributed by source |
 | **Showcase** | [`examples/showcase/`](https://github.com/kjgpta/tracesage/tree/main/examples/showcase) | an LLM API key | **30 real before/after apps** across popular use cases |
 
@@ -21,6 +22,19 @@ python examples/getting_started/01_smart_search_agent.py   # then open the URL i
 (multi-agent supervisor), `03_rag_with_tools` (LCEL chain + retriever + tools).
 These use `FakeListChatModel`, so they run with **no API key**.
 
+## Frameworks beyond LangChain
+
+```bash
+pip install "tracesage[pydantic-ai]" pydantic-ai-slim
+python examples/frameworks/pydantic_ai_agent.py      # Pydantic AI TestModel — no API key
+python examples/frameworks/manual_api.py             # manual span API — no API key
+```
+
+[`examples/frameworks/`](https://github.com/kjgpta/tracesage/tree/main/examples/frameworks)
+has one script each for Pydantic AI, the OpenAI Agents SDK, CrewAI, the OpenAI and
+Anthropic clients and the manual span API, plus a `tracesage serve --ingest` recipe for
+sending spans from another process. See [Frameworks](frameworks.md).
+
 ## MCP tools
 
 ```bash
@@ -28,7 +42,7 @@ pip install "tracesage[mcp]"
 python examples/mcp/main.py            # then open the URL it prints (default http://localhost:7842/ui)
 ```
 
-Tools attributed by source in the topology and the "Tools by source" panel:
+Tools attributed by source in the topology and the Tools tab:
 
 - **Intro scenarios** (`main.py`, `mcp_only.py`, `local_only.py`, `single_agent_multi_mcp.py`) —
   two local stdio MCP servers (`weather`, `math`) plus hardcoded tools; **no API key**.
@@ -71,7 +85,7 @@ Each app folder has its own README explaining what the trace reveals.
 
 ## Each example is its own application (isolated data dir)
 
-The topology map and the **"Tools by source"** panel aggregate every run in a data dir,
+The topology map and the **Tools** tab aggregate every run in a data dir,
 so two applications sharing one dir would merge into a single graph. To keep them
 separate, **every example writes to its own data dir** under `~/.tracesage/`:
 

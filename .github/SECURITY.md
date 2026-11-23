@@ -2,14 +2,14 @@
 
 ## Supported versions
 
-tracesage is currently in v0.1 alpha. Only the latest minor release receives
-security fixes. Once v1.0 ships, the previous minor will receive fixes for
-6 months after the next release.
+tracesage is stable as of v1.0.0. The latest minor release receives security
+fixes, and the previous minor receives them for 6 months after the next minor ships.
+Pre-1.0 releases are no longer supported.
 
 | Version | Supported          |
 |---------|--------------------|
-| 0.1.x   | yes (alpha)        |
-| < 0.1   | no                 |
+| 1.0.x   | yes                |
+| < 1.0   | no                 |
 
 ## Reporting a vulnerability
 

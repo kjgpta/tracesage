@@ -61,7 +61,7 @@ in the graph toolbar:
 - **All time** — every run ever (the historical union).
 
 Removing a tool/server and re-running makes it disappear immediately under "This run".
-This applies to the **"Tools by source"** panel too, and even drops a removed MCP
+This applies to the **Tools** tab too, and even drops a removed MCP
 server's registered-but-uncalled tools (a server's tools show only if it was active in
 the scoped run). Trade-off: a single run may not exercise every conditional branch —
 switch to "Last N" / "All time" when you want broader coverage.
@@ -104,6 +104,18 @@ You don't need to remember this rule — it's deterministic and you'll see
 the result in the UI directly. The point is: **what's an agent vs. a chain
 is a property of what the function actually does at runtime, not what
 LangChain calls the callback**.
+
+### Non-LangChain sources
+
+The same five kinds apply to spans that arrive through OpenTelemetry (Pydantic AI,
+OpenAI Agents SDK, CrewAI, the OpenAI / Anthropic clients, `tracesage serve --ingest`)
+and to [manual spans](frameworks.md#3-manual-spans-trace-your-own-code). For OTel spans
+the event type is chosen *before* storage, from the span's attributes:
+`gen_ai.operation.name` (`chat` → `llm`, `execute_tool` → `tool`, `invoke_agent` → `agent`,
+`retrieval` → `retriever`) → `openinference.span.kind` → the span-name prefix → a
+model+tokens heuristic → `chain`. The run is the OTel trace; `service.name` becomes a run
+tag. Manual spans say their kind outright (`tl.span("x", kind="tool")`). Details and
+the full attribute table are in [Frameworks](frameworks.md#how-otel-spans-become-tracesage-runs).
 
 ---
 
@@ -331,9 +343,60 @@ Each step in the timeline has two levels of detail:
   shows just the request; opening a `*_end` shows the full request **and** response,
   plus tokens, duration, and any error.
 
-![step drawer showing the full request and response payloads with token counts](assets/ui-step-payload.png)
+![step drawer for a tool call: metadata, a one-line summary, and the full request and response payloads](assets/ui-step-payload.png)
 
 ---
+
+## Cost, search, waterfall, conversations
+
+An `llm` end event stores the model, the provider, input/output tokens and, when
+the model reports them, cache-read and cache-write tokens. If the optional
+`tracesage[pricing]` extra (or `tracesage[apps]`, which includes it) is installed,
+tracesage prices that call offline with `genai-prices` and stores `cost_usd` on
+the event and `total_cost_usd` on the run. An unknown model, or a base install
+without the extra, shows **n/a** rather than $0. Override a rate with
+`TRACESAGE_PRICE_OVERRIDES`.
+
+The runs list search box queries an FTS5 index of step names, summaries, errors
+and redacted payload text (`TRACESAGE_SEARCH_INDEX_PAYLOADS`, capped by
+`TRACESAGE_SEARCH_MAX_CHARS_PER_EVENT`). Each matching run shows a snippet, and
+the matching steps are highlighted in its timeline. `tracesage search "seaside hotel"`
+does the same from the terminal.
+
+![Latency waterfall: one bar per span, model calls marked with their cost](assets/ui-waterfall.png)
+
+![Search hits in the run list, with the matching timeline step highlighted](assets/ui-search.png)
+
+![Conversation view of a support thread, user and assistant turns with tool chips](assets/ui-conversation.png)
+
+The graph pane has two more modes next to topology and the run trace:
+
+- **Waterfall** — one bar per span, from `GET /api/runs/{id}/spans`, so you can see
+  which step took the time. `tracesage show <id> --waterfall` prints the same bars.
+- **Conversation** — user and assistant text plus tool chips. For a run it shows
+  that one turn, with a link to the whole chat. The Runs | Threads toggle lists
+  threads; opening a thread shows only its conversation, with an **Open run** link
+  on each turn. Every run opens on Run trace first.
+
+Notes on a run (`GET`/`POST /api/runs/{id}/notes`) sit at the top of the timeline.
+
+## AI-app sessions
+
+Sessions recorded by `tracesage connect` (Claude Desktop, Claude Code, Cursor,
+Codex) use the same model as your own agents:
+
+| tracesage | In the AI app |
+|---|---|
+| Run | One turn: a message you sent and everything done to answer it |
+| Thread | One chat or session |
+| `agent` node | The app (`claude-code`, `cursor`, `codex`, `claude-desktop`) or a subagent |
+| `llm` node | A model, one step per model request, with thinking and tokens |
+| `tool` node | A tool call; MCP tools attach to an `mcp` server node |
+| `chain` | A subagent's work, nested under the tool call that spawned it |
+| `source:<app>` tag | Which app the run came from |
+
+These runs arrive through the same `TraceSage.emit` path as everything else, so
+sampling, redaction and the per-run cap apply. See [AI apps](ai-apps.md).
 
 ## Where to go next
 

@@ -63,8 +63,11 @@ tracer = await TraceSage.create(config=cfg)   # config drives start_server
 
 Every field above has a `TRACESAGE_*` env var (`TRACESAGE_START_SERVER=false`,
 `TRACESAGE_PRINT_RUN_URL=false`, `TRACESAGE_SAMPLE_RATE=0.1`, …), so you can ship the same
-code and tune it per environment without editing it. A `start_server=` kwarg to
-`create()`/`session()` overrides the config when you need to force it.
+code and tune it per environment without editing it. That includes
+`tracesage.trace()` and `tracesage.start()`, which follow `TRACESAGE_START_SERVER`
+the same way `create()` does. A `start_server=` kwarg on
+`create()` / `session()` / `start()` / `trace()` overrides the config when you
+need to force it.
 
 **Long-running async service (e.g. FastAPI).** Create the tracer once at startup and reuse
 its handler across requests; stop it on shutdown so the queue drains:
@@ -87,9 +90,10 @@ TraceSage.session(...)` context manager is for scripts/one-shot runs — it tear
 block exit.)
 
 Then view the data out-of-band with `tracesage serve --data-dir <dir>` (or point it at
-durable storage). Note the embedded SQLite + local blobs are best for single-process /
-single-node today; centralized multi-process collection is on the roadmap (see
-[`production_roadmap.md`](https://github.com/kjgpta/tracesage/blob/main/production_roadmap.md)).
+durable storage). The embedded SQLite + local blobs are built for a single process
+or a single node. To collect from many processes, run one `tracesage serve --ingest`
+collector and point them at it over OTLP, or export to your existing backend
+([below](#exporting-to-a-central-observability-stack-opentelemetry)).
 
 ## Sampling guidance
 
@@ -122,7 +126,8 @@ See [Configuration → OpenTelemetry export](configuration.md) for the full mapp
 Set `auth_token` (any random string ≥ 32 chars) and the server enforces:
 
 - HTTP: `Authorization: Bearer <token>` on every endpoint except `/api/health`.
-- WebSocket: `?token=<value>` query param OR `Sec-WebSocket-Protocol` subprotocol.
+- WebSocket: `Sec-WebSocket-Protocol: tracesage.v1, tracesage.bearer.<base64url(token)>`
+  (legacy `?token=` still works but leaks the token into URLs and logs).
 
 Constant-time comparison via `hmac.compare_digest` prevents timing leaks.
 
@@ -213,6 +218,60 @@ If you need more throughput on Windows, raise `worker_batch_size` to 200 and
 
 ## Upgrade path
 
-A future release will add a remote-server mode (`producer → HTTP → trace server`) that
-preserves your existing API. The data directory format will be compatible —
-old data accessible via `tracesage serve` against the existing dir.
+Within 1.x the data directory stays readable: a newer 1.x opens a directory written
+by an older 1.x, and `tracesage serve` against that directory shows the old runs.
+To collect from many processes, run one `tracesage serve --ingest` and point them at
+it over OTLP, or export to your existing backend
+([above](#exporting-to-a-central-observability-stack-opentelemetry)).
+
+## Stability and versioning
+
+From v1.0.0 tracesage follows [semantic versioning](https://semver.org): patch releases
+fix bugs, minor releases add features backwards-compatibly, and anything below that can
+break your code or data only changes in a **major** release.
+
+Covered by that promise:
+
+- **Python API** — everything in `tracesage.__all__` (`TraceSage`, `TraceSageConfig`,
+  `trace`, `start`, `instrument`, `Span`, `current_span`, …) and the public (non-`_`)
+  methods and properties of `TraceSage` / `BackgroundTracer` / `Span`, including
+  `span()`, `trace_fn()`, `instrument()`, `install_otel()`, `handler`, `flush()`,
+  `stop()`, `run_url()`; plus `tracesage.ingest.TraceSageSpanExporter` / `install_otel`.
+- **Configuration** — every `TRACESAGE_*` setting in [Configuration](configuration.md):
+  names, types and defaults (a default may only change in a major, or to fix a security
+  issue).
+- **HTTP** — the REST paths under `/api` (including `/api/search`, `/api/threads`,
+  `/api/runs/{id}/spans`, notes and tags), the WebSocket paths under `/ws`,
+  `POST /v1/traces`, `POST /v1/hooks/{app}` and `POST /v1/logs`, and the documented
+  request/response fields in the [API reference](api.md). New fields may be added to
+  responses in a minor release; existing ones are not removed or retyped.
+- **CLI** — command names, flags and exit codes in the [CLI reference](cli.md),
+  including `search`, `thread`, `reindex`, `connect`, `disconnect`, `service` and
+  `mcp`, and the `--json` / JSONL export formats.
+- **MCP tools** — the tool and prompt names served by `tracesage mcp`: `list_runs`,
+  `get_run`, `get_run_spans`, `get_step`, `search`, `list_errors`, `list_threads`,
+  `get_thread`, `get_stats`, `get_topology`, `compare_runs`, `add_note`, `set_tags`,
+  `delete_run`, and the `debug_failed_run` prompt.
+- **Data directory** — SQLite schema migrations are forward-only and automatic: a newer
+  1.x always opens a data dir written by an older 1.x. Blobs stay gzipped JSON.
+- **Event model** — `EventType` values, `RunStatus` values and the `Run` / `StoredEvent`
+  fields documented in the API reference.
+
+Not covered (may change in any release):
+
+- Names starting with `_`, and modules not mentioned above (internals of `tracesage.worker`,
+  `tracesage.storage.*`, `tracesage.ingest.mapper`, …).
+- The bundled UI's HTML/JS/CSS and its look; screenshots in the docs.
+- The exact text of step summaries, log messages and error messages.
+- Undocumented payload keys and `tracesage.*` OpenTelemetry attributes beyond those listed
+  in [Configuration → OpenTelemetry export](configuration.md#opentelemetry-export).
+- Which upstream OpenTelemetry instrumentation package an `instrument(...)` name installs,
+  and the span shapes those packages produce (they follow their own release cycles).
+
+**Deprecation policy.** Anything covered above is deprecated before removal: it keeps
+working and emits a `DeprecationWarning` (or a CLI warning) for at least one minor
+release, the changelog lists it under *Deprecated*, and it is removed only in the next
+major. Security fixes are the one exception and are called out in the changelog.
+
+Supported Python versions follow the classifiers in `pyproject.toml`; dropping a Python
+version that is still upstream-supported is treated as a breaking change.

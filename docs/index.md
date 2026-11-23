@@ -4,25 +4,52 @@
 
 # tracesage
 
-**See what your LangChain & LangGraph agents actually did.**
-Local-first observability — drop in one line, watch every run live in your browser.
+**See what your agents, and the AI assistants you use every day, actually did.**
+Local-first observability for LangChain, LangGraph and OpenTelemetry agents, and
+for Claude Desktop, Claude Code, Cursor and Codex sessions. Everything stays on
+your machine.
+
+These steps are for tracesage 1.0.0.
 
 ## Try it in 30 seconds
 
 ```bash
-pip install "tracesage[langchain]"
-tracesage demo        # seeds a sample run and opens the live UI immediately
+pip install tracesage          # demo needs no LangChain extra
+tracesage demo                 # seeds a sample run and opens the live UI
 ```
 
 No API key. No config. No code. `tracesage demo` opens a real trace so you can
-click around the graph right away. Then add **one line** to your own agent:
+click around the graph right away. To trace your own agent:
 
 ```python
-result = await graph.ainvoke(
-    {"input": payload},
-    config={"callbacks": [tracer.handler]},   # ← the only line you add
-)
+import tracesage
+
+with tracesage.trace():          # starts the local UI and captures this process
+    result = agent.invoke("your input")
 ```
+
+(`pip install "tracesage[langchain]"` first. The [quickstart](quickstart.md) has
+the async form and a copy-pasteable example that needs no API key.)
+
+### Or record the AI assistants you already use
+
+```bash
+pip install "tracesage[apps]"
+tracesage connect claude-code    # or: cursor, codex, claude-desktop, or no name for all
+```
+
+Restart the app if it was open (in Codex, also run `/hooks` once and trust the
+hooks). Open [http://127.0.0.1:7842](http://127.0.0.1:7842) and set **Source** to
+that app. Sessions already on disk are imported, and the next prompt you send
+shows up as a run: each model call, tool call and subagent, with inputs, outputs,
+timing and tokens. [Connect each app →](ai-apps.md)
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/ui-apps-run-trace.png" alt="A Claude Code turn as a run trace with its model calls, tool calls and a subagent"></td>
+    <td width="50%"><img src="assets/ui-apps-conversation.png" alt="A whole chat in the Threads tab with an Open run link on each turn"></td>
+  </tr>
+</table>
 
 [Get started →](quickstart.md){ .md-button .md-button--primary }
 [Browse examples →](examples.md){ .md-button }
@@ -47,7 +74,7 @@ and renders it in an interactive graph + timeline UI in real time.
 - **OpenTelemetry export.** Optionally ship every trace as OTel spans to a collector /
   Tempo / Jaeger / Datadog / Honeycomb — the bridge to your production stack. See
   [Configuration → OpenTelemetry export](configuration.md).
-- **Pluggable storage.** SQLite today; Postgres / remote-collector / object-store backends planned.
+- **Pluggable storage.** SQLite and gzipped blobs behind a `StorageBackend` protocol, so another backend can be added. See [Extending](extending.md).
 - **MIT licensed.** Free forever.
 
 ## Where to go next
@@ -62,6 +89,11 @@ and renders it in an interactive graph + timeline UI in real time.
 
     What `agent`, `tool`, `llm`, `retriever`, `chain`, and `mcp` mean — read
     this first if you want to interpret a topology.
+
+-   :material-robot: **[AI apps](ai-apps.md)**
+
+    Record Claude Desktop, Claude Code, Cursor and Codex sessions as full traces,
+    and ask Claude about them over MCP.
 
 -   :material-cog: **[Configuration](configuration.md)**
 
@@ -105,16 +137,34 @@ and renders it in an interactive graph + timeline UI in real time.
     <td align="center"><em>Run-trace — the exact path a run took, with timeline and step-through replay.</em></td>
     <td align="center"><em>When something breaks, a <strong>red node</strong> pins the exact tool and error.</em></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-waterfall.png" alt="Latency waterfall for one agent run"></td>
+    <td width="50%"><img src="assets/ui-conversation.png" alt="Conversation view of a multi-turn thread"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Waterfall — the slow step is the long bar.</em></td>
+    <td align="center"><em>Conversation — a thread reads like the chat that produced it.</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-otel-run.png" alt="Pydantic AI run ingested over OpenTelemetry"></td>
+    <td width="50%"><img src="assets/ui-manual-spans.png" alt="Plain-Python run traced with manual spans"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Any <strong>OpenTelemetry</strong> source — here a Pydantic AI agent via <code>serve --ingest</code>.</em></td>
+    <td align="center"><em>Plain Python with <code>tl.span</code> / <code>@tl.trace_fn</code> — agent, retriever, tool and LLM spans.</em></td>
+  </tr>
 </table>
 
 Once a run lands, the UI shows:
 
 - **Run list** — every run with status, tags, started-at, total steps, total tokens,
   and a toast when a watched run completes or fails
-- **Graph pane** — toggles between two views:
+- **Graph pane** — toggles between four views:
     - **Topology** — agent / tool / chain / retriever relationships by kind, scoped to the
       selected run by default (a toolbar selector switches to last-N-runs / all-time)
     - **Run-trace** — one selected run laid out as a left → right call tree in call order
+    - **Waterfall** — one bar per span, so the slow step is obvious
+    - **Conversation** — the thread as chat, which is the default for a coding-agent session
 - **Timeline** — chronological steps; a `*_start` shows its request, a `*_end` the full
   **request + response** payloads (MCP-backed tools are tagged with their server)
 - **Step-through replay** — explicit Start / Pause / Resume plus Prev / Next manual
@@ -162,22 +212,32 @@ or uses, and (for MCP) its server of origin. **LLM** nodes show token usage
     <td align="center"><em>MCP server inspector — provided tools, invocations and callers.</em></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools by source panel"></td>
+    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools tab"></td>
     <td width="50%"><img src="assets/ui-step-payload.png" alt="Step request and response payloads"></td>
   </tr>
   <tr>
-    <td align="center"><em>“Tools by source” — tools grouped by origin (MCP vs. local).</em></td>
+    <td align="center"><em>The Tools tab — tools grouped by origin (MCP vs. local).</em></td>
     <td align="center"><em>Any step → its full request and response payloads.</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/ui-agent-drawer.png" alt="Agent inspector"></td>
+    <td width="50%"><img src="assets/ui-chain-drawer.png" alt="Chain inspector"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Agent inspector — invocations, latency, what it calls and who calls it.</em></td>
+    <td align="center"><em>Chain inspector — the orchestration layer and the agents it drives.</em></td>
   </tr>
 </table>
 
 ## Status
 
-**Beta.** API may still shift before v1.0. The PyPI badge shows the published version,
-stamped by the release workflow when a version actually ships (so it matches PyPI).
-Built for local development and single-process tracing, with OpenTelemetry export to
-bridge into a central stack; native multi-process / remote-collector storage is on the
-roadmap. Today the **only shipped adapter is LangChain / LangGraph** — the core is
-framework-neutral and CrewAI / AutoGen / LlamaIndex adapters are
-[planned](extending.md#adapters-on-the-roadmap), not yet available. See the
+**1.0.0 (2026-11-23) is the first stable release.** tracesage follows
+[semantic versioning](https://semver.org); see
+[Stability and versioning](production.md#stability-and-versioning) for which surfaces are
+covered. Supported: LangChain / LangGraph natively, Pydantic AI, the OpenAI Agents SDK,
+CrewAI and the OpenAI / Anthropic clients through OpenTelemetry, any OTLP source via
+`tracesage serve --ingest`, plain Python via [manual spans](frameworks.md), and the
+sessions of Claude Desktop, Claude Code, Cursor and Codex via `tracesage connect`.
+Built for local development and single-node tracing; for a central backend, export
+over OpenTelemetry (see [Production](production.md)). See the
 [changelog](changelog.md) for release notes.

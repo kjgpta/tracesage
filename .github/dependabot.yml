@@ -9,9 +9,8 @@ updates:
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "python"
+    # No `labels:` key. Dependabot's defaults ("dependencies" plus the ecosystem
+    # label) are created automatically; custom labels must already exist on the repo.
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -45,8 +44,5 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "UTC"
-    labels:
-      - "dependencies"
-      - "github-actions"
     commit-message:
       prefix: "ci"
