@@ -19,12 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
 import sys
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
+from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from tracesage import __version__
 from tracesage.config import TraceSageConfig
@@ -35,6 +39,16 @@ app = typer.Typer(
     help="tracesage: local-first observability for LangChain multi-agent systems.",
     no_args_is_help=True,
 )
+
+
+def _build_config(**kwargs: object) -> TraceSageConfig:
+    """Build config, turning validation failures into a one-line error + exit 2."""
+    try:
+        return TraceSageConfig(**kwargs)  # type: ignore[arg-type]
+    except ValidationError as e:
+        msg = e.errors()[0].get("msg", str(e)) if e.errors() else str(e)
+        typer.echo(f"error: {msg.removeprefix('Value error, ')}", err=True)
+        raise typer.Exit(2) from None
 
 
 def _make_backend(data_dir: Path, *, read_only: bool = True):
@@ -115,19 +129,92 @@ async def _import_record(db, obj: dict, known_run_ids: set[str]) -> str:
     return "skip"
 
 
-async def _serve_async(cfg: TraceSageConfig, *, label: str, open_browser: bool) -> None:
-    """Run the read-only viewer for `cfg.data_dir`, announce the URL once the socket
-    is bound (so --port 0 reports the real port), and optionally open a browser."""
+async def _serve_async(
+    cfg: TraceSageConfig, *, label: str, open_browser: bool, ingest: bool = False
+) -> None:
+    """Run the viewer for `cfg.data_dir`, announce the URL once the socket is bound
+    (so --port 0 reports the real port), and optionally open a browser.
+
+    ``ingest=True`` turns the viewer into a collector: a full tracer (queue +
+    StorageWorker, so sampling, per-run cap, redaction and OTel export all apply
+    exactly as in-process) backs ``POST /v1/traces``, and live events reach the
+    UI over the same WebSocket manager.
+    """
     from tracesage.server import WebSocketManager, create_app
-    from tracesage.storage import BlobStore, SQLiteBackend
 
     cfg.ensure_data_dirs()
-    db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
-    await db.init()
-    blob = BlobStore(cfg.blob_dir)
-    app = create_app(
-        db=db, blob_store=blob, ws_manager=WebSocketManager(), config=cfg, stats=Stats()
-    )
+    tracer: Any = None
+    follower: asyncio.Task[None] | None = None
+    chat_follower: asyncio.Task[None] | None = None
+    if ingest:
+        from tracesage.tracer import TraceSage, _DisabledTraceSage
+
+        tracer = await TraceSage.create(cfg, start_server=False)
+        if not isinstance(tracer, _DisabledTraceSage):
+            from tracesage.ingest.agent_hooks import drain_spool, follow_locally
+            from tracesage.ingest.claude_code import ClaudeCodeSource
+            from tracesage.ingest.codex_sessions import CodexSource
+            from tracesage.ingest.cursor_store import CursorSource
+            from tracesage.ingest.desktop_audit import CoworkSource
+            from tracesage.ingest.desktop_chats import claude_support_dir, follow_desktop_chats
+            from tracesage.ingest.session_follow import follow_sessions, import_days
+
+            sources = [
+                source
+                for source in (ClaudeCodeSource(), CursorSource(), CodexSource(), CoworkSource())
+                if source.available()
+            ]
+            follow_locally({source.name for source in sources if source.name != "claude-desktop"})
+            drained = drain_spool(
+                cfg.data_dir / "spool",
+                tracer.emit,
+                metadata_only=cfg.hook_metadata_only,
+            )
+            if drained:
+                typer.echo(f"  drained {drained} spooled hook event(s)")
+            if sources:
+                queue = getattr(tracer, "_queue", None)
+
+                def busy() -> bool:
+                    if queue is None or not queue.maxsize:
+                        return False
+                    return queue.qsize() > queue.maxsize // 2
+
+                follower = asyncio.create_task(follow_sessions(
+                    sources, tracer.emit, cfg.data_dir,
+                    metadata_only=cfg.hook_metadata_only, busy=busy,
+                ))
+                names = ", ".join(source.name for source in sources)
+                typer.echo(f"  local sessions ({names}), last {import_days()} days on first import")
+            if claude_support_dir().is_dir():
+                chat_follower = asyncio.create_task(follow_desktop_chats(
+                    tracer.emit, cfg.data_dir, metadata_only=cfg.hook_metadata_only,
+                ))
+                typer.echo("  Claude Desktop chats: local cache and IndexedDB")
+        if isinstance(tracer, _DisabledTraceSage):
+            typer.echo(
+                "warning: TRACESAGE_ENABLED=false — ingest is off, serving read-only.", err=True
+            )
+            tracer = None
+    if tracer is not None:
+        db = tracer.db
+        app = create_app(
+            db=db,
+            blob_store=tracer.blob_store,
+            ws_manager=tracer._ws_manager,
+            config=cfg,
+            stats=tracer.stats,
+            emit=tracer.emit,
+        )
+    else:
+        from tracesage.storage import BlobStore, SQLiteBackend
+
+        db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
+        await db.init()
+        blob = BlobStore(cfg.blob_dir)
+        app = create_app(
+            db=db, blob_store=blob, ws_manager=WebSocketManager(), config=cfg, stats=Stats()
+        )
 
     try:
         import uvicorn
@@ -158,7 +245,17 @@ async def _serve_async(cfg: TraceSageConfig, *, label: str, open_browser: bool) 
                 if socks:
                     bound_port = socks[0].getsockname()[1]
         url = f"http://{cfg.host}:{bound_port}/ui"
-        typer.echo(f"tracesage viewer at {url}  ({label})")
+        if tracer is not None:
+            # Lets the tracer print per-run "view trace" links for ingested traces.
+            tracer.bound_port = bound_port
+            typer.echo(
+                f"tracesage collector at {url}  ({label})\n"
+                f"  OTLP/HTTP ingest: POST http://{cfg.host}:{bound_port}/v1/traces\n"
+                f"  hook ingest: POST http://{cfg.host}:{bound_port}/v1/hooks/{{app}}\n"
+                f"  e.g. OTEL_EXPORTER_OTLP_ENDPOINT=http://{cfg.host}:{bound_port}"
+            )
+        else:
+            typer.echo(f"tracesage viewer at {url}  ({label})")
         if open_browser:
             import webbrowser
 
@@ -167,12 +264,30 @@ async def _serve_async(cfg: TraceSageConfig, *, label: str, open_browser: bool) 
 
     announcer = asyncio.create_task(_announce_when_ready())
     try:
-        await server.serve()
+        try:
+            await server.serve()
+        except asyncio.CancelledError:
+            # Cancelled from outside (embedding / tests): uvicorn only closes its
+            # listening sockets on its own signal-driven exit, so do it here.
+            with suppress(Exception):
+                await server.shutdown()
+            raise
     finally:
         announcer.cancel()
         with suppress(asyncio.CancelledError, Exception):
             await announcer
-        await db.close()
+        if follower is not None:
+            follower.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await follower
+        if chat_follower is not None:
+            chat_follower.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await chat_follower
+        if tracer is not None:
+            await tracer.stop()  # drains the queue, then closes the DB
+        else:
+            await db.close()
 
 
 @app.command()
@@ -197,17 +312,33 @@ def serve(
     open_browser: bool = typer.Option(
         False, "--open", "-o", help="Open the viewer in your browser once it's up."
     ),
+    ingest: bool = typer.Option(
+        False,
+        "--ingest",
+        help=(
+            "Also accept OpenTelemetry spans on POST /v1/traces (OTLP/HTTP, protobuf or "
+            "JSON) and store them in this data dir — a standalone collector for Pydantic AI, "
+            "OpenAI Agents SDK, CrewAI, OpenAI/Anthropic clients or any other OTel source."
+        ),
+    ),
 ) -> None:
-    """Start a read-only viewer for an existing tracesage data directory.
+    """Start a viewer for a tracesage data directory.
 
-    This does NOT ingest events — only the TraceSage.create() API in your
-    Python code does that. Use `serve` to inspect data after the fact, or to
+    By default this is read-only: it does NOT ingest events — only tracesage running
+    inside your Python code does that. Use it to inspect data after the fact, or to
     run the UI on a different host than the producer.
+
+    With --ingest it also runs a collector: point any OpenTelemetry exporter at it
+    (OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:7842) and the spans show up live.
     """
-    # Build config; will raise on host=0.0.0.0 without token (production rail).
-    cfg = TraceSageConfig(data_dir=data_dir, host=host, port=port, auth_token=auth_token)
+    # Build config; exits 2 on host=0.0.0.0 without token (production rail).
+    cfg = _build_config(data_dir=data_dir, host=host, port=port, auth_token=auth_token)
     try:
-        asyncio.run(_serve_async(cfg, label=f"data: {data_dir}", open_browser=open_browser))
+        asyncio.run(
+            _serve_async(
+                cfg, label=f"data: {data_dir}", open_browser=open_browser, ingest=ingest
+            )
+        )
     except KeyboardInterrupt:
         typer.echo("\nstopped.")
 
@@ -222,6 +353,9 @@ def show(
     reverse: bool = typer.Option(
         False, "--reverse", "-r",
         help="Order siblings newest-first (default follows execution flow: oldest-first).",
+    ),
+    waterfall: bool = typer.Option(
+        False, "--waterfall", help="Print ASCII latency bars instead of the tree."
     ),
 ) -> None:
     """Print a run's trace as an indented tree in the terminal (no server needed).
@@ -242,9 +376,32 @@ def show(
                 typer.echo(f"run not found: {run_id}", err=True)
                 return 1
             events = await db.get_journey(run_id)
-            typer.echo(
-                render_run_tree(run, events, use_color=color, reverse=reverse)
-            )
+            if waterfall:
+                from tracesage.pricing import format_cost
+                from tracesage.spans import build_spans
+
+                rows = build_spans(events, running=run.status.value == "running")
+                width = 40
+                span = max((row.end_ms for row in rows), default=1) or 1
+                cost = format_cost(run.total_cost_usd)
+                typer.echo(
+                    f"{run.run_id}  {run.status.value}  "
+                    f"in={run.total_tokens_input} out={run.total_tokens_output}  cost={cost}"
+                )
+                for row in rows:
+                    indent = "  " * row.depth
+                    left = int(width * row.start_ms / span)
+                    bar = int(max(1, width * row.duration_ms / span))
+                    line = " " * left + "#" * min(bar, width - left)
+                    extra = format_cost(row.cost_usd) if row.cost_usd is not None else ""
+                    typer.echo(
+                        f"{indent}{row.name[:24]:<24} {line:<{width}} "
+                        f"{row.duration_ms}ms {row.status} {extra}"
+                    )
+            else:
+                typer.echo(
+                    render_run_tree(run, events, use_color=color, reverse=reverse)
+                )
             return 0
         finally:
             await db.close()
@@ -265,12 +422,20 @@ def watch(
 
     Useful while a long run is still in flight in another process. Ctrl-C to stop.
     """
-    from tracesage.render import _KIND_ICON, _kind_of
+    if interval <= 0:
+        typer.echo("error: --interval must be > 0", err=True)
+        raise typer.Exit(2)
+
+    from tracesage.render import _kind_of, kind_icon, sanitize_terminal, stream_supports_unicode
+
+    ascii_only = not stream_supports_unicode()
+    err_glyph = "x" if ascii_only else "✗"
 
     async def _watch() -> int:
         _cfg, db, _blob = _make_backend(data_dir)
         await db.init()
         seen: set[str] = set()
+        first_poll = True
         try:
             while True:
                 events = await db.get_journey(run_id)
@@ -279,17 +444,22 @@ def watch(
                         continue
                     seen.add(ev.event_id)
                     kind = _kind_of(ev.event_type.value)
-                    icon = _KIND_ICON.get(kind, "•")
-                    name = ev.agent_name or ev.tool_name or kind
+                    icon = kind_icon(kind, ascii_only=ascii_only)
+                    name = sanitize_terminal(ev.agent_name or ev.tool_name or kind)
                     ts = ev.timestamp.strftime("%H:%M:%S")
                     mark = ""
                     if ev.event_type.value.endswith("_error"):
-                        mark = f"  ✗ {(ev.error_message or '').splitlines()[0][:80]}"
+                        first_line = ((ev.error_message or "").splitlines() or [""])[0]
+                        mark = f"  {err_glyph} {sanitize_terminal(first_line[:80])}"
                     elif ev.duration_ms is not None:
                         mark = f"  {ev.duration_ms}ms"
                     typer.echo(f"[{ts}] {icon} {ev.event_type.value:<14} {name}{mark}")
                 run = await db.get_run(run_id)
-                if once or (run is not None and run.status.value in ("completed", "failed")):
+                if first_poll and run is None and not events:
+                    typer.echo(f"run not found: {run_id}", err=True)
+                    return 1
+                first_poll = False
+                if once or (run is not None and run.status.value != "running"):
                     return 0
                 await asyncio.sleep(interval)
         finally:
@@ -309,41 +479,24 @@ def diff(
 ) -> None:
     """Compare two runs side by side (status, steps, tokens, tools, errors)."""
 
-    async def _summary(db, run_id: str) -> dict | None:
-        run = await db.get_run(run_id)
-        if run is None:
-            return None
-        events = await db.get_journey(run_id)
-        tools = sorted({e.tool_name for e in events if e.tool_name})
-        errors = sum(1 for e in events if e.event_type.value.endswith("_error"))
-        return {
-            "status": run.status.value,
-            "steps": run.total_steps,
-            "tok_in": run.total_tokens_input,
-            "tok_out": run.total_tokens_output,
-            "tool_calls": sum(1 for e in events if e.event_type.value == "tool_start"),
-            "tools": ", ".join(tools) or "—",
-            "errors": errors,
-        }
-
     async def _diff() -> int:
+        from tracesage.compare import compare_runs
+
         _cfg, db, _blob = _make_backend(data_dir)
         await db.init()
         try:
-            a = await _summary(db, run_a)
-            b = await _summary(db, run_b)
-            if a is None or b is None:
-                missing = run_a if a is None else run_b
+            compared = await compare_runs(db, run_a, run_b)
+            if compared is None:
+                missing = run_a if await db.get_run(run_a) is None else run_b
                 typer.echo(f"run not found: {missing}", err=True)
                 return 1
-            rows = ["status", "steps", "tok_in", "tok_out", "tool_calls", "tools", "errors"]
             wa, wb = run_a[:18], run_b[:18]
             typer.echo(f"{'metric':<12} {wa:<22} {wb:<22}")
             typer.echo(f"{'-'*12} {'-'*22} {'-'*22}")
-            for k in rows:
-                va, vb = str(a[k]), str(b[k])
-                flag = "" if va == vb else "  ≠"
-                typer.echo(f"{k:<12} {va:<22} {vb:<22}{flag}")
+            for row in compared["rows"]:
+                va, vb = str(row["a"]), str(row["b"])
+                flag = "" if row["same"] else "  ≠"
+                typer.echo(f"{row['metric']:<12} {va:<22} {vb:<22}{flag}")
             return 0
         finally:
             await db.close()
@@ -368,7 +521,11 @@ def view(
         raise typer.Exit(1)
 
     tmp = Path(tempfile.mkdtemp(prefix="tracesage-view-"))
-    cfg = TraceSageConfig(data_dir=tmp, host=host, port=port)
+    try:
+        cfg = _build_config(data_dir=tmp, host=host, port=port)
+    except typer.Exit:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     cfg.ensure_data_dirs()
 
     async def _load_and_serve() -> None:
@@ -394,6 +551,8 @@ def view(
         asyncio.run(_load_and_serve())
     except KeyboardInterrupt:
         typer.echo("\nstopped.")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 @app.command()
@@ -410,7 +569,7 @@ def demo(
     ),
 ) -> None:
     """Seed a sample trace and open the UI — the fastest way to see tracesage working."""
-    cfg = TraceSageConfig(data_dir=data_dir, host=host, port=port)
+    cfg = _build_config(data_dir=data_dir, host=host, port=port)
     cfg.ensure_data_dirs()
 
     async def _run() -> None:
@@ -583,13 +742,17 @@ def runs(
     ),
     status: str = typer.Option(
         "all", "--status",
-        help="Filter by status: all | running | completed | failed.",
+        help="Filter by status: all | running | completed | failed | interrupted.",
     ),
     limit: int = typer.Option(50, "--limit", "-l", help="Max rows to return."),
     offset: int = typer.Option(0, "--offset", help="Pagination offset."),
     tag: str | None = typer.Option(
         None, "--tag",
         help="Only show runs whose tags contain this substring (substring match).",
+    ),
+    thread: str | None = typer.Option(
+        None, "--thread",
+        help="Only show runs from this conversation thread (exact thread_id match).",
     ),
     as_json: bool = typer.Option(
         False, "--json", help="Emit one JSON object per line (newline-delimited).",
@@ -604,8 +767,9 @@ def runs(
     Pass --json for machine-readable NDJSON. Useful for piping into jq, or
     feeding `tracesage export --run-id` per row.
     """
-    if status not in {"all", "running", "completed", "failed"}:
-        typer.echo(f"--status must be one of: all running completed failed (got {status!r})", err=True)
+    statuses = ("all", "running", "completed", "failed", "interrupted")
+    if status not in statuses:
+        typer.echo(f"--status must be one of: {' '.join(statuses)} (got {status!r})", err=True)
         raise typer.Exit(2)
 
     async def _runs() -> None:
@@ -617,6 +781,7 @@ def runs(
                 limit=limit,
                 offset=offset,
                 tag=tag,
+                thread_id=thread,
             )
 
             if as_json:
@@ -635,9 +800,15 @@ def runs(
                 for r in rows:
                     started = r.started_at.isoformat() if r.started_at else "—"
                     tags_s = ",".join(r.tags) if r.tags else ""
+                    thread_s = f"  thread={r.thread_id}" if r.thread_id else ""
+                    from tracesage.pricing import format_cost
+
                     typer.echo(
-                        f"{r.run_id}  {r.status.value:9s}  {started}  "
-                        f"steps={r.total_steps:<4d}  tags=[{tags_s}]"
+                        f"{r.run_id}  {r.status.value:11s}  {started}  "
+                        f"steps={r.total_steps:<4d}  "
+                        f"tok={r.total_tokens_input}+{r.total_tokens_output}  "
+                        f"cost={format_cost(r.total_cost_usd)}  "
+                        f"tags=[{tags_s}]{thread_s}"
                     )
                 typer.echo(
                     f"# {len(rows)} of {total} (status={status}, "
@@ -663,6 +834,12 @@ def gc(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print what would be deleted; no changes."),
 ) -> None:
     """Garbage-collect old runs beyond the retention cap."""
+    if max_runs < 1:
+        typer.echo("error: --max-runs must be >= 1", err=True)
+        raise typer.Exit(2)
+    if max_blob_size_gb is not None and max_blob_size_gb <= 0:
+        typer.echo("error: --max-blob-size-gb must be > 0", err=True)
+        raise typer.Exit(2)
 
     async def _gc() -> None:
         _cfg, db, blob = _make_backend(data_dir)
@@ -811,6 +988,110 @@ def import_(
 
 
 @app.command()
+def search(
+    query: str = typer.Argument(..., help="Text to find in summaries and payloads."),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
+    run_id: str | None = typer.Option(None, "--run", help="Limit the search to one run."),
+    limit: int = typer.Option(20, "--limit", "-l"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Search event summaries and payload text."""
+
+    async def _search() -> None:
+        _cfg, db, _blob = _make_backend(data_dir)
+        await db.init()
+        try:
+            hits = await db.search_events(query, limit=limit, run_id=run_id)
+            if as_json:
+                for hit in hits:
+                    typer.echo(hit.model_dump_json())
+                return
+            if not hits:
+                typer.echo("(no matches)")
+                return
+            for hit in hits:
+                typer.echo(f"{hit.run_id}  {hit.event_type}  {hit.name or ''}  {hit.snippet}")
+        finally:
+            await db.close()
+
+    asyncio.run(_search())
+
+
+@app.command()
+def thread(
+    thread_id: str = typer.Argument(..., help="Thread id to print as a conversation."),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
+) -> None:
+    """Print one conversation thread."""
+
+    async def _thread() -> int:
+        from tracesage.conversation import build_turns
+        from tracesage.pricing import format_cost
+
+        _cfg, db, blob = _make_backend(data_dir)
+        await db.init()
+        try:
+            runs = await db.get_thread_runs(thread_id)
+            if not runs:
+                typer.echo(f"thread not found: {thread_id}", err=True)
+                return 1
+            events = []
+            payloads: dict[str, Any] = {}
+            for run in runs:
+                journey = await db.get_journey(run.run_id)
+                events.extend(journey)
+                for event in journey:
+                    if event.blob_path and event.run_id == run.run_id:
+                        try:
+                            payloads[event.event_id] = await blob.read(event.blob_path)
+                        except Exception as exc:
+                            typer.echo(f"warning: skipped blob {event.event_id}: {exc}", err=True)
+            for turn in build_turns(runs, events, payloads):
+                typer.echo(f"--- {turn.run_id}  {turn.status}  {format_cost(turn.cost_usd)}")
+                if turn.user_text:
+                    typer.echo(f"user: {turn.user_text}")
+                if turn.assistant_text:
+                    typer.echo(f"assistant: {turn.assistant_text}")
+                if turn.tools:
+                    names = ", ".join(
+                        t.name + (f" ({t.mcp_server})" if t.mcp_server else "") for t in turn.tools
+                    )
+                    typer.echo(f"tools: {names}")
+                if turn.error:
+                    typer.echo(f"error: {turn.error}")
+            return 0
+        finally:
+            await db.close()
+
+    raise typer.Exit(asyncio.run(_thread()))
+
+
+@app.command()
+def reindex(
+    data_dir: Path = typer.Option(
+        Path.home() / ".tracesage", "--data-dir", "-d"
+    ),
+) -> None:
+    """Backfill payload search text and dollar cost for events already on disk."""
+
+    async def _reindex() -> None:
+        from tracesage.maintenance import reindex as _do
+
+        cfg, db, blob = _make_backend(data_dir)
+        await db.init()
+        try:
+            result = await _do(db, blob, cfg)
+        finally:
+            await db.close()
+        typer.echo(
+            f"reindexed {result['events']} events "
+            f"({result['priced']} priced) across {result['runs']} runs"
+        )
+
+    asyncio.run(_reindex())
+
+
+@app.command()
 def doctor(
     data_dir: Path = typer.Option(
         Path.home() / ".tracesage", "--data-dir", "-d"
@@ -844,6 +1125,38 @@ def doctor(
             except Exception as e:
                 typer.echo(f"  warn schema user_version: probe failed: {e}")
 
+            try:
+                if await db.needs_reindex():
+                    typer.echo(
+                        "  warn search/cost backfill pending: run `tracesage reindex -d "
+                        f"{data_dir}`"
+                    )
+                else:
+                    typer.echo("  ok   search/cost index: current")
+            except Exception as e:
+                typer.echo(f"  warn reindex check: probe failed: {e}")
+
+            try:
+                from tracesage.connect import status_lines
+
+                for line in status_lines(Path(os.environ.get("TRACESAGE_CONNECT_HOME", str(Path.home()))), data_dir):
+                    typer.echo(f"  {line}")
+            except Exception as e:
+                typer.echo(f"  warn app connect: probe failed: {e}")
+
+            try:
+                from tracesage.pricing import pricing_available
+
+                if pricing_available():
+                    typer.echo("  ok   pricing: genai-prices installed")
+                else:
+                    typer.echo(
+                        '  warn pricing: not installed (cost shows as "n/a"). '
+                        'pip install "tracesage[pricing]"'
+                    )
+            except Exception as e:
+                typer.echo(f"  warn pricing: probe failed: {e}")
+
             # Total runs.
             run_ids: set[str] = set()
             try:
@@ -852,56 +1165,278 @@ def doctor(
             except Exception as e:
                 typer.echo(f"  warn total runs: probe failed: {e}")
 
-            # Build the set of run dirs that should exist (root runs).
             try:
                 runs, _total = await db.list_runs(limit=1_000_000, offset=0)
                 run_ids = {r.run_id for r in runs}
             except Exception as e:
                 typer.echo(f"  warn run listing: probe failed: {e}")
 
-            # Orphan blobs: blob run-dirs with no corresponding run row.
+            # Blobs live under the run_id of the event that wrote them (often a
+            # nested sub-run), at `<blob_dir>/<blob_path>`. One pass over every
+            # root's journey yields both the dirs that should exist and the blob
+            # files events point at.
+            blob_dir = cfg.blob_dir
+            referenced_dirs: set[str] = set()
+            missing_runs: set[str] = set()
             try:
-                blob_dir = cfg.blob_dir
-                if blob_dir.exists():
-                    orphan_dirs = [
+                for rid in run_ids:
+                    async for ev in db.iter_journey(rid):
+                        referenced_dirs.add(ev.run_id)
+                        if ev.blob_path and not (blob_dir / ev.blob_path).exists():
+                            missing_runs.add(rid)
+                if missing_runs:
+                    typer.echo(f"  warn runs with missing blob files: {len(missing_runs)}")
+                else:
+                    typer.echo("  ok   runs with missing blob files: 0")
+            except Exception as e:
+                typer.echo(f"  warn missing blob check: probe failed: {e}")
+
+            # Orphan blobs: blob dirs that no stored event belongs to.
+            try:
+                orphan_dirs = (
+                    [
                         p.name
                         for p in blob_dir.iterdir()
-                        if p.is_dir() and p.name not in run_ids
+                        if p.is_dir() and p.name not in referenced_dirs
                     ]
-                else:
-                    orphan_dirs = []
+                    if blob_dir.exists()
+                    else []
+                )
                 if orphan_dirs:
-                    typer.echo(
-                        f"  warn orphan blob dirs (no run row): {len(orphan_dirs)}"
-                    )
+                    typer.echo(f"  warn orphan blob dirs (no events): {len(orphan_dirs)}")
                 else:
                     typer.echo("  ok   orphan blob dirs: 0")
             except Exception as e:
                 typer.echo(f"  warn orphan blob check: probe failed: {e}")
-
-            # Missing blobs: runs whose events reference a blob_path but the
-            # run's blob dir is absent.
-            try:
-                blob_dir = cfg.blob_dir
-                missing = 0
-                for rid in run_ids:
-                    has_blob_event = False
-                    async for ev in db.iter_journey(rid):
-                        if ev.blob_path:
-                            has_blob_event = True
-                            break
-                    if has_blob_event and not (blob_dir / rid).exists():
-                        missing += 1
-                if missing:
-                    typer.echo(f"  warn runs with missing blob dir: {missing}")
-                else:
-                    typer.echo("  ok   runs with missing blob dir: 0")
-            except Exception as e:
-                typer.echo(f"  warn missing blob check: probe failed: {e}")
         finally:
             await db.close()
 
     asyncio.run(_doctor())
+
+
+def _connect_home() -> Path:
+    override = os.environ.get("TRACESAGE_CONNECT_HOME")
+    return Path(override) if override else Path.home()
+
+
+@app.command()
+def connect(
+    app_name: str = typer.Argument("all", help="claude-code, codex, cursor, claude-desktop, chatgpt, vscode, windsurf, gemini, or all."),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
+    metadata_only: bool = typer.Option(False, "--metadata-only", help="Do not store prompt or tool text."),
+    mcp: bool = typer.Option(False, "--mcp", help="Also let the app call tracesage over MCP."),
+    no_trace: bool = typer.Option(False, "--no-trace"),
+    no_service: bool = typer.Option(False, "--no-service"),
+    otel: bool = typer.Option(False, "--otel", help="Also point the app's OpenTelemetry export at tracesage."),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+    status: bool = typer.Option(False, "--status"),
+    print_only: str | None = typer.Option(None, "--print", help="Print the planned config for one app and write nothing."),
+    mcpb: bool = typer.Option(False, "--mcpb", help="Also build tracesage.mcpb for Claude Desktop."),
+) -> None:
+    """Record sessions from installed AI apps in this tracesage collector."""
+    from tracesage.connect import (
+        INSTALL_HINT,
+        apply_plan,
+        apps_extra_ready,
+        build_plan,
+        detect_installed,
+        executable_path,
+        install_service_file,
+        status_lines,
+        write_forwarder,
+    )
+    from tracesage.service import choose_port, read_state, write_state
+
+    home = _connect_home()
+    if status:
+        for line in status_lines(home, data_dir):
+            typer.echo(line)
+        return
+    if not apps_extra_ready():
+        typer.echo(f"tracesage connect needs the apps extra: {INSTALL_HINT}", err=True)
+        raise typer.Exit(1)
+    known = {
+        "all", "claude-code", "codex", "cursor", "claude-desktop",
+        "chatgpt", "vscode", "windsurf", "gemini",
+    }
+    target = print_only or app_name
+    if target not in known:
+        typer.echo(f"unknown app {target!r}", err=True)
+        raise typer.Exit(2)
+    if target == "all":
+        apps = detect_installed(home) or ["claude-code", "codex", "cursor", "claude-desktop"]
+    else:
+        apps = [target]
+    state = read_state(data_dir)
+    port = int(state["port"]) if isinstance(state.get("port"), int) else choose_port()
+    plan = build_plan(
+        home,
+        apps,
+        data_dir=data_dir,
+        executable=executable_path(),
+        port=port,
+        metadata_only=metadata_only,
+        mcp=mcp,
+        trace=not no_trace,
+        otel=otel,
+    )
+    if not plan.changes:
+        typer.echo("Nothing to change.")
+    for change in plan.changes:
+        typer.echo(f"{change.action}: {change.path}")
+        if change.action == "write" and (dry_run or print_only):
+            typer.echo(change.after)
+    for note in plan.notes:
+        typer.echo(f"note: {note}")
+    if print_only or dry_run:
+        return
+    if plan.blocked:
+        typer.echo("refusing to write; resolve the notes above", err=True)
+        raise typer.Exit(1)
+    if not yes and sys.stdin.isatty():
+        answer = input("Apply these changes? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            typer.echo("cancelled")
+            raise typer.Exit(1)
+    write_forwarder(home)
+    apply_plan(plan, dry_run=False)
+    write_state(data_dir, {"port": port, "metadata_only": metadata_only})
+    if not no_service:
+        path = install_service_file(
+            home,
+            executable=executable_path(),
+            data_dir=data_dir,
+            port=port,
+            metadata_only=metadata_only,
+        )
+        if path is not None:
+            from tracesage.service import start_service
+
+            code, message = start_service(
+                home,
+                data_dir=data_dir,
+                executable=executable_path(),
+                port=port,
+                metadata_only=metadata_only,
+            )
+            typer.echo(message)
+            if code != 0:
+                typer.echo(f"service file: {path}", err=True)
+    if mcpb:
+        from tracesage.connect import pack_mcpb
+
+        built = pack_mcpb(data_dir)
+        if built is None:
+            typer.echo("mcpb pack did not produce tracesage.mcpb", err=True)
+        else:
+            typer.echo(f"mcpb: {built}")
+    typer.echo("Restart the apps you connected.")
+
+
+@app.command()
+def disconnect(
+    app_name: str = typer.Argument("all"),
+    home: Path | None = typer.Option(None, "--home", hidden=True),
+) -> None:
+    """Restore app configs from the backups connect made."""
+    from tracesage.connect import disconnect as _disconnect
+
+    root = home or _connect_home()
+    apps = None if app_name == "all" else [app_name]
+    restored = _disconnect(root, apps)
+    if not restored:
+        typer.echo("No tracesage backups to restore.")
+        return
+    for path in restored:
+        typer.echo(f"restored {path}")
+
+
+@app.command()
+def service(
+    action: str = typer.Argument(..., help="install, uninstall, start, stop, or status."),
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
+) -> None:
+    """Install or inspect the background collector."""
+    from tracesage.connect import executable_path, install_service_file
+    from tracesage.service import (
+        launchd_path,
+        platform_name,
+        read_state,
+        systemd_path,
+    )
+
+    home = _connect_home()
+    if action == "status":
+        from tracesage.connect import status_lines
+
+        for line in status_lines(home, data_dir):
+            typer.echo(line)
+        return
+    if action == "install":
+        state = read_state(data_dir)
+        port = int(state.get("port") or 7842)
+        path = install_service_file(
+            home,
+            executable=executable_path(),
+            data_dir=data_dir,
+            port=port,
+            metadata_only=bool(state.get("metadata_only")),
+        )
+        typer.echo(f"wrote {path} ({platform_name()})")
+        return
+    if action == "uninstall":
+        for path in (launchd_path(home), systemd_path(home)):
+            if path.exists():
+                path.unlink()
+                typer.echo(f"removed {path}")
+        return
+    if action == "start":
+        from tracesage.service import start_service
+
+        state = read_state(data_dir)
+        port = int(state.get("port") or 7842)
+        code, message = start_service(
+            home,
+            data_dir=data_dir,
+            executable=executable_path(),
+            port=port,
+            metadata_only=bool(state.get("metadata_only")),
+        )
+        typer.echo(message)
+        if code != 0:
+            raise typer.Exit(code)
+        return
+    if action == "stop":
+        from tracesage.service import stop_service
+
+        code, message = stop_service(home)
+        typer.echo(message)
+        if code != 0:
+            raise typer.Exit(code)
+        return
+    typer.echo("action must be install, uninstall, start, stop, or status", err=True)
+    raise typer.Exit(2)
+
+
+@app.command("mcp")
+def mcp_cmd(
+    data_dir: Path = typer.Option(Path.home() / ".tracesage", "--data-dir", "-d"),
+    read_only: bool = typer.Option(False, "--read-only", help="Disable add_note, set_tags and delete_run."),
+    allow_delete: bool = typer.Option(False, "--allow-delete", help="Allow the delete_run tool."),
+) -> None:
+    """Serve tracesage as an MCP server on stdio for a coding agent."""
+    from tracesage.mcp_server import mcp_installed
+
+    if not mcp_installed():
+        typer.echo(
+            'tracesage mcp needs the apps extra: pip install "tracesage[apps]"',
+            err=True,
+        )
+        raise typer.Exit(1)
+    from tracesage.mcp_server import serve
+
+    serve(data_dir, read_only=read_only, allow_delete=allow_delete)
 
 
 @app.command()

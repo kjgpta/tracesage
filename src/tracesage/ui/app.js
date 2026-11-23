@@ -15,6 +15,7 @@ import {
   formatRelTime,
   mcpServerColor,
 } from './graph.js';
+import { renderWaterfall } from './waterfall.js';
 
 /* ============================================================
  * Constants & state
@@ -23,16 +24,18 @@ import {
 const STORAGE_THEME = 'tracesage.theme';
 const STORAGE_TOKEN = 'tracesage.auth_token';
 const STORAGE_PANES = 'tracesage.panes';
-const STORAGE_TOOLS_POS = 'tracesage.tools_panel_pos';
+const STORAGE_RIGHT_TAB = 'tracesage.right_tab';
+const STORAGE_PANE_WIDTHS = 'tracesage.pane_widths';
 const TIMELINE_MAX = 500;
 const STATS_POLL_MS = 5000;
 const RUNS_POLL_MS = 30000;
+const THREAD_TURNS = 30;   // turns loaded for "whole chat"; long chats show the latest
 const WS_BACKOFF = [1000, 2000, 4000, 8000, 16000, 30000];
 
 // Short, portable uppercase text tags. Avoids mojibake / replacement glyphs
 // and renders identically across all platforms and fonts.
 const EVENT_ICONS = {
-  chain_start: 'CHAIN', chain_end: 'CHAIN', chain_error: 'ERR',
+  chain_start: 'CHAIN', chain_end: 'CHAIN', chain_error: 'ERR', chain_interrupt: 'PAUSE',
   agent_action: 'AGENT', agent_finish: 'AGENT',
   tool_start: 'TOOL', tool_end: 'TOOL', tool_error: 'ERR',
   llm_start: 'LLM', llm_end: 'LLM', llm_error: 'ERR',
@@ -48,8 +51,20 @@ const state = {
   runs: [],                    // Run[]
   runsById: new Map(),         // run_id -> Run
   filterStatus: 'all',
+  runsSort: 'recent',
+  runsTotal: 0,
+  threadsSort: 'recent',
+  minTurns: 1,
   searchQuery: '',
+  source: 'all',
+  listMode: 'runs',            // 'runs' | 'threads'
+  selectedThreadId: null,
+  rightTab: localStorage.getItem(STORAGE_RIGHT_TAB) === 'tools' ? 'tools' : 'timeline',
+  runsGraphMode: null,         // graph tab to restore when switching back to Runs
+  searchHits: [],
+  searchTimer: null,
   selectedRunId: null,
+  drawerRunId: null,           // run the open detail drawer belongs to
   topology: { nodes: [], edges: [] },
   journey: [],                 // StoredEvent[] for selected run
   newEventCount: 0,
@@ -57,7 +72,6 @@ const state = {
   graphMode: 'topology',       // 'topology' | 'trace'
   topologyScope: 'run',        // 'run' (selected/latest) | 'lastn' | 'all'
   topologyScopeN: 5,           // N for the 'lastn' scope
-  toolsCollapsed: true,        // "Tools by source" panel starts minimized
   layoutDir: 'LR',
   evRateWindow: [],            // sliding window of timestamps for ev/s
   graphRenderTimer: null,
@@ -85,6 +99,11 @@ let wsRunsBackoff = 0;
 let wsTraceBackoff = 0;
 let wsRunsCloseRequested = false;
 let wsTraceCloseRequested = false;
+let wsRunsReconnectTimer = null;
+let wsTraceReconnectTimer = null;
+// Bumped per request so a slow response for an older selection/scope is ignored.
+let selectRunGen = 0;
+let topologyGen = 0;
 
 // Liveness: the server pings /ws/runs every ~15s. If we hear nothing (ping or
 // real traffic) for this long, treat the link as dead — covers cases where the
@@ -227,14 +246,299 @@ function toast(message, level = 'info', timeoutMs = 4000) {
  * Run list
  * ============================================================ */
 
-async function loadRuns() {
+function formatCost(value) {
+  if (value == null) return '';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+}
+
+/** Source filter as query params: an app tag, or "no source tag" for your own agents. */
+function applySourceParams(params) {
+  if (state.source === 'yours') params.set('no_source', 'true');
+  else if (state.source && state.source !== 'all') params.set('tag', `source:${state.source}`);
+}
+
+function runsQuery() {
+  const params = new URLSearchParams({ limit: '50' });
+  if (state.filterStatus && state.filterStatus !== 'all') params.set('status', state.filterStatus);
+  applySourceParams(params);
+  if ((state.searchQuery || '').trim().length >= 2) params.set('q', state.searchQuery.trim());
+  if (state.runsSort !== 'recent') params.set('sort', state.runsSort);
+  return params.toString();
+}
+
+const APP_SOURCES = ['claude-code', 'claude-desktop', 'cursor', 'codex'];
+const SOURCE_LABELS = {
+  'claude-code': 'Claude Code', 'claude-desktop': 'Claude Desktop', cursor: 'Cursor', codex: 'Codex',
+};
+
+function setSource(source) {
+  state.source = source || 'all';
+  const select = document.getElementById('source-filter');
+  select.value = state.source;
+  select.dataset.source = state.source;
+}
+
+/** Counts per source for the open tab (runs or threads); apps with none are left
+ *  out of the menu. */
+async function loadSourceCounts() {
+  const mode = state.listMode;
+  const endpoint = mode === 'threads' ? '/threads' : '/runs';
+  const count = async (extra) => {
+    const params = new URLSearchParams({ limit: '1', ...extra });
+    return (await apiGet(`${endpoint}?${params}`)).total || 0;
+  };
   try {
-    const data = await apiGet(`/runs?limit=50`);
+    const [all, yours, ...apps] = await Promise.all([
+      count({}),
+      count({ no_source: 'true' }),
+      ...APP_SOURCES.map((src) => count({ tag: `source:${src}` })),
+    ]);
+    if (state.listMode !== mode) return;
+    const counts = { all, yours };
+    APP_SOURCES.forEach((src, i) => { counts[src] = apps[i]; });
+    document.querySelectorAll('#source-filter option').forEach((opt) => {
+      const n = counts[opt.value] ?? 0;
+      const label = opt.value === 'all' ? 'All' : opt.value === 'yours' ? 'Your agents' : SOURCE_LABELS[opt.value];
+      opt.textContent = `${label} · ${n.toLocaleString()}`;
+      opt.hidden = n === 0 && opt.value !== 'all' && opt.value !== state.source;
+    });
+  } catch {
+    // Counts are decoration; the list itself reports load errors.
+  }
+}
+
+function sourceOf(tags) {
+  const tag = (tags || []).find((t) => String(t).startsWith('source:'));
+  return tag ? String(tag).slice('source:'.length) : null;
+}
+
+async function loadThreads() {
+  const params = new URLSearchParams({ limit: '200' });
+  applySourceParams(params);
+  if ((state.searchQuery || '').trim()) params.set('q', state.searchQuery.trim());
+  if (state.threadsSort !== 'recent') params.set('sort', state.threadsSort);
+  if (state.minTurns > 1) params.set('min_turns', String(state.minTurns));
+  const container = document.getElementById('run-list');
+  const gen = ++listLoadGen;
+  try {
+    const data = await apiGet(`/threads?${params}`);
+    if (gen !== listLoadGen || state.listMode !== 'threads') return;
+    const threads = data.threads || [];
+    container.innerHTML = threads.map((t) => {
+      const source = sourceOf(t.tags);
+      const label = (t.label || t.thread_id).replace(/^[\w.-]+:\s*/, '');
+      return `
+        <div class="run-row thread-row${t.thread_id === state.selectedThreadId ? ' active' : ''}"
+             data-thread="${escapeHtml(t.thread_id)}" data-last-run="${escapeHtml(t.last_run_id || '')}"
+             role="listitem" tabindex="0" title="${escapeHtml(t.thread_id)}">
+          <div class="run-row-top"><span class="thread-label">${escapeHtml(label)}</span></div>
+          <div class="run-row-bottom">
+            ${source ? `<span class="source-tag" data-source="${escapeHtml(source)}"><span class="chip-dot"></span>${escapeHtml(SOURCE_LABELS[source] || source)}</span>` : ''}
+            <span class="status-pill ${escapeHtml(t.last_status)}"><span class="status-badge ${escapeHtml(t.last_status)}" aria-hidden="true"></span>${escapeHtml(t.last_status)}</span>
+            <span class="meta-step">${t.run_count} turn${t.run_count === 1 ? '' : 's'}</span>
+            <span>·</span>
+            <span title="${escapeHtml(t.last_at || '')}">${formatRelTime(t.last_at)}</span>
+          </div>
+        </div>`;
+    }).join('') || '<div class="empty-runs">No threads match the current filter.</div>';
+    document.getElementById('run-count').textContent =
+      `${threads.length}${data.total > threads.length ? ` of ${data.total}` : ''} threads`;
+    container.querySelectorAll('[data-thread]').forEach((row) => {
+      const open = () => openThread(row.dataset.thread);
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+    });
+  } catch (e) {
+    if (gen !== listLoadGen) return;
+    container.innerHTML =
+      `<div class="empty-runs">Failed to load threads.<br><small>${escapeHtml(e.message)}</small></div>`;
+  }
+}
+
+/** Threads mode shows whole chats: no per-turn trace, waterfall or timeline. */
+function threadView() {
+  return state.listMode === 'threads';
+}
+
+/** Cover the centre pane while the next run/thread loads, or prompt for a pick,
+ *  so the previous entity is never left on screen under the new selection. */
+function setCenterOverlay(kind, text) {
+  const overlay = document.getElementById('center-overlay');
+  if (!overlay) return;
+  overlay.classList.toggle('hidden', kind === 'none');
+  overlay.classList.toggle('prompt', kind === 'prompt');
+  document.getElementById('center-overlay-text').textContent =
+    text || (kind === 'loading' ? 'Loading…' : '');
+}
+
+function listSkeleton() {
+  const row = '<div class="skeleton-row" style="height:48px;"></div>';
+  return `<div class="skeleton-list" aria-hidden="true">${row.repeat(6)}</div>`;
+}
+
+function setRightTab(tab) {
+  state.rightTab = tab;
+  try { localStorage.setItem(STORAGE_RIGHT_TAB, tab); } catch { /* full storage */ }
+  applyRightPane();
+}
+
+/** Runs: Timeline | Tools tabs. Threads: Tools only (a timeline is per turn). */
+function applyRightPane() {
+  const tab = threadView() ? 'tools' : state.rightTab;
+  document.querySelectorAll('.list-toggle-btn[data-right]').forEach((b) => {
+    const on = b.dataset.right === tab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  document.getElementById('timeline-view').classList.toggle('hidden', tab !== 'timeline');
+  document.getElementById('tools-view').classList.toggle('hidden', tab !== 'tools');
+  document.getElementById('timeline-meta').classList.toggle('hidden', tab !== 'timeline');
+  document.getElementById('expand-timeline-label').textContent = tab === 'tools' ? 'Tools' : 'Timeline';
+  document.getElementById('tools-view-scope').textContent = threadView()
+    ? 'Tools used across this thread, grouped by MCP server.'
+    : state.selectedRunId
+      ? 'Tools used in this run, grouped by MCP server.'
+      : 'Tools used in the latest run, grouped by MCP server.';
+}
+
+/** A run on the Runs screen opens beside its timeline, pane expanded. */
+function showRunTimeline() {
+  if (threadView()) return;
+  setRightTab('timeline');
+  const pane = document.querySelector('.pane-timeline');
+  if (!pane || !pane.classList.contains('collapsed')) return;
+  pane.classList.remove('collapsed');
+  const saved = getPaneState();
+  saved.timelineCollapsed = false;
+  savePaneState(saved);
+}
+
+async function setListMode(mode, { restore = true } = {}) {
+  if (mode === state.listMode) return;
+  if (mode === 'threads') state.runsGraphMode = state.graphMode;
+  state.listMode = mode;
+  document.body.classList.toggle('threads-mode', mode === 'threads');
+  document.querySelectorAll('.list-toggle-btn[data-list]').forEach((b) => {
+    const on = b.dataset.list === mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  const list = document.getElementById('run-list');
+  list.setAttribute('aria-label', mode === 'threads' ? 'Threads' : 'Runs');
+  const search = document.getElementById('search-input');
+  search.placeholder = mode === 'threads' ? 'Search threads…' : 'Search runs…';
+  search.setAttribute('aria-label', mode === 'threads' ? 'Search threads' : 'Search runs');
+  list.scrollTop = 0;
+  list.innerHTML = listSkeleton();
+  document.getElementById('run-count').textContent = 'Loading…';
+  applyPaneState();
+  applyRightPane();
+  syncSelectionHints();
+  if (isDrawerOpen()) closeDrawer();
+  if (graph?.isReady() && graph.cancelReplay) graph.cancelReplay();
+  state.autoReplayInProgress = false;
+  state.playback = 'idle';
+  updatePlaybackUI();
+  hideReplayStepBadge();
+  const listed = loadRuns();
+  loadSourceCounts();
+  if (mode === 'threads') {
+    if (state.selectedThreadId) await showThread();
+    else showThreadPrompt();
+  } else if (restore) {
+    await showRunViews();
+  }
+  await listed;
+}
+
+function showThreadPrompt() {
+  setCenterOverlay('prompt', 'Pick a thread to read the whole conversation.');
+  setGraphModeAvailable(false);
+  setGraphMode('topology');
+  loadTopology();
+}
+
+/** Back in Runs mode, put the selected run (or the latest-run topology) back. */
+async function showRunViews() {
+  setCenterOverlay('loading');
+  const hasRun = !!state.selectedRunId;
+  setGraphModeAvailable(hasRun);
+  const back = state.runsGraphMode;
+  const mode = hasRun && back && back !== 'topology' ? back : hasRun ? 'trace' : 'topology';
+  await loadTopology();
+  if (threadView()) return;
+  setGraphMode(mode);
+  if (hasRun) showRunTimeline();
+  if (mode !== 'conversation') setCenterOverlay('none');
+}
+
+async function openThread(threadId) {
+  if (state.selectedThreadId === threadId) {
+    state.selectedThreadId = null;
+    document.querySelectorAll('.thread-row.active').forEach((r) => r.classList.remove('active'));
+    showThreadPrompt();
+    return;
+  }
+  state.selectedThreadId = threadId;
+  document.querySelectorAll('.thread-row').forEach((r) => {
+    r.classList.toggle('active', r.dataset.thread === threadId);
+  });
+  await showThread();
+}
+
+async function showThread() {
+  setCenterOverlay('loading');
+  setGraphModeAvailable(true);
+  const threadId = state.selectedThreadId;
+  await loadTopology();
+  if (!threadView() || state.selectedThreadId !== threadId) return;
+  setGraphMode('conversation');
+}
+
+/** "Open run" on a turn of the whole chat: show that turn as a run. */
+async function openRunFromThread(runId) {
+  setCenterOverlay('loading');
+  if (!state.runsById.has(runId)) {
+    try {
+      state.runsById.set(runId, await apiGet(`/runs/${encodeURIComponent(runId)}`));
+    } catch (e) {
+      toast(`Could not open run: ${e.message}`, 'error');
+      setCenterOverlay('none');
+      return;
+    }
+  }
+  state.runsGraphMode = 'trace';
+  const same = state.selectedRunId === runId;
+  await setListMode('runs', { restore: false });
+  if (same) await showRunViews();
+  else await selectRun(runId, { mode: 'trace' });
+}
+
+// Each list load bumps this; a response that is no longer the newest is dropped,
+// so quick filter changes or a tab switch can't show an older result last.
+let listLoadGen = 0;
+
+async function loadRuns() {
+  if (state.listMode === 'threads') return loadThreads();
+  const gen = ++listLoadGen;
+  try {
+    const data = await apiGet(`/runs?${runsQuery()}`);
+    if (gen !== listLoadGen) return;
+    // The open run stays known even when the current filter hides it, so its
+    // conversation and thread still resolve.
+    const open = state.runsById.get(state.selectedRunId);
     state.runs = data.runs;
+    state.runsTotal = data.total;
     state.runsById = new Map(data.runs.map((r) => [r.run_id, r]));
+    if (open && !state.runsById.has(open.run_id)) state.runsById.set(open.run_id, open);
     renderRunList();
     renderEmptyState();
   } catch (e) {
+    if (gen !== listLoadGen) return;
     if (e.status === 401) {
       toast('Authentication failed. Open settings to set token.', 'error');
     } else {
@@ -246,12 +550,18 @@ async function loadRuns() {
 }
 
 function renderRunList() {
+  if (state.listMode === 'threads') return;
   const container = document.getElementById('run-list');
   const filtered = filteredRuns();
+  // A filter that hides the drawer's run would leave its details floating next
+  // to a list of other runs.
+  if (state.drawerRunId && isDrawerOpen() && !filtered.some((r) => r.run_id === state.drawerRunId)) {
+    closeDrawer();
+  }
 
   if (filtered.length === 0) {
     container.innerHTML = `<div class="empty-runs">No runs match the current filter.</div>`;
-    document.getElementById('run-count').textContent = `0 of ${state.runs.length} runs`;
+    document.getElementById('run-count').textContent = '0 runs';
     return;
   }
 
@@ -263,9 +573,9 @@ function renderRunList() {
   container.innerHTML = '';
   container.appendChild(frag);
   document.getElementById('run-count').textContent =
-    state.runs.length === filtered.length
-      ? `${state.runs.length} runs`
-      : `${filtered.length} of ${state.runs.length} runs`;
+    state.runsTotal > filtered.length
+      ? `${filtered.length} of ${state.runsTotal} runs`
+      : `${filtered.length} run${filtered.length === 1 ? '' : 's'}`;
 }
 
 function buildRunRow(run) {
@@ -281,10 +591,12 @@ function buildRunRow(run) {
   const tags = (run.tags || []).slice(0, 3)
     .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
     .join('');
+  const thread = run.thread_id
+    ? `<span class="tag-chip thread-chip" data-thread-id="${escapeHtml(run.thread_id)}" title="Thread ${escapeHtml(run.thread_id)}: click to show this thread's runs">thread:${escapeHtml(run.thread_id.slice(0, 12))}</span>`
+    : '';
 
   row.innerHTML = `
     <div class="run-row-top">
-      <span class="status-badge ${escapeHtml(run.status)}" aria-label="${escapeHtml(run.status)}"></span>
       <span class="run-id" title="${escapeHtml(run.run_id)}">${escapeHtml(run.run_id.slice(0, 12))}…</span>
       <span class="run-row-actions">
         <button class="run-action export" data-run-action="export" data-run-id="${escapeHtml(run.run_id)}" type="button" title="Export run as JSONL" aria-label="Export run ${escapeHtml(run.run_id)} as JSONL">Export</button>
@@ -292,17 +604,42 @@ function buildRunRow(run) {
       </span>
     </div>
     <div class="run-row-bottom">
+      <span class="status-pill ${escapeHtml(run.status)}"><span class="status-badge ${escapeHtml(run.status)}" aria-hidden="true"></span>${escapeHtml(run.status)}</span>
       <span class="meta-step">${run.total_steps} step${run.total_steps === 1 ? '' : 's'}</span>
+      <span class="meta-cost" title="tokens and cost">${(run.total_tokens_input || 0) + (run.total_tokens_output || 0)} tok${formatCost(run.total_cost_usd) ? ' · ' + formatCost(run.total_cost_usd) : ''}</span>
       <span>·</span>
       <span title="${escapeHtml(run.started_at)}">${formatRelTime(run.started_at)}</span>
+      ${thread}
       ${tags}
+      ${run._snippet ? `<div class="run-snippet" data-hit-event="${escapeHtml(run._hitEventId || '')}">${escapeHtml(run._snippet)}</div>` : ''}
     </div>
   `;
-  row.addEventListener('click', () => selectRun(run.run_id));
+  const toggle = () => (state.selectedRunId === run.run_id ? deselectRun() : selectRun(run.run_id));
+  row.addEventListener('click', toggle);
+  const snippet = row.querySelector('.run-snippet');
+  if (snippet) {
+    snippet.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const eventId = run._hitEventId;
+      if (state.selectedRunId !== run.run_id) await selectRun(run.run_id);
+      const ev = (state.journey || []).find((step) => step.event_id === eventId);
+      if (ev) openStepDrawer(ev);
+    });
+  }
+  const threadChip = row.querySelector('.thread-chip');
+  if (threadChip) {
+    threadChip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const input = document.getElementById('search-input');
+      input.value = run.thread_id;
+      state.searchQuery = run.thread_id;
+      renderRunList();
+    });
+  }
   row.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      selectRun(run.run_id);
+      toggle();
     }
   });
   // Run-level actions: stop propagation so clicking them doesn't select the row.
@@ -325,10 +662,12 @@ function buildRunRow(run) {
 
 function filteredRuns() {
   const q = state.searchQuery.toLowerCase();
+  const server = q.trim().length >= 2;
   return state.runs.filter((r) => {
     if (state.filterStatus !== 'all' && r.status !== state.filterStatus) return false;
-    if (q) {
-      const hay = `${r.run_id} ${(r.tags || []).join(' ')}`.toLowerCase();
+    if (state.source === 'yours' && (r.tags || []).some((t) => String(t).startsWith('source:'))) return false;
+    if (!server && q) {
+      const hay = `${r.run_id} ${r.thread_id || ''} ${(r.tags || []).join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -340,7 +679,15 @@ function upsertRun(run) {
   if (existing) {
     Object.assign(existing, run);
   } else {
-    state.runs.unshift(run);
+    if (state.source === 'yours' ? sourceOf(run.tags) : state.source !== 'all' && sourceOf(run.tags) !== state.source) return;
+    if (state.filterStatus !== 'all' && run.status !== state.filterStatus) return;
+    // Other orders depend on totals that are still changing; the poller places them.
+    if (state.runsSort !== 'recent') return;
+    // Imported chats arrive out of order; keep the list sorted by trace start.
+    const at = state.runs.findIndex((r) => String(r.started_at) < String(run.started_at));
+    if (at === -1 && state.runs.length >= 50) return;
+    state.runs.splice(at === -1 ? state.runs.length : at, 0, run);
+    state.runsTotal += 1;
     state.runsById.set(run.run_id, run);
   }
   renderRunList();
@@ -351,18 +698,45 @@ function upsertRun(run) {
  * Run selection — load journey + open trace WS
  * ============================================================ */
 
-async function selectRun(runId) {
+function deselectRun() {
+  if (!state.selectedRunId) return;
+  selectRunGen += 1;
+  state.selectedRunId = null;
+  state.journey = [];
+  state.knownEventIds = new Set();
+  if (isDrawerOpen()) closeDrawer();
+  if (graph?.isReady() && graph.cancelReplay) graph.cancelReplay();
+  closeTraceWS();
+  setHash(null);
+  const meta = document.getElementById('timeline-meta');
+  meta.textContent = 'no run selected';
+  meta.title = '';
+  renderTimeline();
+  document.querySelectorAll('.run-row.active').forEach((r) => r.classList.remove('active'));
+  setCenterOverlay('none');
+  setGraphMode('topology');
+  setGraphModeAvailable(false);
+  applyRightPane();
+  if (state.topologyScope === 'run') loadTopology();
+}
+
+async function selectRun(runId, { mode = null } = {}) {
+  if (threadView()) await setListMode('runs', { restore: false });
   if (state.selectedRunId === runId) {
     // Re-clicking the already-selected run: the user likely switched to Topology
-    // and wants its run-trace back. Re-apply the trace and switch the view —
-    // the journey is already loaded, so no re-fetch.
+    // and wants its run-trace back.
     if (state.graphMode !== 'trace') {
       applyRunTraceToGraph();
       setGraphMode('trace');
     }
+    showRunTimeline();
     return;
   }
   state.selectedRunId = runId;
+  setCenterOverlay('loading');
+  // The drawer shows a step/node of the previous run; don't leave it open over
+  // the new one.
+  if (isDrawerOpen()) closeDrawer();
   state.journey = [];
   state.newEventCount = 0;
   state.expandedInvocations.clear();   // a new run starts with all rows collapsed
@@ -372,6 +746,7 @@ async function selectRun(runId) {
   state.knownEventIds = new Set();
   setHash(runId);
   renderRunList();
+  showRunTimeline();
   setGraphModeAvailable(true);
   document.getElementById('replay-controls').classList.remove('hidden');
 
@@ -381,21 +756,31 @@ async function selectRun(runId) {
   tlMeta.title = runId;
 
   showTimelineSkeleton();
+  const gen = ++selectRunGen;
+  let steps = [];
   try {
     const data = await apiGet(`/runs/${encodeURIComponent(runId)}/journey`);
-    state.journey = data.steps || [];
-    state.journey.forEach((s) => state.knownEventIds.add(s.event_id));
+    steps = data.steps || [];
+    if (data.truncated && gen === selectRunGen) {
+      toast(`Large run: showing the latest ${steps.length} steps. Export for the full trace.`, 'warning', 6000);
+    }
   } catch (e) {
-    toast(`Could not load journey: ${e.message}`, 'error');
-    state.journey = [];
+    if (gen === selectRunGen) toast(`Could not load journey: ${e.message}`, 'error');
   }
+  // A newer selection started while this fetch was in flight; its own call owns
+  // the timeline/graph now, so applying this (older) journey would mislabel it.
+  if (gen !== selectRunGen) return;
+  state.journey = steps;
+  state.journey.forEach((s) => state.knownEventIds.add(s.event_id));
   renderTimeline();
+  loadNotes(runId);
   // Point the timeline at the first entry on open.
   const tlEl = document.getElementById('timeline');
   if (tlEl) tlEl.scrollTop = 0;
   applyRunTraceToGraph();
   // When the topology is scoped to "this run", refresh it for the new selection.
-  if (state.topologyScope === 'run') loadTopology();
+  if (state.topologyScope === 'run') await loadTopology();
+  if (gen !== selectRunGen) return;
 
   // Reset replay/playback for the new run: cancel any in-flight replay, rebuild
   // the step list against the new journey, and reset the controls to idle.
@@ -408,13 +793,16 @@ async function selectRun(runId) {
   updatePlaybackUI();
 
   openTraceWS(runId);
-  setGraphMode('trace');
+  const next = mode || 'trace';
+  setGraphMode(next);
+  if (next !== 'conversation') setCenterOverlay('none');
 }
 
 function setHash(runId) {
   const params = new URLSearchParams();
   if (runId) params.set('run', runId);
   if (state.filterStatus !== 'all') params.set('status', state.filterStatus);
+  if (state.source && state.source !== 'all') params.set('source', state.source);
   const hash = params.toString();
   if (hash) location.hash = `#${hash}`;
   else if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -495,7 +883,8 @@ function buildStepCard(ev) {
   card.dataset.search = `${ev.event_type} ${name} ${summary} ${ev.error_message || ''}`.toLowerCase();
   const dur = ev.duration_ms != null ? `<span class="badge duration">${formatMs(ev.duration_ms)}</span>` : '';
   const tokens = (ev.token_input != null || ev.token_output != null)
-    ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}</span>` : '';
+    ? `<span class="badge tokens">↑${ev.token_input || 0} ↓${ev.token_output || 0}${formatCost(ev.cost_usd) ? ' ' + formatCost(ev.cost_usd) : ''}</span>` : '';
+  if (state.searchHits.some((h) => h.event_id === ev.event_id)) card.classList.add('search-hit');
   const errorBadge = ev.error_message ? `<span class="badge error">error</span>` : '';
   const openBtn = ev.blob_path ? `<button class="open-btn" data-event-id="${escapeHtml(ev.event_id)}" aria-label="Open step details">Open</button>` : '';
 
@@ -1102,7 +1491,12 @@ function openEdgeDrawer(edgeData) {
   showDrawer();
 }
 
+function isDrawerOpen() {
+  return !!document.getElementById('drawer')?.classList.contains('open');
+}
+
 function showDrawer() {
+  state.drawerRunId = state.selectedRunId;
   document.getElementById('drawer').classList.add('open');
   document.getElementById('drawer-backdrop').classList.remove('hidden');
   requestAnimationFrame(() => document.getElementById('drawer-backdrop').classList.add('visible'));
@@ -1116,6 +1510,7 @@ function closeDrawer() {
   document.getElementById('drawer').setAttribute('aria-hidden', 'true');
   // Invalidate any in-flight blob fetch so it can't write into a reopened drawer.
   state.currentDrawerEventId = null;
+  state.drawerRunId = null;
 }
 
 /* ============================================================
@@ -1157,7 +1552,11 @@ function highlightJson(value) {
  * ============================================================ */
 
 function openRunsWS() {
-  if (wsRuns) try { wsRuns.close(); } catch { /* noop */ }
+  clearTimeout(wsRunsReconnectTimer);
+  wsRunsReconnectTimer = null;
+  stopRunsLiveness();
+  detachSocket(wsRuns);
+  wsRuns = null;
   wsRunsCloseRequested = false;
 
   const url = wsUrl('/ws/runs');
@@ -1165,7 +1564,7 @@ function openRunsWS() {
 
   let ws;
   try {
-    ws = new WebSocket(url);
+    ws = new WebSocket(url, wsProtocols());
   } catch (e) {
     setConnState('disconnected');
     scheduleRunsReconnect();
@@ -1208,12 +1607,8 @@ function startRunsLiveness() {
     stopRunsLiveness();
     // Detach the stale socket so its (possibly never-arriving, possibly late)
     // onclose can't double-schedule a reconnect, then reconnect ourselves.
-    const stale = wsRuns;
+    detachSocket(wsRuns);
     wsRuns = null;
-    if (stale) {
-      stale.onclose = null; stale.onmessage = null; stale.onerror = null;
-      try { stale.close(); } catch { /* noop */ }
-    }
     setConnState('disconnected');
     if (!wsRunsCloseRequested) scheduleRunsReconnect();
   }, 5000);
@@ -1224,10 +1619,12 @@ function stopRunsLiveness() {
 }
 
 function scheduleRunsReconnect() {
+  if (wsRunsReconnectTimer) return;
   const delay = WS_BACKOFF[Math.min(wsRunsBackoff, WS_BACKOFF.length - 1)];
   wsRunsBackoff += 1;
   toast(`Disconnected. Reconnecting in ${Math.round(delay/1000)}s…`, 'warning', 2500);
-  setTimeout(() => {
+  wsRunsReconnectTimer = setTimeout(() => {
+    wsRunsReconnectTimer = null;
     if (!wsRunsCloseRequested) openRunsWS();
   }, delay);
 }
@@ -1242,11 +1639,15 @@ function handleRunsWsMessage(msg) {
     // running -> completed/failed transition so you don't have to watch the list.
     const prevStatus = state.runsById.get(incoming.run_id)?.status;
     upsertRun(incoming);
+    // Turns imported from AI apps (including history backfills) don't toast.
+    if (sourceOf(incoming.tags)) return;
     if (prevStatus === 'running' && incoming.status === 'completed') {
       toast('Run completed', 'success', 3000);
     } else if (prevStatus === 'running' && incoming.status === 'failed') {
       const detail = incoming.error_message ? `: ${incoming.error_message.slice(0, 60)}` : '';
       toast(`Run failed${detail}`, 'error', 5000);
+    } else if (prevStatus === 'running' && incoming.status === 'interrupted') {
+      toast('Run interrupted: waiting for human input', 'warning', 4000);
     }
   } else if (msg.msg_type === 'event' && msg.payload?.event_id) {
     // The global feed may not carry per-run events depending on backend wiring;
@@ -1271,7 +1672,7 @@ function openTraceWS(runId) {
   const url = wsUrl(`/ws/trace/${encodeURIComponent(runId)}`);
   let ws;
   try {
-    ws = new WebSocket(url);
+    ws = new WebSocket(url, wsProtocols());
   } catch {
     scheduleTraceReconnect(runId);
     return;
@@ -1309,17 +1710,21 @@ function openTraceWS(runId) {
 }
 
 function closeTraceWS() {
+  clearTimeout(wsTraceReconnectTimer);
+  wsTraceReconnectTimer = null;
   if (wsTrace) {
     wsTraceCloseRequested = true;
-    try { wsTrace.close(); } catch { /* noop */ }
+    detachSocket(wsTrace);
     wsTrace = null;
   }
 }
 
 function scheduleTraceReconnect(runId) {
+  clearTimeout(wsTraceReconnectTimer);
   const delay = WS_BACKOFF[Math.min(wsTraceBackoff, WS_BACKOFF.length - 1)];
   wsTraceBackoff += 1;
-  setTimeout(() => {
+  wsTraceReconnectTimer = setTimeout(() => {
+    wsTraceReconnectTimer = null;
     if (state.selectedRunId === runId) openTraceWS(runId);
   }, delay);
 }
@@ -1411,23 +1816,41 @@ function topologyScopeParam() {
   const s = state.topologyScope || 'run';
   if (s === 'all') return 'all';
   if (s === 'lastn') return `last_n:${Math.max(1, state.topologyScopeN || 5)}`;
+  // "This run" follows the selection: a thread covers every turn of that chat,
+  // a run covers that one turn. Threads mode with nothing picked shows nothing.
+  if (threadView()) return state.selectedThreadId ? `thread:${state.selectedThreadId}` : null;
   return state.selectedRunId ? `run:${state.selectedRunId}` : 'last_n:1';
 }
 
 async function loadTopology() {
+  const gen = ++topologyGen;
+  if (topologyScopeParam() === null) {
+    state.topology = { nodes: [], edges: [] };
+    if (graph?.isReady()) graph.setTopology(state.topology);
+    renderMcpLegend();
+    renderToolsPanel(null);
+    return;
+  }
   try {
     const scope = encodeURIComponent(topologyScopeParam());
-    state.topology = await apiGet(`/topology?scope=${scope}`);
+    const topo = await apiGet(`/topology?scope=${scope}`);
+    if (gen !== topologyGen) return;
+    state.topology = topo;
     if (graph?.isReady()) graph.setTopology(state.topology);
+    // Event -> node ids resolve against the current topology (leaf nodes are
+    // 'chain:', not 'agent:'), so a trace applied before this run's topology
+    // arrived must be recomputed now.
+    if (state.graphMode === 'trace' && state.journey.length) applyRunTraceToGraph();
     renderMcpLegend();
   } catch (e) {
     toast(`Could not load topology: ${e.message}`, 'error', 3000);
   }
   // Tools-by-source derives from the same events; refresh it alongside topology.
-  loadTools();
+  if (gen === topologyGen) await loadTools();
 }
 
 async function loadTools() {
+  if (topologyScopeParam() === null) return renderToolsPanel(null);
   try {
     const scope = encodeURIComponent(topologyScopeParam());
     renderToolsPanel(await apiGet(`/tools?scope=${scope}`));
@@ -1442,7 +1865,6 @@ function renderToolsPanel(data) {
   const sources = (data && data.sources) || [];
   if (!sources.length) {
     body.innerHTML = '<div class="tools-panel-empty">No tools yet</div>';
-    applyToolsCollapsed();
     return;
   }
   body.innerHTML = sources.map((s) => {
@@ -1469,7 +1891,6 @@ function renderToolsPanel(data) {
         ${rows}
       </div>`;
   }).join('');
-  applyToolsCollapsed();
 }
 
 /** Rebuild the dynamic "MCP servers" legend section from the current topology,
@@ -1497,158 +1918,34 @@ function renderMcpLegend() {
     ).join('');
 }
 
-/** Apply the persisted collapsed state to the panel (class + toggle glyph). Called
- *  on toggle AND after every renderToolsPanel so the two never desync. */
-function applyToolsCollapsed() {
-  const panel = document.getElementById('tools-panel');
-  const toggle = document.getElementById('tools-panel-toggle');
-  if (!panel) return;
-  panel.classList.toggle('collapsed', state.toolsCollapsed);
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', state.toolsCollapsed ? 'false' : 'true');
-    toggle.innerHTML = state.toolsCollapsed ? '&#x2b;' : '&#x2212;';
-  }
-  // Expanding grows the panel height; if it was parked near the bottom edge the
-  // body could spill out of the clipped pane. Re-clamp when a position is set.
-  if (panel.style.left) clampToolsPanel(panel);
-}
-
-/** Clamp the panel so the WHOLE of it stays inside the graph pane's visible
- *  box. The pane has overflow:hidden, so any part pushed past an edge would be
- *  clipped ("hidden in the sidebar"); keeping the full width AND height in view
- *  prevents that. Safe to call any time the panel has an explicit left/top. */
-// Keep the panel clear of the graph-controls toolbar (Topology/Run-trace toggle,
-// scope, zoom) which sits across the top of the pane — so it can never be parked
-// (or restored from a stale saved position) on top of those controls.
-const TOOLS_PANEL_TOP_CLEARANCE = 52;
-
-function clampToolsPanel(panel) {
-  const pane = panel.parentElement;
-  if (!pane) return;
-  const pb = pane.getBoundingClientRect();
-  const pr = panel.getBoundingClientRect();
-  // Current offset of the panel within the pane.
-  let left = pr.left - pb.left;
-  let top = pr.top - pb.top;
-  const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
-  const maxTop = Math.max(TOOLS_PANEL_TOP_CLEARANCE, pb.height - panel.offsetHeight - 4);
-  left = Math.max(4, Math.min(left, maxLeft));
-  top = Math.max(TOOLS_PANEL_TOP_CLEARANCE, Math.min(top, maxTop));
-  panel.style.left = `${left}px`;
-  panel.style.top = `${top}px`;
-  panel.style.right = 'auto';
-}
-
-function wireToolsPanel() {
-  const panel = document.getElementById('tools-panel');
-  const header = panel && panel.querySelector('.tools-panel-header');
-  if (!panel || !header) return;
-
-  // Restore a saved position so the panel stays where the user parked it (out of
-  // the way of the llm/retriever columns on the right). Clamp it afterwards: the
-  // pane may now be narrower (window resize, expanded side pane) than when saved,
-  // and an un-clamped position would leave the panel clipped/off-screen.
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_TOOLS_POS) || 'null');
-    if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
-      panel.style.left = `${saved.left}px`;
-      panel.style.top = `${saved.top}px`;
-      panel.style.right = 'auto';
-      clampToolsPanel(panel);
-    }
-  } catch { /* ignore bad saved value */ }
-
-  // Keep the panel on-screen whenever the graph pane changes size — window
-  // resize AND (crucially) a side pane being expanded/collapsed, which shrinks
-  // the graph pane via a grid-column change rather than a window resize. A
-  // ResizeObserver catches all of these (and fires during the 240ms pane
-  // transition) so a panel parked at the right edge slides left to stay visible
-  // instead of being covered by the opening sidebar.
-  const pane = panel.parentElement;
-  if (pane && 'ResizeObserver' in window) {
-    const ro = new ResizeObserver(() => {
-      if (panel.style.left) clampToolsPanel(panel);
-    });
-    ro.observe(pane);
-  } else {
-    window.addEventListener('resize', () => {
-      if (panel.style.left) clampToolsPanel(panel);
-    });
-  }
-
-  // Drag the header to MOVE the panel; a plain click (no drag) toggles collapse.
-  let startX = 0, startY = 0, origLeft = 0, origTop = 0, pressed = false, dragging = false;
-
-  const onMove = (e) => {
-    if (!pressed) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (!dragging && Math.hypot(dx, dy) < 4) return;   // below threshold = still a click
-    dragging = true;
-    const pane = panel.parentElement;
-    const pb = pane.getBoundingClientRect();
-    // Clamp the WHOLE panel (width and height) inside the pane so it can never be
-    // dragged partially under the clipped edge.
-    const maxLeft = Math.max(4, pb.width - panel.offsetWidth - 4);
-    const maxTop = Math.max(TOOLS_PANEL_TOP_CLEARANCE, pb.height - panel.offsetHeight - 4);
-    const left = Math.max(4, Math.min(origLeft + dx, maxLeft));
-    const top = Math.max(TOOLS_PANEL_TOP_CLEARANCE, Math.min(origTop + dy, maxTop));
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
-    panel.style.right = 'auto';
-  };
-
-  const onUp = () => {
-    if (!pressed) return;
-    pressed = false;
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-    if (dragging) {
-      try {
-        localStorage.setItem(STORAGE_TOOLS_POS, JSON.stringify({
-          left: parseFloat(panel.style.left),
-          top: parseFloat(panel.style.top),
-        }));
-      } catch { /* ignore */ }
-    } else {
-      state.toolsCollapsed = !state.toolsCollapsed;
-      applyToolsCollapsed();
-    }
-    dragging = false;
-  };
-
-  header.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    pressed = true;
-    dragging = false;
-    startX = e.clientX;
-    startY = e.clientY;
-    const pane = panel.parentElement;
-    const pr = panel.getBoundingClientRect();
-    const pb = pane.getBoundingClientRect();
-    origLeft = pr.left - pb.left;
-    origTop = pr.top - pb.top;
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    e.preventDefault();   // prevent text selection while dragging
-  });
-
-  applyToolsCollapsed();
+/** Topology's "This run" option covers the whole chat in Threads mode. */
+function syncSelectionHints() {
+  const option = document.querySelector('#topology-scope option[value="run"]');
+  if (option) option.textContent = threadView() ? 'This thread' : 'This run';
 }
 
 function setGraphMode(mode) {
+  if (threadView() && (mode === 'trace' || mode === 'waterfall')) mode = 'conversation';
   state.graphMode = mode;
-  // The topology-scope selector and the "Tools by source" panel only apply to
-  // the Topology view — hide both in Run trace mode.
   const scopeWrap = document.getElementById('topology-scope-wrap');
   if (scopeWrap) scopeWrap.classList.toggle('hidden', mode !== 'topology');
-  const toolsPanel = document.getElementById('tools-panel');
-  if (toolsPanel) toolsPanel.classList.toggle('hidden', mode !== 'topology');
-  document.querySelectorAll('.seg-btn').forEach((b) => {
+  const graphEl = document.getElementById('graph-container');
+  const waterfall = document.getElementById('waterfall');
+  const conversation = document.getElementById('conversation');
+  const legend = document.getElementById('graph-legend');
+  const special = mode === 'waterfall' || mode === 'conversation';
+  if (graphEl) graphEl.classList.toggle('hidden', special);
+  if (waterfall) waterfall.classList.toggle('hidden', mode !== 'waterfall');
+  if (conversation) conversation.classList.toggle('hidden', mode !== 'conversation');
+  if (legend) legend.classList.toggle('hidden', special);
+  if (mode === 'waterfall') loadWaterfall();
+  if (mode === 'conversation') loadConversation();
+  document.querySelectorAll('.seg-btn[data-mode]').forEach((b) => {
     const isActive = b.dataset.mode === mode;
     b.classList.toggle('active', isActive);
     b.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
+  syncSelectionHints();
   if (mode === 'topology') {
     // Stop any in-flight replay so the graph doesn't keep animating after the
     // user has explicitly asked to leave trace view.
@@ -1668,13 +1965,159 @@ function setGraphMode(mode) {
       graph.clearRunTrace();   // resets to column layout, drops all run state
     }
   } else {
-    document.getElementById('replay-controls').classList.remove('hidden');
-    applyRunTraceToGraph();
+    // Replay animates the graph, so it has nothing to drive in the
+    // waterfall or conversation views.
+    document.getElementById('replay-controls').classList.toggle('hidden', special);
+    if (!threadView()) applyRunTraceToGraph();
   }
 }
 
+/** Keep the waterfall and conversation scroll areas below the floating graph
+ *  toolbar, whose height changes when it wraps in a narrow pane. */
+function trackGraphControlsHeight() {
+  const controls = document.querySelector('.graph-controls');
+  const pane = document.querySelector('.pane-graph');
+  if (!controls || !pane || typeof ResizeObserver === 'undefined') return;
+  const update = () => {
+    const bottom = controls.offsetTop + controls.offsetHeight;
+    pane.style.setProperty('--graph-controls-h', `${bottom + 8}px`);
+  };
+  new ResizeObserver(update).observe(controls);
+  update();
+}
+
 function setGraphModeAvailable(available) {
-  document.querySelector('.seg-btn[data-mode="trace"]').disabled = !available;
+  for (const mode of ['trace', 'waterfall', 'conversation']) {
+    const btn = document.querySelector(`.seg-btn[data-mode="${mode}"]`);
+    if (btn) btn.disabled = !available;
+  }
+}
+
+async function loadWaterfall() {
+  const el = document.getElementById('waterfall');
+  if (!el || !state.selectedRunId) return;
+  try {
+    const spans = await apiGet(`/runs/${encodeURIComponent(state.selectedRunId)}/spans`);
+    renderWaterfall(el, spans, (eventId) => {
+      const ev = state.journey.find((e) => e.event_id === eventId);
+      if (ev) openStepDrawer(ev);
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="waterfall-empty">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderRichText(text) {
+  if (!text) return '';
+  let html = escapeHtml(text);
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="md-code">${code}</pre>`);
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  return html;
+}
+
+function renderSteps(steps) {
+  if (!steps || !steps.length) return '';
+  const rows = steps.map((step) => {
+    const llm = step.kind === 'llm';
+    const name = escapeHtml(step.name || (llm ? 'Model' : 'tool'));
+    const server = step.mcp_server ? ` · ${escapeHtml(step.mcp_server)}` : '';
+    const line = step.summary ? `<span class="step-summary">${escapeHtml(step.summary)}</span>` : '';
+    const ms = step.duration_ms != null ? `<span class="step-ms">${step.duration_ms} ms</span>` : '';
+    const inputLabel = llm ? 'Prompt' : 'Input';
+    const outputLabel = llm ? 'Reply' : 'Output';
+    const body = [
+      step.input ? `<div class="step-label">${inputLabel}</div><pre>${escapeHtml(step.input)}</pre>` : '',
+      step.output ? `<div class="step-label">${outputLabel}</div><pre>${escapeHtml(step.output)}</pre>` : '',
+      step.error ? `<div class="step-error">${escapeHtml(step.error)}</div>` : '',
+    ].join('');
+    return `<li class="step-call${llm ? ' llm' : ''}${step.error ? ' failed' : ''}">
+      <details>
+        <summary><span class="step-name">${name}${server}</span>${line}${ms}</summary>
+        ${body || '<div class="step-empty">No input or output stored for this call.</div>'}
+      </details>
+    </li>`;
+  }).join('');
+  const label = `${steps.length} call${steps.length === 1 ? '' : 's'}`;
+  return `<details class="turn-steps"><summary class="step-count">${label}</summary><ol>${rows}</ol></details>`;
+}
+
+async function loadConversation() {
+  const el = document.getElementById('conversation');
+  if (!el) return;
+  const whole = threadView();
+  const runId = state.selectedRunId;
+  const threadId = whole ? state.selectedThreadId : state.runsById.get(runId)?.thread_id;
+  const current = () => (whole
+    ? threadView() && state.selectedThreadId === threadId
+    : !threadView() && state.selectedRunId === runId);
+  if (!threadId) {
+    el.innerHTML = whole ? '' : '<div class="waterfall-empty">This run is not part of a thread.</div>';
+    if (!whole) setCenterOverlay('none');
+    return;
+  }
+  const params = new URLSearchParams(whole ? { last: String(THREAD_TURNS) } : { run: runId });
+  try {
+    const data = await apiGet(`/threads/${encodeURIComponent(threadId)}?${params}`);
+    if (!current() || state.graphMode !== 'conversation') return;
+    const turns = data.turns || [];
+    const head = whole
+      ? `<div class="conversation-scope">Whole chat${turns.length >= THREAD_TURNS ? ` · latest ${THREAD_TURNS} turns` : ''}</div>`
+      : `<div class="conversation-scope">This turn
+           <button type="button" class="link-btn" data-open-thread>Show the whole chat</button></div>`;
+    el.innerHTML = head + (turns.map((turn) => {
+      const tone = turn.status === 'failed' ? 'failed' : turn.interrupted ? 'paused' : '';
+      const cost = formatCost(turn.cost_usd);
+      const link = whole
+        ? ` · <button type="button" class="link-btn" data-open-run="${escapeHtml(turn.run_id)}" title="Open this turn's trace and timeline">Open run ↗</button>`
+        : '';
+      return `
+        <article class="turn ${tone}" data-run="${escapeHtml(turn.run_id)}">
+          ${turn.user_text ? `<div class="bubble user">${renderRichText(turn.user_text)}</div>` : ''}
+          ${renderSteps(turn.steps)}
+          ${turn.assistant_text ? `<div class="bubble assistant">${renderRichText(turn.assistant_text)}</div>` : ''}
+          <div class="turn-meta">${escapeHtml(turn.status)} · ↑${turn.tokens_in || 0} ↓${turn.tokens_out || 0}${cost ? ' · ' + cost : ''}${link}</div>
+          ${turn.error ? `<div class="turn-error">${escapeHtml(turn.error)}</div>` : ''}
+        </article>`;
+    }).join('') || '<div class="waterfall-empty">No turns.</div>');
+    el.querySelector('[data-open-thread]')?.addEventListener('click', () => openThreadFromRun(threadId));
+    el.querySelectorAll('[data-open-run]').forEach((btn) => {
+      btn.addEventListener('click', () => openRunFromThread(btn.dataset.openRun));
+    });
+    el.scrollTop = 0;
+    if (whole) el.querySelector('.turn:last-of-type')?.scrollIntoView({ block: 'start' });
+    else el.querySelector('.bubble.assistant')?.scrollIntoView({ block: 'start' });
+  } catch (e) {
+    if (!current()) return;
+    el.innerHTML = `<div class="waterfall-empty">${escapeHtml(e.message)}</div>`;
+  }
+  setCenterOverlay('none');
+}
+
+/** "Show the whole chat" on a run: switch to Threads with that chat open. */
+async function openThreadFromRun(threadId) {
+  state.selectedThreadId = threadId;
+  state.graphMode = 'conversation';
+  await setListMode('threads');
+}
+
+async function loadNotes(runId) {
+  const el = document.getElementById('run-notes');
+  if (!el) return;
+  try {
+    const notes = await apiGet(`/runs/${encodeURIComponent(runId)}/notes`);
+    if (!notes.length) {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.innerHTML = notes.map((n) =>
+      `<p><strong>${escapeHtml(n.author || 'note')}</strong> ${escapeHtml(n.text)}</p>`
+    ).join('');
+  } catch {
+    el.classList.add('hidden');
+  }
 }
 
 function applyRunTraceToGraph() {
@@ -1727,8 +2170,10 @@ function scheduleGraphTopologyRefresh() {
     // dot mid-step. Skip — a live run keeps emitting events that retrigger
     // this, and a finished run's topology is already static.
     if (state.autoReplayInProgress) return;
+    const gen = ++topologyGen;
     try {
-      const topo = await apiGet('/topology');
+      const topo = await apiGet(`/topology?scope=${encodeURIComponent(topologyScopeParam())}`);
+      if (gen !== topologyGen) return;
       state.topology = topo;
       if (graph?.isReady()) graph.setTopology(topo);
       // setTopology rebuilds the node/edge elements, dropping all step-*
@@ -1746,7 +2191,10 @@ function scheduleGraphTopologyRefresh() {
 
 function renderEmptyState() {
   const empty = document.getElementById('graph-empty');
-  if (state.runs.length === 0) {
+  // "No runs yet" only when nothing is stored; a filter matching nothing is not that.
+  const filtered = state.filterStatus !== 'all' || state.source !== 'all'
+    || (state.searchQuery || '').trim() !== '';
+  if (state.runs.length === 0 && !filtered) {
     empty.classList.remove('hidden');
   } else {
     empty.classList.add('hidden');
@@ -1928,7 +2376,9 @@ function applyPaneState() {
   const runsPane = document.querySelector('.pane-runs');
   const timelinePane = document.querySelector('.pane-timeline');
   if (runsPane) runsPane.classList.toggle('collapsed', !!s.runsCollapsed);
-  if (timelinePane) timelinePane.classList.toggle('collapsed', !!s.timelineCollapsed);
+  // Threads mode keeps the right side to a Tools rail until the user opens it.
+  const rightCollapsed = threadView() ? s.threadsRightCollapsed !== false : !!s.timelineCollapsed;
+  if (timelinePane) timelinePane.classList.toggle('collapsed', rightCollapsed);
 }
 
 function togglePane(which) {
@@ -1938,8 +2388,88 @@ function togglePane(which) {
   pane.classList.toggle('collapsed');
   const isCollapsed = pane.classList.contains('collapsed');
   const s = getPaneState();
-  s[which === 'runs' ? 'runsCollapsed' : 'timelineCollapsed'] = isCollapsed;
+  const key = which === 'runs' ? 'runsCollapsed' : threadView() ? 'threadsRightCollapsed' : 'timelineCollapsed';
+  s[key] = isCollapsed;
   savePaneState(s);
+}
+
+/* ---- Pane resize (drag the inner edge of either side pane) ---- */
+
+const PANE_LIMITS = { runs: [200, 560], timeline: [260, 760] };
+const GRAPH_MIN_W = 320;
+
+function paneVar(which) {
+  return which === 'runs' ? '--pane-runs-w' : '--pane-timeline-w';
+}
+
+function getPaneWidths() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_PANE_WIDTHS)) || {}; }
+  catch { return {}; }
+}
+
+/** Clamp to the pane's limits and leave the graph at least GRAPH_MIN_W. */
+function setPaneWidth(which, px) {
+  const main = document.querySelector('.app-main');
+  const other = document.querySelector(which === 'runs' ? '.pane-timeline' : '.pane-runs');
+  const [min, max] = PANE_LIMITS[which];
+  const room = main.clientWidth - (other ? other.offsetWidth : 0) - GRAPH_MIN_W;
+  const width = Math.round(Math.max(min, Math.min(px, max, room)));
+  main.style.setProperty(paneVar(which), `${width}px`);
+  return width;
+}
+
+function savePaneWidth(which, width) {
+  const widths = getPaneWidths();
+  if (width == null) delete widths[which];
+  else widths[which] = width;
+  try { localStorage.setItem(STORAGE_PANE_WIDTHS, JSON.stringify(widths)); } catch { /* full storage */ }
+}
+
+function applyPaneWidths() {
+  const widths = getPaneWidths();
+  for (const which of ['runs', 'timeline']) {
+    if (Number.isFinite(widths[which])) setPaneWidth(which, widths[which]);
+  }
+}
+
+function wirePaneResizers() {
+  const main = document.querySelector('.app-main');
+  document.querySelectorAll('.pane-resizer').forEach((handle) => {
+    const which = handle.dataset.pane;
+    const pane = () => document.querySelector(which === 'runs' ? '.pane-runs' : '.pane-timeline');
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      try { handle.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+      main.classList.add('resizing');
+      const box = main.getBoundingClientRect();
+      let width = pane().offsetWidth;
+      const move = (ev) => {
+        width = setPaneWidth(which, which === 'runs' ? ev.clientX - box.left : box.right - ev.clientX);
+      };
+      const done = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', done);
+        handle.removeEventListener('pointercancel', done);
+        main.classList.remove('resizing');
+        savePaneWidth(which, width);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', done);
+      handle.addEventListener('pointercancel', done);
+    });
+    handle.addEventListener('dblclick', () => {
+      main.style.removeProperty(paneVar(which));
+      savePaneWidth(which, null);
+    });
+    handle.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const grow = (e.key === 'ArrowRight') === (which === 'runs');
+      savePaneWidth(which, setPaneWidth(which, pane().offsetWidth + (grow ? 24 : -24)));
+    });
+  });
+  window.addEventListener('resize', applyPaneWidths);
 }
 
 function showReplayStepBadge(current, total, detail) {
@@ -2002,8 +2532,13 @@ function wireKeyboard() {
     const inField = tag === 'input' || tag === 'textarea' || tag === 'select';
 
     if (e.key === 'Escape') {
+      const open = isDrawerOpen() || document.querySelector('.modal:not(.hidden)');
       closeDrawer();
       closeAllModals();
+      if (!open && !inField) {
+        if (threadView()) { if (state.selectedThreadId) openThread(state.selectedThreadId); }
+        else deselectRun();
+      }
       return;
     }
     if (inField) return;
@@ -2079,21 +2614,78 @@ function wireUI() {
   document.getElementById('status-filter').addEventListener('change', (e) => {
     state.filterStatus = e.target.value;
     setHash(state.selectedRunId);
-    renderRunList();
+    loadRuns();
+  });
+  document.getElementById('source-filter').addEventListener('change', (e) => {
+    setSource(e.target.value);
+    setHash(state.selectedRunId);
+    loadRuns();
+  });
+  document.getElementById('runs-sort').addEventListener('change', (e) => {
+    state.runsSort = e.target.value;
+    loadRuns();
+  });
+  document.getElementById('threads-sort').addEventListener('change', (e) => {
+    state.threadsSort = e.target.value;
+    loadRuns();
+  });
+  document.getElementById('turns-filter').addEventListener('change', (e) => {
+    state.minTurns = Number(e.target.value) || 1;
+    loadRuns();
+  });
+  document.querySelectorAll('.list-toggle-btn[data-list]').forEach((btn) => {
+    btn.addEventListener('click', () => setListMode(btn.dataset.list));
+  });
+  document.querySelectorAll('.list-toggle-btn[data-right]').forEach((btn) => {
+    btn.addEventListener('click', () => setRightTab(btn.dataset.right));
   });
   document.getElementById('search-input').addEventListener('input', (e) => {
     state.searchQuery = e.target.value;
-    renderRunList();
+    clearTimeout(state.searchTimer);
+    if (threadView()) {
+      state.searchTimer = setTimeout(loadThreads, 250);
+      return;
+    }
+    if (state.searchQuery.trim().length >= 2) {
+      state.searchTimer = setTimeout(async () => {
+        await loadRuns();
+        try {
+          const found = await apiGet(`/search?q=${encodeURIComponent(state.searchQuery.trim())}&limit=20`);
+          state.searchHits = found.hits || [];
+          const byRun = new Map();
+          for (const hit of state.searchHits) {
+            if (!byRun.has(hit.run_id)) {
+              byRun.set(hit.run_id, { n: 0, snippet: hit.snippet, eventId: hit.event_id });
+            }
+            byRun.get(hit.run_id).n += 1;
+          }
+          for (const run of state.runs) {
+            const hit = byRun.get(run.run_id);
+            run._snippet = hit ? `${hit.n} match${hit.n === 1 ? '' : 'es'}: ${hit.snippet}` : '';
+            run._hitEventId = hit ? hit.eventId : '';
+          }
+          renderRunList();
+          renderTimeline();
+        } catch { /* search stays on the run list */ }
+      }, 250);
+    } else {
+      state.searchHits = [];
+      renderRunList();
+    }
   });
   document.getElementById('timeline-search').addEventListener('input', (e) => {
     state.timelineFilter = e.target.value;
     applyTimelineFilter();
   });
 
-  document.querySelectorAll('.seg-btn').forEach((b) => {
+  document.querySelectorAll('.seg-btn[data-mode]').forEach((b) => {
     b.addEventListener('click', () => {
       if (b.disabled) return;
-      setGraphMode(b.dataset.mode);
+      const mode = b.dataset.mode;
+      if (mode === 'conversation' && mode !== state.graphMode) setCenterOverlay('loading');
+      setGraphMode(mode);
+      // Conversation clears the overlay once loaded; the graph views draw at once.
+      if (mode !== 'conversation' && !(threadView() && !state.selectedThreadId)) setCenterOverlay('none');
     });
   });
 
@@ -2175,16 +2767,38 @@ function wireUI() {
       state.filterStatus = params.status;
       document.getElementById('status-filter').value = params.status;
     }
+    if ((params.source || 'all') !== state.source) {
+      setSource(params.source);
+      loadRuns();
+    }
     if (params.run && params.run !== state.selectedRunId) {
       selectRun(params.run);
+    } else if (!params.run && state.selectedRunId) {
+      deselectRun();
     }
   });
 }
 
 function wsUrl(path) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const tokenQp = state.authToken ? `?token=${encodeURIComponent(state.authToken)}` : '';
-  return `${proto}//${location.host}${path}${tokenQp}`;
+  return `${proto}//${location.host}${path}`;
+}
+
+/** Token travels in Sec-WebSocket-Protocol (base64url so it is a valid header
+ *  token), never in the URL where proxies and history would record it. */
+function wsProtocols() {
+  if (!state.authToken) return undefined;
+  const bytes = new TextEncoder().encode(state.authToken);
+  let bin = '';
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  const enc = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return ['tracesage.v1', `tracesage.bearer.${enc}`];
+}
+
+function detachSocket(ws) {
+  if (!ws) return;
+  ws.onopen = null; ws.onclose = null; ws.onmessage = null; ws.onerror = null;
+  try { ws.close(); } catch { /* noop */ }
 }
 
 /* ============================================================
@@ -2193,6 +2807,7 @@ function wsUrl(path) {
 
 async function main() {
   applyTheme(state.theme);
+  trackGraphControlsHeight();
 
   // Construct GraphView after DOM ready.
   graph = new GraphView(
@@ -2219,8 +2834,10 @@ async function main() {
 
   wireUI();
   wireKeyboard();
-  wireToolsPanel();
   applyPaneState();
+  applyRightPane();
+  applyPaneWidths();
+  wirePaneResizers();
 
   // Read initial hash before first load.
   const initial = readHash();
@@ -2228,12 +2845,20 @@ async function main() {
     state.filterStatus = initial.status;
     document.getElementById('status-filter').value = initial.status;
   }
+  if (initial.source) setSource(initial.source);
 
-  await Promise.all([loadRuns(), loadTopology(), pollHealth()]);
+  await Promise.all([loadRuns(), loadTopology(), pollHealth(), loadSourceCounts()]);
 
   // Auto-select run from hash, if any.
-  if (initial.run && state.runsById.has(initial.run)) {
-    selectRun(initial.run);
+  if (initial.run) {
+    if (!state.runsById.has(initial.run)) {
+      try {
+        state.runsById.set(initial.run, await apiGet(`/runs/${encodeURIComponent(initial.run)}`));
+      } catch {
+        initial.run = null;
+      }
+    }
+    if (initial.run) selectRun(initial.run);
   }
 
   openRunsWS();
@@ -2241,6 +2866,7 @@ async function main() {
   // Background pollers.
   setTimeout(pollStats, STATS_POLL_MS);
   setInterval(loadRuns, RUNS_POLL_MS);
+  setInterval(loadSourceCounts, 30000);
 }
 
 if (document.readyState === 'loading') {

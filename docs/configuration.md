@@ -17,8 +17,8 @@ All settings live on `TraceSageConfig` (Pydantic Settings). Override via:
 | `auth_token` | `TRACESAGE_AUTH_TOKEN` | `None` | Bearer token for HTTP + WebSocket auth. |
 | `public_url` | `TRACESAGE_PUBLIC_URL` | `None` | Base URL used for run deep-links (e.g. behind a reverse proxy). Falls back to the bound host/port. |
 | `print_run_url` | `TRACESAGE_PRINT_RUN_URL` | `True` | Print a `🔍 tracesage: <url>` link to stderr on each new root run. Set `False` in noisy/prod environments. |
-| `start_server` | `TRACESAGE_START_SERVER` | `True` | Start the embedded UI server in-process. Set `False` in prod to keep capturing without a web server (view later with `tracesage serve`). A `start_server=` kwarg to `create()`/`session()` overrides this. |
-| `cors_origins` | `TRACESAGE_CORS_ORIGINS` | `["*"]` | Allowed CORS origins. Tighten to an explicit allowlist when exposing beyond localhost. |
+| `start_server` | `TRACESAGE_START_SERVER` | `True` | Start the embedded UI server in-process. Set `False` in prod to keep capturing without a web server (view later with `tracesage serve`). A `start_server=` kwarg to `create()`/`session()`/`start()`/`trace()` overrides this. |
+| `cors_origins` | `TRACESAGE_CORS_ORIGINS` | `[]` | Extra browser origins allowed to call the API and open WebSockets (JSON list). The bundled UI is same-origin and needs none. |
 | `startup_health_timeout_s` | `TRACESAGE_STARTUP_HEALTH_TIMEOUT_S` | `3.0` | How long `create()` waits for the embedded server to report started. |
 | `data_dir` | `TRACESAGE_DATA_DIR` | `~/.tracesage` | Root data directory (DB + blobs). |
 | `db_filename` | `TRACESAGE_DB_FILENAME` | `traces.db` | SQLite filename inside `data_dir`. |
@@ -38,6 +38,13 @@ All settings live on `TraceSageConfig` (Pydantic Settings). Override via:
 | `otlp_endpoint` | `TRACESAGE_OTLP_ENDPOINT` | `None` | OTLP/HTTP endpoint for OpenTelemetry export (e.g. `http://localhost:4318`). When set, events are also exported as OTel spans. Requires the `tracesage[otel]` extra. |
 | `otlp_service_name` | `TRACESAGE_OTLP_SERVICE_NAME` | `tracesage` | `service.name` resource attribute on exported spans. |
 | `otlp_headers` | `TRACESAGE_OTLP_HEADERS` | `{}` | Extra OTLP headers (e.g. a SaaS API key like `x-honeycomb-team`). |
+| `ingest` | `TRACESAGE_INGEST` | `True` | Expose `POST /v1/traces` (OTLP/HTTP ingest) on the embedded server so other processes / frameworks can send OpenTelemetry spans into this tracer. `False` removes the route (`404`). `tracesage serve --ingest` always enables it. See [Frameworks](frameworks.md). |
+| `ingest_max_body_bytes` | `TRACESAGE_INGEST_MAX_BODY_BYTES` | `16777216` (16 MiB) | Cap on a single `/v1/traces`, `/v1/logs` or `/v1/hooks` request body. Oversize hook bodies are dropped (the route still returns `{}`). |
+| `pricing_enabled` | `TRACESAGE_PRICING_ENABLED` | `True` | Price `llm_end` events when `genai-prices` is installed (`tracesage[pricing]` or `tracesage[apps]`). Unknown models stay `null`, shown as n/a. |
+| `price_overrides` | `TRACESAGE_PRICE_OVERRIDES` | `{}` | JSON map of `provider:model` or `model` to per-million rates: `{"input": 0.15, "output": 0.6, "cache_read": 0.075, "cache_write": 0.15}`. |
+| `search_index_payloads` | `TRACESAGE_SEARCH_INDEX_PAYLOADS` | `True` | Also index redacted payload text. `False` indexes names, summaries and errors only. |
+| `search_max_chars_per_event` | `TRACESAGE_SEARCH_MAX_CHARS_PER_EVENT` | `20000` | Cap on payload text stored in the FTS index per event. |
+| `hook_metadata_only` | `TRACESAGE_HOOK_METADATA_ONLY` | `False` | Drop prompt, response and tool I/O text from AI-app sessions, both the session importers and `POST /v1/hooks`. Names, timing, tokens and status are kept. `tracesage connect --metadata-only` sets it. |
 
 ## Disabling (kill switch)
 
@@ -56,7 +63,7 @@ export TRACESAGE_ENABLED=false      # complete no-op
 ## Isolating multiple applications
 
 `data_dir` is the isolation boundary. All cross-run views — the **topology map**
-and the **"Tools by source"** panel — are computed *per data dir*, aggregating
+and the **Tools** tab — are computed *per data dir*, aggregating
 every run stored there. So if two different applications write to the **same**
 `data_dir` (e.g. both use the default `~/.tracesage`), their graphs and tool
 inventories **merge** and appear to interfere.
@@ -128,9 +135,37 @@ export TRACESAGE_OTLP_ENDPOINT=http://localhost:4318
 
 Span mapping: `root_run_id` → trace, `run_id` → span, `parent_run_id` → parent span;
 start/end timestamps become the span's duration; tokens (`gen_ai.usage.*`), the tool/
-agent name, MCP server, and errors become span attributes/status. Export is
+agent name, MCP server, and errors become span attributes/status.
+
+Spans follow the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+(still marked "Development" upstream):
+
+| Event | Span name | Key attributes |
+|---|---|---|
+| Root run | `invoke_agent {name}` | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name` |
+| Chat model / LLM | `chat {model}` / `text_completion {model}` | `gen_ai.request.model`, `gen_ai.provider.name` (from LangChain's `ls_model_name` / `ls_provider`) |
+| Tool | `execute_tool {tool}` | `gen_ai.tool.name`; `mcp.method.name=tools/call` when the tool came from an MCP server |
+| Retriever | `retrieval {name}` | `gen_ai.operation.name=retrieval` |
+| Inner chain / graph node | `{name}` | `tracesage.langgraph.node`, `tracesage.langgraph.step` |
+
+Every span carries `gen_ai.conversation.id` when the run has a thread id, and
+`tracesage.*` attributes for tracesage-specific detail. A LangGraph interrupt closes
+its span with OK status and `tracesage.interrupted=true`. Export is
 **best-effort** — if the `[otel]` extra is missing or the collector is unreachable,
 tracing continues and your application is unaffected.
+
+Spans that *entered* tracesage as OpenTelemetry (via `/v1/traces` or
+`tracesage.instrument(...)`) are not exported again — they already exist in the
+producer's OTel pipeline, and this guard means an `otlp_endpoint` that routes back to a
+tracesage collector cannot loop.
+
+## OpenTelemetry ingest
+
+The reverse direction — accepting OTel spans from Pydantic AI, the OpenAI Agents SDK,
+CrewAI, the OpenAI / Anthropic clients or any instrumented process — is covered in
+[Frameworks](frameworks.md). The relevant settings are `ingest` and
+`ingest_max_body_bytes` above; `sample_rate`, `per_run_event_cap` and `redact_patterns`
+apply to ingested spans exactly as they do to LangChain callbacks.
 
 ### Viewing the exported spans
 
@@ -177,6 +212,30 @@ You'll see the run as a trace tree — `chain LangGraph` → `chain weather_agen
 token counts, and any errors as span attributes. Without a listener on `:4318`, spans
 are emitted but go nowhere (you'll just see connection-refused warnings) — tracing
 and the local UI still work.
+
+## AI-app collector
+
+`tracesage connect` installs a login service that runs
+`tracesage serve --ingest --host 127.0.0.1 --port <port>` on the default data dir
+(macOS: `~/Library/LaunchAgents/dev.tracesage.collector.plist`; Linux: a systemd
+user unit; Windows: a logon task). On start it reads the local session stores of
+Claude Code, Cursor, Codex and Claude Desktop and follows them for new turns.
+
+| Env var | Default | Notes |
+|---|---|---|
+| `TRACESAGE_IMPORT_DAYS` | `30` | How far back the first import of Cursor and Codex reaches. Claude Code and Claude Desktop are imported in full. Changing it later only affects sessions not yet imported; see [import again](apps/privacy-and-data.md#import-again-from-scratch). |
+| `TRACESAGE_HOOK_METADATA_ONLY` | `false` | See the table above. |
+
+The collector is configured by environment variables like any other tracesage
+process. To set one, add it to the service definition (the plist's
+`EnvironmentVariables`, or `Environment=` in the systemd unit) and restart it with
+`tracesage service stop` and `tracesage service start`. Running `tracesage connect`
+again rewrites the service file, so re-add custom variables afterwards.
+
+State files in the data dir: `connect.json` (port and `--metadata-only`),
+`session-imports.json` and `desktop-chat-imports.json` (what was imported),
+`spool/` (hook events written while the collector was down), and
+`logs/collector.log`. See [Privacy and data](apps/privacy-and-data.md).
 
 ## Production safety rails
 

@@ -6,6 +6,14 @@ tracesage can attribute each tool call to the MCP server it came from — so you
 see, at a glance, *"these 10 tools came from 2 MCP servers; these 2 are hardcoded
 in my workflow."*
 
+!!! note "Looking for the tracesage MCP server?"
+    This page is about attributing *your agent's* MCP tools. To let Claude
+    Desktop, Claude Code or Cursor query your traces over MCP
+    (`tracesage mcp`, `tracesage connect --mcp`), see
+    [Claude Desktop: ask about your traces](apps/claude-desktop.md#ask-claude-about-your-traces).
+    MCP calls made by those assistants are attributed to their server
+    automatically; nothing on this page is needed for them.
+
 ## Install
 
 MCP support is an optional extra (the core package never imports it):
@@ -66,7 +74,7 @@ auto-detection is a fallback.
 
 ## Where it shows up
 
-- **UI** — a "Tools by source" panel (top-right of the graph pane) groups tools as
+- **UI** — the **Tools** tab in the right panel groups tools as
   `MCP: weather (4) · MCP: math (2) · Local (2)`. Clicking a tool node shows its
   source in the drawer.
 - **REST** — `GET /api/tools` returns the grouped inventory; topology tool nodes
@@ -74,9 +82,9 @@ auto-detection is a fallback.
 - **Storage** — provenance is persisted on each tool event (`events.mcp_server`),
   so it survives restarts and is visible in `tracesage serve` mode.
 
-![Tools by source panel — tools grouped by MCP server origin versus local](assets/ui-tools-by-source.png)
+![Tools tab — tools grouped by MCP server origin versus local](assets/ui-tools-by-source.png)
 
-*The "Tools by source" panel groups every tool by its MCP server (e.g. `orders`, `kb`) or marks it as `Local`.*
+*The Tools tab groups every tool by its MCP server (here `flights`, `hotels`, `weather`) or marks it as `Local`.*
 
 ![MCP server inspector — invocations, errors, the tools it provides, and which agents call it](assets/ui-mcp-drawer.png)
 

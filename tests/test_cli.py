@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from tracesage.cli import app
@@ -104,6 +106,14 @@ def test_gc_dry_run_on_empty_dir(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0
     assert "nothing to do" in result.stdout
+
+
+@pytest.mark.parametrize("bad", ["0", "-5"])
+def test_gc_rejects_non_positive_max_runs(tmp_path: Path, bad: str) -> None:
+    _bootstrap_empty_db(tmp_path)
+    result = runner.invoke(app, ["gc", "--data-dir", str(tmp_path), "--max-runs", bad])
+    assert result.exit_code == 2
+    assert "--max-runs must be >= 1" in result.output
 
 
 def test_gc_message_is_ascii_only(tmp_path: Path) -> None:
@@ -334,6 +344,44 @@ def test_doctor_smoke(tmp_path: Path) -> None:
     assert "total runs: 1" in out
 
 
+def test_doctor_blob_checks_cover_nested_runs(tmp_path: Path) -> None:
+    """Blobs are stored under each event's own run_id (nested runs included), so a
+    healthy nested trace must not be reported as orphaned; a deleted blob file and a
+    stray dir must be."""
+    import uuid
+
+    from tracesage import TraceSage
+
+    async def _capture() -> None:
+        tl = await TraceSage.create(
+            TraceSageConfig(data_dir=tmp_path, print_run_url=False), start_server=False
+        )
+        try:
+            root, child = uuid.uuid4(), uuid.uuid4()
+            h = tl.handler
+            h.on_chain_start({"name": "graph"}, {"x": 1}, run_id=root)
+            h.on_chain_start({"name": "node"}, {"x": 1}, run_id=child, parent_run_id=root)
+            h.on_chain_end({"y": 2}, run_id=child, parent_run_id=root)
+            h.on_chain_end({"y": 2}, run_id=root)
+            await tl.flush()
+        finally:
+            await tl.stop()
+
+    asyncio.run(_capture())
+    blob_dir = TraceSageConfig(data_dir=tmp_path).blob_dir
+    assert len([p for p in blob_dir.iterdir() if p.is_dir()]) == 2
+
+    out = runner.invoke(app, ["doctor", "--data-dir", str(tmp_path)]).output
+    assert "ok   orphan blob dirs: 0" in out
+    assert "ok   runs with missing blob files: 0" in out
+
+    next(blob_dir.rglob("*.json.gz")).unlink()
+    (blob_dir / "stray-run").mkdir()
+    out = runner.invoke(app, ["doctor", "--data-dir", str(tmp_path)]).output
+    assert "warn orphan blob dirs (no events): 1" in out
+    assert "warn runs with missing blob files: 1" in out
+
+
 # ---- dev commands: demo / show / watch / diff -------------------------------
 
 import re  # noqa: E402
@@ -376,6 +424,101 @@ def test_watch_once_prints_events(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "llm_start" in result.output
     assert "tool_end" in result.output
+
+
+def test_serve_public_host_without_token_is_clean_error(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["serve", "-d", str(tmp_path), "--host", "0.0.0.0"])  # noqa: S104
+    assert result.exit_code == 2
+    assert "TRACESAGE_AUTH_TOKEN must be set" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_serve_help_mentions_ingest() -> None:
+    result = runner.invoke(app, ["serve", "--help"])
+    assert result.exit_code == 0
+    # CI colorizes help, which splits "--ingest" with ANSI codes.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--ingest" in plain
+
+
+@pytest.mark.asyncio
+async def test_serve_ingest_accepts_otlp_and_persists(tmp_path: Path, monkeypatch) -> None:
+    """`serve --ingest` runs a worker behind POST /v1/traces: spans posted to it
+    are stored in the data dir and visible through the read API."""
+    import re
+
+    import httpx
+    import typer
+
+    import tracesage.cli as cli
+
+    announced: list[str] = []
+    real_echo = typer.echo
+
+    def _capture(message=None, *a, **kw):
+        if message:
+            announced.append(str(message))
+        return real_echo(message, *a, **kw)
+
+    monkeypatch.setattr(cli.typer, "echo", _capture)
+
+    cfg = TraceSageConfig(data_dir=tmp_path, port=0, print_run_url=False)
+    task = asyncio.create_task(
+        cli._serve_async(cfg, label="test", open_browser=False, ingest=True)
+    )
+    try:
+        for _ in range(200):
+            if any("/v1/traces" in m for m in announced):
+                break
+            await asyncio.sleep(0.05)
+        line = next(m for m in announced if "/v1/traces" in m)
+        port = int(re.search(r"127\.0\.0\.1:(\d+)/v1/traces", line).group(1))
+        body = (Path(__file__).parent / "fixtures" / "otlp" / "openai_client.json").read_bytes()
+        async with httpx.AsyncClient() as ac:
+            resp = await ac.post(
+                f"http://127.0.0.1:{port}/v1/traces",
+                content=body,
+                headers={"content-type": "application/json"},
+            )
+            assert resp.status_code == 200
+            for _ in range(200):  # worker drains asynchronously; totals land after status
+                run = await ac.get(
+                    f"http://127.0.0.1:{port}/api/runs/3df7651916cd43dd8448eb211c80319f"
+                )
+                if (
+                    run.status_code == 200
+                    and run.json()["status"] == "completed"
+                    and run.json()["total_tokens_input"] == 12
+                ):
+                    break
+                await asyncio.sleep(0.05)
+            assert run.status_code == 200
+            assert run.json()["status"] == "completed"
+            assert run.json()["total_tokens_input"] == 12
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
+    # Persisted: a fresh read-only backend sees the run.
+    async def _check() -> None:
+        db = SQLiteBackend(cfg.db_path, cfg.db_pool_size)
+        await db.init()
+        try:
+            run = await db.get_run("3df7651916cd43dd8448eb211c80319f")
+            assert run is not None
+            assert run.tags == ["otlp", "chat-script"]
+        finally:
+            await db.close()
+
+    await _check()
+
+
+def test_watch_missing_run_exits_nonzero(tmp_path: Path) -> None:
+    _seed_two_demo_runs(tmp_path)
+    result = runner.invoke(app, ["watch", "does-not-exist", "-d", str(tmp_path), "--once"])
+    assert result.exit_code == 1
+    assert "run not found" in result.output
 
 
 def test_diff_compares_runs(tmp_path: Path) -> None:

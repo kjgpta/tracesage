@@ -23,6 +23,7 @@ from tracesage.worker import StorageWorker
 
 if TYPE_CHECKING:
     from tracesage.adapters.langchain import TraceSageCallbackHandler
+    from tracesage.manual import Span
     from tracesage.storage.backend import StorageBackend
 
 log = logging.getLogger("tracesage.tracer")
@@ -127,6 +128,7 @@ class TraceSage:
         self._state_lock = threading.Lock()
 
         self._handler: TraceSageCallbackHandler | None = None
+        self._handler_import_error: ImportError | None = None
         self._server: Any = None
         self._server_task: asyncio.Task | None = None
         self._otel: Any = None  # optional OpenTelemetry span exporter
@@ -209,9 +211,15 @@ class TraceSage:
         instance._otel = otel_exporter
 
         # Lazy import of handler so importing tracesage doesn't require langchain-core.
-        from tracesage.adapters.langchain import TraceSageCallbackHandler
-
-        instance._handler = TraceSageCallbackHandler(instance)
+        # Without langchain-core (Pydantic AI / OTLP-only installs, `serve --ingest`)
+        # the tracer still works; only `.handler` / `.install()` are unavailable.
+        try:
+            from tracesage.adapters.langchain import TraceSageCallbackHandler
+        except ImportError as e:
+            instance._handler = None
+            instance._handler_import_error = e
+        else:
+            instance._handler = TraceSageCallbackHandler(instance)
 
         if start_server:
             await instance._start_server()
@@ -226,16 +234,22 @@ class TraceSage:
         *,
         start_server: bool | None = None,
         install: bool = False,
+        instrument: list[str] | tuple[str, ...] | None = None,
     ) -> Any:
         """Async context manager: create a tracer, optionally install it globally, and
         stop it cleanly on exit.
 
             async with TraceSage.session(install=True) as tl:
                 await agent.ainvoke(...)        # captured automatically
+
+        ``instrument=["pydantic_ai", ...]`` also routes those frameworks' OpenTelemetry
+        spans into the tracer (see :func:`tracesage.instrument`).
         """
         tl = await cls.create(config, start_server=start_server)
         if install:
             tl.install()
+        if instrument:
+            tl.instrument(*instrument)
         try:
             yield tl
         finally:
@@ -248,7 +262,13 @@ class TraceSage:
 
     @property
     def handler(self) -> TraceSageCallbackHandler:
-        if self._handler is None:  # pragma: no cover - guarded by create()
+        if self._handler is None:
+            err = getattr(self, "_handler_import_error", None)
+            if err is not None:
+                raise RuntimeError(
+                    "The LangChain callback handler needs langchain-core: "
+                    'pip install "tracesage[langchain]"'
+                ) from err
             raise RuntimeError("Handler not initialized; use TraceSage.create()")
         return self._handler
 
@@ -327,7 +347,11 @@ class TraceSage:
     def install(self) -> TraceSage:
         """Register this tracer's handler as a GLOBAL LangChain callback, so every
         chain/agent/LLM/tool call is captured without passing ``callbacks=`` to each
-        invocation. Returns self for chaining. Call :meth:`uninstall` to remove it."""
+        invocation. Returns self for chaining. Call :meth:`uninstall` to remove it.
+        A no-op when langchain-core is not installed (nothing to hook)."""
+        if self._handler is None and self._handler_import_error is not None:
+            log.debug("tracesage.install(): langchain-core not installed; nothing to hook")
+            return self
         from tracesage.adapters.langchain import install_global_handler
 
         install_global_handler(self.handler)
@@ -335,6 +359,8 @@ class TraceSage:
 
     def uninstall(self) -> None:
         """Remove the global LangChain callback registered by :meth:`install`."""
+        if self._handler is None and self._handler_import_error is not None:
+            return
         from tracesage.adapters.langchain import uninstall_global_handler
 
         uninstall_global_handler()
@@ -363,6 +389,87 @@ class TraceSage:
             return None
         return self._tool_sources.get(tool_name)
 
+    # ------------------------------------------------------------ manual API
+
+    def span(
+        self,
+        name: str,
+        *,
+        kind: str = "chain",
+        tool_name: str | None = None,
+        model: str | None = None,
+        thread_id: str | None = None,
+        inputs: Any = None,
+        tags: list[str] | None = None,
+    ) -> Span:
+        """Open a manual step. Use as ``with`` or ``async with``; nested spans
+        attach to the enclosing one, the outermost span is the run::
+
+            with tl.span("checkout", kind="agent", inputs={"cart": 1}) as root:
+                with tl.span("lookup", kind="tool") as sp:
+                    sp.set_output(lookup())
+
+        ``kind`` is one of ``chain`` (default), ``agent``, ``tool``, ``llm``,
+        ``retriever``. An exception leaving the block records an error step and
+        fails the run. LangChain calls made inside the block nest under the span.
+        """
+        from tracesage.manual import Span
+
+        return Span(
+            self,
+            name,
+            kind=kind,
+            tool_name=tool_name,
+            model=model,
+            thread_id=thread_id,
+            inputs=inputs,
+            tags=tags,
+        )
+
+    def trace_fn(
+        self,
+        kind: str = "chain",
+        name: str | None = None,
+        *,
+        tool_name: str | None = None,
+        model: str | None = None,
+        tags: list[str] | None = None,
+    ) -> Any:
+        """Decorator: wrap a sync or async function in a :meth:`span` named after
+        it, with its arguments as inputs and its return value as output::
+
+            @tl.trace_fn(kind="tool")
+            def search(query: str) -> list[str]: ...
+        """
+        from tracesage.manual import trace_fn
+
+        return trace_fn(self, kind, name, tool_name=tool_name, model=model, tags=tags)
+
+    # ------------------------------------------- OpenTelemetry ingest (in-process)
+
+    def otel_exporter(self) -> Any:
+        """An OpenTelemetry ``SpanExporter`` that feeds this tracer. Add it to your
+        own ``TracerProvider`` when you manage the OTel SDK yourself; otherwise use
+        :meth:`install_otel` / :meth:`instrument`. Needs ``tracesage[otel]``."""
+        from tracesage.ingest.exporter import TraceSageSpanExporter
+
+        return TraceSageSpanExporter(self)
+
+    def install_otel(self, *, set_global: bool = True) -> Any:
+        """Wire this process's OpenTelemetry SDK to this tracer and return the
+        ``TracerProvider`` (see :func:`tracesage.ingest.install_otel`)."""
+        from tracesage.ingest.exporter import install_otel
+
+        return install_otel(self, set_global=set_global)
+
+    def instrument(self, *frameworks: str) -> Any:
+        """Capture ``frameworks`` (``"pydantic_ai"``, ``"openai_agents"``, ``"crewai"``,
+        ``"openai"``, ``"anthropic"``) through their OpenTelemetry spans. Returns the
+        ``TracerProvider``. See :func:`tracesage.instrument`."""
+        from tracesage.ingest.frameworks import instrument
+
+        return instrument(*frameworks, tracer=self)
+
     # --------------------------------------------------------------- emit path
 
     def _is_sampled_in(self, root: str) -> bool:
@@ -375,6 +482,16 @@ class TraceSage:
             return False
         digest = hashlib.blake2b(root.encode("utf-8"), digest_size=8).digest()
         return (int.from_bytes(digest, "big") / 0xFFFFFFFFFFFFFFFF) < rate
+
+    def should_capture(self, root: str) -> bool:
+        """Cheap pre-check for callback handlers so they can skip building payloads
+        for events emit() would drop anyway. Counts a sampled-out callback once."""
+        if self._stopped:
+            return False
+        if self._is_sampled_in(root):
+            return True
+        self._stats.events_sampled_out += 1
+        return False
 
     def _redact_text(self, s: str) -> str:
         for rx in self._redactors:
@@ -426,6 +543,8 @@ class TraceSage:
         its descendant events are captured. If it fails, all are dropped.
         """
         try:
+            if self._stopped:
+                return
             root = event.root_run_id
 
             if not self._is_sampled_in(root):
@@ -556,6 +675,9 @@ class TraceSage:
                 ws_manager=self._ws_manager,
                 stats=self._stats,
                 config=self._config,
+                # OTLP ingest (POST /v1/traces) feeds the same emit() path as the
+                # callback handler: sampling, per-run cap, redaction all apply.
+                emit=self.emit if self._config.ingest else None,
             )
             bind_port = _resolve_bind_port(
                 self._config.host, self._config.port, auto=self._config.port_auto
@@ -742,6 +864,10 @@ class _DisabledTraceSage:
         return Stats()
 
     # --- no-op surface (matches TraceSage) ---
+    @property
+    def ui_url(self) -> str | None:
+        return None
+
     def run_url(self, run_id: str) -> str | None:
         return None
 
@@ -765,8 +891,34 @@ class _DisabledTraceSage:
     def tool_source(self, tool_name: str | None) -> str | None:
         return None
 
+    def span(self, name: str, **kwargs: Any) -> Span:
+        """Inert span: usable as ``with``/``async with``, emits nothing."""
+        from tracesage.manual import Span
+
+        return Span(None, name, **kwargs)
+
+    def trace_fn(self, kind: str = "chain", name: str | None = None, **kwargs: Any) -> Any:
+        """Returns functions unchanged (zero overhead when disabled)."""
+        from tracesage.manual import trace_fn
+
+        return trace_fn(None, kind, name, **kwargs)
+
+    def otel_exporter(self) -> Any:
+        from tracesage.ingest.exporter import TraceSageSpanExporter
+
+        return TraceSageSpanExporter(self)
+
+    def install_otel(self, *, set_global: bool = True) -> Any:
+        return None  # disabled: nothing is wired, no OTel SDK import
+
+    def instrument(self, *frameworks: str) -> Any:
+        return None
+
     def emit(self, event: Any) -> None:
         return None
+
+    def should_capture(self, root: str) -> bool:
+        return False
 
     def get_or_set_root(self, run_id: str, parent_run_id: str | None) -> str:
         return run_id
@@ -843,7 +995,17 @@ class BackgroundTracer:
             self._ready.set()
             return
         self._ready.set()
-        self._loop.run_forever()
+        try:
+            self._loop.run_forever()
+        finally:
+            # stop() has already drained the tracer; release the loop's selector and
+            # self-pipe so nothing leaks (ResourceWarning-clean under -X dev).
+            with contextlib.suppress(Exception):
+                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+            with contextlib.suppress(Exception):
+                self._loop.run_until_complete(self._loop.shutdown_default_executor())
+            with contextlib.suppress(Exception):
+                self._loop.close()
 
     @property
     def tracer(self) -> TraceSage:
@@ -854,6 +1016,14 @@ class BackgroundTracer:
     @property
     def handler(self) -> Any:
         return self.tracer.handler
+
+    @property
+    def ui_url(self) -> str | None:
+        return self.tracer.ui_url
+
+    @property
+    def bound_port(self) -> int | None:
+        return self.tracer.bound_port
 
     def run_url(self, run_id: str) -> str | None:
         return self.tracer.run_url(run_id)
@@ -875,6 +1045,25 @@ class BackgroundTracer:
 
     def uninstall(self) -> None:
         self.tracer.uninstall()
+
+    def span(self, name: str, **kwargs: Any) -> Span:
+        """Open a manual step (see :meth:`TraceSage.span`). Thread-safe: events hop
+        onto the background loop."""
+        return self.tracer.span(name, **kwargs)
+
+    def trace_fn(self, kind: str = "chain", name: str | None = None, **kwargs: Any) -> Any:
+        """Decorator form of :meth:`span` (see :meth:`TraceSage.trace_fn`)."""
+        return self.tracer.trace_fn(kind, name, **kwargs)
+
+    def otel_exporter(self) -> Any:
+        return self.tracer.otel_exporter()
+
+    def install_otel(self, *, set_global: bool = True) -> Any:
+        return self.tracer.install_otel(set_global=set_global)
+
+    def instrument(self, *frameworks: str) -> Any:
+        """Capture OTel-instrumented frameworks (see :func:`tracesage.instrument`)."""
+        return self.tracer.instrument(*frameworks)
 
     def stop(self, timeout: float = 10.0) -> None:
         """Stop the tracer, drain the queue, and join the background thread."""
@@ -900,36 +1089,50 @@ class BackgroundTracer:
 def start(
     config: TraceSageConfig | None = None,
     *,
-    start_server: bool = True,
+    start_server: bool | None = None,
     install: bool = False,
+    instrument: list[str] | tuple[str, ...] | None = None,
 ) -> BackgroundTracer:
     """Start a tracer on a background thread and return it (already running).
+    ``start_server=None`` defers to ``config.start_server`` (``TRACESAGE_START_SERVER``).
 
     For synchronous scripts/notebooks::
 
         tl = tracesage.start(install=True)   # global capture, no callbacks= needed
         agent.invoke(...)
         tl.stop()
+
+    ``instrument=["pydantic_ai", ...]`` also captures those frameworks through their
+    OpenTelemetry spans (see :func:`tracesage.instrument`).
     """
-    return BackgroundTracer(
-        config, start_server=start_server, install=install
-    ).start()
+    bg = BackgroundTracer(config, start_server=start_server, install=install).start()
+    if instrument:
+        try:
+            bg.instrument(*instrument)
+        except Exception:
+            bg.stop()
+            raise
+    return bg
 
 
 @contextlib.contextmanager
 def trace(
     config: TraceSageConfig | None = None,
     *,
-    start_server: bool = True,
+    start_server: bool | None = None,
     install: bool = True,
+    instrument: list[str] | tuple[str, ...] | None = None,
 ) -> Any:
     """Synchronous context manager that starts a background tracer (installed globally
     by default) and stops it on exit::
 
         with tracesage.trace() as tl:
             agent.invoke(...)            # captured; print(tl.run_url(...)) for the link
+
+        with tracesage.trace(instrument=["pydantic_ai"]) as tl:
+            agent.run_sync(...)          # Pydantic AI spans -> tracesage
     """
-    bg = start(config, start_server=start_server, install=install)
+    bg = start(config, start_server=start_server, install=install, instrument=instrument)
     try:
         yield bg
     finally:

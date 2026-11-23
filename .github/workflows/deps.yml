@@ -1,0 +1,52 @@
+name: Dependencies
+
+# Two checks on the dependency ranges in pyproject.toml:
+#   audit  - pip-audit (PyPI + OSV advisories) on the newest versions users get today.
+#   lowest - the oldest versions the ranges allow: pip-audit them, then run the tests,
+#            so a floor is never vulnerable or broken.
+# The weekly schedule catches CVEs published after the last push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install (latest allowed versions)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,langchain,mcp,otel,pydantic-ai,openai-agents,openai,anthropic,crewai]"
+      - name: pip-audit
+        run: pip-audit --progress-spinner off --skip-editable
+
+  lowest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.11"
+      - name: Install (lowest allowed versions)
+        run: |
+          uv venv
+          uv pip install --resolution lowest-direct -e ".[dev,langchain,mcp,otel,pydantic-ai,openai-agents,openai,anthropic,crewai]"
+      - name: pip-audit
+        run: |
+          uv pip freeze | grep -v -e '^-e ' -e '^tracesage' > lowest.txt
+          uv run --no-sync pip-audit -r lowest.txt --no-deps --disable-pip --progress-spinner off
+      - name: Pytest
+        run: uv run --no-sync pytest tests/ --ignore=tests/stress -q --tb=short

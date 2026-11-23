@@ -10,8 +10,9 @@ and the already-loaded event list.
 from __future__ import annotations
 
 import html
+import re
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 if TYPE_CHECKING:
     from tracesage.models import Run, StoredEvent
@@ -26,6 +27,52 @@ _KIND_ICON = {
     "run": "•",        # •
     "retry": "↻",      # ↻
 }
+
+_KIND_ICON_ASCII = {
+    "chain": "o",
+    "agent": "A",
+    "tool": "T",
+    "llm": "L",
+    "retriever": "R",
+    "run": "*",
+    "retry": "@",
+}
+
+# Glyphs for consoles that can't encode them (e.g. Windows cp1252).
+_GLYPHS_UNICODE = {
+    "last": "└─ ", "mid": "├─ ", "pipe": "│  ", "ellipsis": "…",
+    "err": "✗", "up": "↑", "down": "↓", "dot": "·", "pause": "⏸",
+}
+_GLYPHS_ASCII = {
+    "last": "`- ", "mid": "|- ", "pipe": "|  ", "ellipsis": "...",
+    "err": "x", "up": "in:", "down": "out:", "dot": "-", "pause": "||",
+}
+
+# C0/C1 control characters, DEL included. Trace text (agent/tool names, error
+# messages) comes from models and tools, so an embedded ESC/OSC sequence could
+# otherwise recolor the terminal, retitle the window, or worse.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def sanitize_terminal(text: str) -> str:
+    """Strip control characters from untrusted text before printing it to a TTY."""
+    return _CONTROL_CHARS.sub(" ", text)
+
+
+def stream_supports_unicode(stream: TextIO | None = None) -> bool:
+    stream = stream if stream is not None else sys.stdout
+    encoding = getattr(stream, "encoding", None) or "ascii"
+    try:
+        ("".join(_KIND_ICON.values()) + "".join(_GLYPHS_UNICODE.values())).encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
+def kind_icon(kind: str, *, ascii_only: bool = False) -> str:
+    icons = _KIND_ICON_ASCII if ascii_only else _KIND_ICON
+    return icons.get(kind, icons["run"])
+
 
 _ANSI = {
     "reset": "\033[0m",
@@ -122,6 +169,8 @@ def _build_nodes(events: list[StoredEvent]) -> dict[str, dict[str, Any]]:
         if et.endswith("_error"):
             n["status"] = "error"
             n["error"] = ev.error_message or ev.summary
+        elif et == "chain_interrupt" and n["status"] != "error":
+            n["status"] = "paused"
         elif et.endswith(("_end", "_finish")) and n["status"] != "error":
             n["status"] = "ok"
         if ev.duration_ms is not None:
@@ -144,15 +193,20 @@ def render_run_tree(
     use_color: bool | None = None,
     max_name: int = 48,
     reverse: bool = False,
+    ascii_only: bool | None = None,
 ) -> str:
     """Render a run's events as an indented tree string.
 
     Siblings (and roots) are ordered by first-seen timestamp — ascending by
     default, or newest-first when ``reverse`` is True (the tree hierarchy is
-    preserved either way; only sibling order flips).
+    preserved either way; only sibling order flips). ``ascii_only=None`` picks
+    ASCII glyphs automatically when stdout can't encode the Unicode ones.
     """
     if use_color is None:
         use_color = sys.stdout.isatty()
+    if ascii_only is None:
+        ascii_only = not stream_supports_unicode()
+    g = _GLYPHS_ASCII if ascii_only else _GLYPHS_UNICODE
     paint = _Painter(use_color)
 
     if not events:
@@ -178,12 +232,16 @@ def render_run_tree(
 
     if run is not None:
         status = run.status.value if hasattr(run.status, "value") else str(run.status)
-        scolor = {"completed": "green", "failed": "red", "running": "yellow"}.get(status, "cyan")
+        scolor = {
+            "completed": "green", "failed": "red", "running": "yellow", "interrupted": "magenta",
+        }.get(status, "cyan")
+        thread = f"  thread={sanitize_terminal(run.thread_id)}" if run.thread_id else ""
         head = (
-            f"Run {run.run_id}  "
+            f"Run {sanitize_terminal(run.run_id)}  "
             + paint(status, scolor, "bold")
+            + paint(thread, "dim")
             + paint(
-                f"  · {run.total_steps} steps · "
+                f"  {g['dot']} {run.total_steps} steps {g['dot']} "
                 f"{run.total_tokens_input + run.total_tokens_output} tokens",
                 "dim",
             )
@@ -196,32 +254,34 @@ def render_run_tree(
             connector = ""
             child_prefix = prefix
         else:
-            connector = "└─ " if is_last else "├─ "  # └─ / ├─
-            child_prefix = prefix + ("   " if is_last else "│  ")  # │
-        icon = _KIND_ICON.get(n["kind"], "•")
-        name = n["name"] or n["kind"]
+            connector = g["last"] if is_last else g["mid"]
+            child_prefix = prefix + ("   " if is_last else g["pipe"])
+        icon = kind_icon(n["kind"], ascii_only=ascii_only)
+        name = sanitize_terminal(n["name"] or n["kind"])
         if len(name) > max_name:
-            name = name[: max_name - 1] + "…"
+            name = name[: max_name - 1] + g["ellipsis"]
         kind_color = _KIND_COLOR.get(n["kind"], "cyan")
         # Colour the icon + kind in that kind's colour so element types are
         # immediately distinguishable; the name stays default for readability.
         label = f"{paint(icon, kind_color)} {paint(n['kind'], kind_color, 'bold')} {name}"
         # Attribute tools (and anything else) that came from an MCP server.
         if n["mcp_server"]:
-            label += paint(f"  mcp:{n['mcp_server']}", "magenta")
+            label += paint(f"  mcp:{sanitize_terminal(n['mcp_server'])}", "magenta")
         meta_bits = []
         dur = _fmt_ms(n["duration_ms"])
         if dur:
             meta_bits.append(dur)
         if n["tokens_in"] is not None or n["tokens_out"] is not None:
-            meta_bits.append(f"↑{n['tokens_in'] or 0}/↓{n['tokens_out'] or 0}")
+            meta_bits.append(f"{g['up']}{n['tokens_in'] or 0}/{g['down']}{n['tokens_out'] or 0}")
         meta = paint("  " + " ".join(meta_bits), "dim") if meta_bits else ""
         status_mark = ""
         if n["status"] == "error":
-            err = (n["error"] or "error").splitlines()[0][:80]
-            status_mark = paint(f"  ✗ {err}", "red")
+            first_line = ((n["error"] or "error").splitlines() or ["error"])[0]
+            status_mark = paint(f"  {g['err']} {sanitize_terminal(first_line[:80])}", "red")
+        elif n["status"] == "paused":
+            status_mark = paint(f"  {g['pause']} interrupted", "magenta")
         elif n["status"] == "running":
-            status_mark = paint("  …", "yellow")
+            status_mark = paint(f"  {g['ellipsis']}", "yellow")
         lines.append(f"{prefix}{connector}{label}{meta}{status_mark}")
 
         kids = _sort(children.get(rid, []))

@@ -1,8 +1,8 @@
 """FastAPI app factory.
 
 `create_app` accepts already-initialized dependencies (db, blob_store, ws_manager,
-config, stats). Lifecycle is owned by `TraceSage`, not the app — `lifespan` exists
-only to satisfy the `@asynccontextmanager` contract required by CLAUDE.md.
+config, stats). Lifecycle is owned by `TraceSage`, not the app; `lifespan` exists
+only so the app uses FastAPI's `@asynccontextmanager` lifespan API.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from tracesage.models import Stats
@@ -21,7 +22,10 @@ from tracesage.server.rest import router as rest_router
 from tracesage.server.ws import WebSocketManager, ws_runs, ws_trace
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tracesage.config import TraceSageConfig
+    from tracesage.models import RawEvent
     from tracesage.storage.backend import StorageBackend
     from tracesage.storage.blob_store import BlobStore
 
@@ -51,15 +55,21 @@ def create_app(
     ws_manager: WebSocketManager,
     config: TraceSageConfig,
     stats: Stats | None = None,
+    emit: Callable[[RawEvent], None] | None = None,
 ) -> FastAPI:
-    """Build the FastAPI app. Caller owns the lifecycle of injected dependencies."""
+    """Build the FastAPI app. Caller owns the lifecycle of injected dependencies.
+
+    ``emit`` (e.g. ``TraceSage.emit``) enables OTLP ingest: ``POST /v1/traces`` is
+    registered and every decoded span is handed to it as RawEvents. Without it the
+    app is a read-only viewer and ``/v1/traces`` answers 404.
+    """
     from tracesage import __version__
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         # Startup/shutdown of injected deps is owned by TraceSage, not the app.
-        # This block exists so the app is built with the modern lifespan API
-        # (see CLAUDE.md: never use deprecated @app.on_event).
+        # This block exists so the app is built with the lifespan API rather than
+        # the deprecated @app.on_event.
         yield
 
     app = FastAPI(title="tracesage", version=__version__, lifespan=lifespan)
@@ -87,6 +97,14 @@ def create_app(
 
     app.include_router(rest_router)
 
+    if emit is not None:
+        from tracesage.ingest.mapper import SpanMapper
+        from tracesage.server.ingest_route import router as ingest_router
+
+        app.state.emit = emit
+        app.state.ingest_mapper = SpanMapper(summary_max_chars=config.summary_max_chars)
+        app.include_router(ingest_router)
+
     @app.websocket("/ws/trace/{run_id}")
     async def _ws_trace(websocket: WebSocket, run_id: str) -> None:
         await ws_trace(websocket, run_id)
@@ -101,6 +119,11 @@ def create_app(
             app.mount("/ui", _NoCacheStaticFiles(directory=ui_dir, html=True), name="ui")
         except Exception as e:
             _LOG.warning("Failed to mount UI from %s: %s", ui_dir, e)
+        else:
+            @app.get("/", include_in_schema=False)
+            async def _root_redirect() -> RedirectResponse:
+                """`/` is a public alias of the UI shell."""
+                return RedirectResponse(url="/ui/", status_code=307)
     else:
         _LOG.warning(
             "UI directory not found or empty at %s — UI will be unavailable", ui_dir

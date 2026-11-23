@@ -1,0 +1,8 @@
+[project]
+name = "tracesage-desktop"
+version = "1.0.0"
+description = "Claude Desktop extension that talks to a local tracesage collector."
+requires-python = ">=3.11"
+dependencies = [
+  "tracesage[apps]>=1.0.0",
+]

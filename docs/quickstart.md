@@ -1,32 +1,49 @@
 # Quickstart
 
+These steps are for tracesage 1.0.0.
+
 ## See it in 30 seconds (no API key needed)
 
 ```bash
-pip install "tracesage[langchain]"
-tracesage demo        # seeds a sample trace and opens the live UI
+pip install tracesage          # demo needs no LangChain extra
+tracesage demo                 # seeds a sample trace and opens the live UI
 ```
 
 That's it. `tracesage demo` opens a real trace in your browser with no API key, no
 config, and no agent code to write. Click around the topology graph, open a step's
 payload, inspect token usage — then come back here to wire it into your own agent.
 
+## Record your AI assistant instead
+
+To trace the assistants you already use (Claude Desktop, Claude Code, Cursor,
+Codex) rather than your own agent code:
+
+```bash
+pip install "tracesage[apps]"      # or: uv tool install "tracesage[apps]"
+tracesage connect claude-code      # or: cursor, codex, claude-desktop
+```
+
+`tracesage connect` with no name connects every installed app. Restart the app
+if it was open; in Codex, also run `/hooks` once and trust the hooks. Open
+[http://127.0.0.1:7842](http://127.0.0.1:7842) and set **Source** to that app.
+Sessions already on disk are imported, and the next prompt you send shows up as
+a run. Each app's steps: [AI apps](ai-apps.md).
+
 ## Add it to your own agent
 
-```python
-result = await graph.ainvoke(
-    {"input": payload},
-    config={"callbacks": [tracer.handler]},   # ← the only line you add
-)
-# tracesage prints: 🔍 http://localhost:7842/ui  — open it to watch live
-```
-
-Full setup (one-time, at the start of your `async def main()`):
+Install the LangChain extra (`pip install "tracesage[langchain]"`), then wrap the call.
+This starts the UI and captures every LangChain call inside the block:
 
 ```python
-from tracesage import TraceSage
-tracer = await TraceSage.create()   # starts the UI server, returns the handler
+import tracesage
+
+with tracesage.trace():
+    result = agent.invoke("your input")
+# tracesage prints: 🔍 http://127.0.0.1:7842/ui  — open it to watch live
 ```
+
+Async code uses `async with TraceSage.session(install=True)` instead. Both forms,
+plus a no-key example you can paste and run, are below.
 
 ## Install details
 
@@ -107,12 +124,13 @@ async with TraceSage.session(install=True) as tl:   # install=True → global ca
     await tl.flush()                                 # ensure events are persisted
 ```
 
-Prefer explicit wiring (or finer control)? Skip `install=True` and pass the handler:
+Prefer explicit wiring? Skip `install=True` and pass the handler from that same
+`tl`:
 
 ```python
 result = await graph.ainvoke(
     {"input": payload},
-    config={"callbacks": [tl.handler]},   # the only line you add
+    config={"callbacks": [tl.handler]},
 )
 ```
 
@@ -129,7 +147,7 @@ the printed URL is the source of truth. `tracer.ui_url` exposes it in code.
 
 !!! tip "One data dir per application"
     Traces persist to a `data_dir` (default `~/.tracesage`), and the run list,
-    topology, and "Tools by source" are all scoped to that dir. If you run more
+    topology, and the Tools tab are all scoped to that dir. If you run more
     than one app, give each its own `data_dir` so their graphs don't merge — and
     if a run "goes missing", it's almost always because the viewer points at a
     different dir than the writer. See
@@ -138,7 +156,7 @@ the printed URL is the source of truth. `tracer.ui_url` exposes it in code.
 
 ## What you'll see
 
-- **Run list** (left): every `ainvoke` you make, with status (running / completed / failed),
+- **Run list** (left): every `ainvoke` you make, with status (running / completed / failed / interrupted),
   step counts, and tags.
 - **Graph** (center): an interactive topology of every agent and tool you've used,
   with edges traced by execution.

@@ -1,76 +1,107 @@
 # When to use tracesage vs alternatives
 
-`tracesage` is one of several tools for LangChain observability. Each has a
-sweet spot. Here's when to pick which.
+`tracesage` is a local, offline debugger for LLM agents — LangChain / LangGraph
+natively, and Pydantic AI, the OpenAI Agents SDK, CrewAI or any OpenTelemetry source
+through its OTLP ingest. It is not
+trying to be an LLM observability platform. Most tools in this space are platforms
+(cloud or self-hosted) with evals, datasets and prompt management. tracesage is the
+thing you `pip install` to see what your agent graph just did.
 
 ## Decision tree
 
-- **You want zero infrastructure (no Docker, no Postgres, no cloud signup)**
-  and a UI you can open immediately → **tracesage**
-- **You want full-featured cloud observability and don't mind sending data to LangChain Inc.**
-  → **LangSmith** (it's tightly integrated and has a free tier)
-- **You want a self-hostable team observability platform with eval, datasets, prompt versioning**
-  → **LangFuse** (Docker + Postgres, more features, more setup)
-- **You want OpenInference / OpenTelemetry standards compliance for ecosystem export**
-  → **Phoenix (Arize)** (also runs locally, ties into broader OTEL)
-- **You want a thin proxy that logs LLM calls without changing client code**
-  → **Helicone**
+- **You want zero infrastructure (no Docker, no database server, no signup), a live
+  view of your LangGraph topology, and nothing leaving your machine** → **tracesage**
+- **You want a local tool that also does evals, datasets and a prompt playground,
+  and you can live with the Elastic 2.0 license** → **Arize Phoenix** (`pip install`,
+  ingests any OpenTelemetry/OpenInference spans)
+- **You want CI regression tests with LLM judges on top of tracing** → **MLflow 3**
+  (`mlflow ui`, Apache-2.0) or **Comet Opik**
+- **You want to edit graph state and re-run from a checkpoint (time-travel),
+  breakpoints, and a managed platform** → **LangSmith / LangGraph Studio**
+- **You want a self-hosted team platform with RBAC, evals, prompt versioning and
+  dashboards** → **Langfuse** (MIT core; self-hosting v3 needs Postgres, ClickHouse,
+  Redis and S3-compatible storage)
+- **You want a proxy that logs LLM calls without code changes** → **Helicone**
 
 ## Feature comparison
 
-| Feature | tracesage | LangSmith | LangFuse | Phoenix |
-|---|---|---|---|---|
-| Local-only mode | ✓ | self-host enterprise | ✓ (Docker) | ✓ (in-process) |
-| Pure pip install | ✓ | ✓ (cloud) | ✗ (Docker required) | ✓ |
-| LangChain native | ✓ | ✓ (auto-instrument) | ✓ (SDK) | ✓ (OpenInference) |
-| Live UI (WebSocket) | ✓ | ✓ | ✓ | ✓ |
-| Interactive graph view | ✓ | ✓ | ✓ | ✓ |
-| MCP tool attribution | ✓ | ✗ | ✗ | ✗ |
-| Multi-user / RBAC | planned | ✓ | ✓ | ✓ |
-| Eval framework | ✗ (non-goal) | ✓ | ✓ | ✓ |
-| Dataset management | ✗ (non-goal) | ✓ | ✓ | ✓ |
-| Prompt versioning | ✗ (non-goal) | ✓ | ✓ | ✗ |
-| OpenTelemetry export | ✓ (0.2+) | partial | ✓ | ✓ |
-| Cost tracking | planned | ✓ | ✓ | ✓ |
-| PII redaction | ✓ | ✓ | ✓ | partial |
-| MIT licensed | ✓ | proprietary | MIT | Elastic v2 |
+| Feature | tracesage | LangSmith | Langfuse | Phoenix | MLflow 3 | Opik | Logfire | Laminar |
+|---|---|---|---|---|---|---|---|---|
+| Runs fully offline from `pip install` | ✓ | ✗ (cloud; self-host is Enterprise) | ✗ (Docker stack) | ✓ | ✓ | ✗ (cloud or Docker) | ✗ (cloud) | ✗ (cloud or Docker) |
+| License | MIT | proprietary | MIT core | Elastic 2.0 | Apache-2.0 | Apache-2.0 | proprietary | Apache-2.0 |
+| Live LangGraph topology graph | ✓ | ✓ (Studio) | agent graph view | span tree | span tree | span tree | span tree | span tree |
+| MCP tool → server attribution | ✓ | not documented | not documented | not documented | not documented | not documented | not documented | not documented |
+| HITL interrupt shown as paused, not failed | ✓ | ✓ (Studio) | not documented | ✗ (known issue) | not documented | not documented | not documented | not documented |
+| Threads / sessions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Cost in $ | ✓ (optional extra, offline) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Full-text search of payloads | ✓ | ✓ | ✓ | not documented | not documented | ✓ | not documented | ✓ |
+| Latency waterfall | ✓ | ✓ | ✓ | span timeline | span timeline | span timeline | span timeline | span timeline |
+| MCP server over your own traces | ✓ | not documented | not documented | not documented | not documented | not documented | not documented | not documented |
+| One-command hook into Claude Code / Cursor / Codex | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Time-travel / fork from checkpoint | ✗ | ✓ (Studio) | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Prompt playground / management | ✗ (non-goal) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| Evals / datasets | pytest assertions only | ✓ | ✓ | ✓ | ✓ | ✓ | not documented | ✓ |
+| OpenTelemetry | ingest + export (GenAI semconv) | ingest | ingest | ingest + export | ingest + export | ingest | native (it is an OTel backend) | ingest |
+| Frameworks | LangChain/LangGraph native; Pydantic AI, OpenAI Agents SDK, CrewAI, OpenAI, Anthropic via OTel; manual spans; Claude Code, Codex and Cursor hooks | all (SDK) | all (SDK) | all (OpenInference) | all (autolog) | all (SDK) | all (OTel) | all (SDK) |
+| Terminal CLI (show / watch / diff) | ✓ | ✗ | ✗ | ✗ | partial | ✗ | ✗ | ✗ |
+| Multi-user / RBAC | ✗ | ✓ | ✓ | partial | partial | ✓ | ✓ | ✓ |
+| PII redaction | ✓ (regex, at capture) | ✓ | ✓ | partial | partial | ✓ | not documented | ✓ |
 
-## Why tracesage exists
+"—" means we could not confirm the behavior either way.
 
-`tracesage` aims to be the **smallest possible thing** that gives you a useful
-trace UI for a LangChain app — pip install, a minimal code change, browser open.
+## Where tracesage is different
 
-It is intentionally NOT trying to be:
+- **Nothing to deploy.** Traces go to a SQLite file plus gzipped blobs under
+  `~/.tracesage`. The UI is a server inside your process (or, with
+  `start_server=False`, you open the same files later with `tracesage serve`).
+  There is no account and no per-trace pricing.
+- **LangGraph-native.** It shows the live agent topology (nodes, tools, LLMs,
+  retrievers) and lets you replay a run step by step. Interrupts are shown as
+  paused, and every run carries its LangGraph thread id.
+- **MCP attribution.** Each tool call is tagged with the MCP server it came from,
+  and the topology shows each server's full tool list.
+- **Crash-safe by design.** The callback handler never raises. If storage fails
+  you lose trace data, but your agent keeps running.
+- **Terminal and pytest friendly.** `tracesage show / watch / diff / export` work
+  without a browser. The pytest fixture asserts on tool calls and errors locally,
+  with no cloud quota.
+- **A bridge out, and in.** OTLP export uses the OpenTelemetry GenAI conventions, so the
+  same traces can go to Phoenix, Tempo, Datadog or Honeycomb when you need a
+  production backend. In the other direction, `tracesage.instrument("pydantic_ai")`
+  (or `openai_agents`, `crewai`, `openai`, `anthropic`) and `tracesage serve --ingest`
+  accept OTel spans, so non-LangChain agents get the same UI — see [Frameworks](frameworks.md).
 
-- An evaluation framework
-- A prompt version control system
-- A team collaboration platform
-- A cloud SaaS
-- An OpenTelemetry collector or backend (it *exports* to one via OTLP — see
-  [Configuration → OpenTelemetry export](configuration.md) — but it isn't a collector)
+## What tracesage deliberately doesn't do
 
-For any of those, the alternatives above are better. For a developer who wants
-to debug a LangGraph at 2am on a flight with no internet, `tracesage` works.
+- Evaluation platform, datasets, annotation queues
+- Prompt version control or a playground
+- Team collaboration, RBAC, dashboards and alerting
+- Cloud SaaS
+- A general-purpose OpenTelemetry collector: `tracesage serve --ingest` accepts OTLP
+  traces so agent frameworks can send spans to it, but it has no metrics/logs
+  pipelines, no processors and no fan-out (see [Frameworks](frameworks.md))
+
+For any of those, the tools above are better. For a developer who wants to debug a
+LangGraph at 2am on a flight with no internet, `tracesage` works.
 
 ## Migration / coexistence
 
-The data directory is portable JSONL-exportable. You can:
-
-- Run `tracesage` in dev, switch to LangSmith in production.
-- Run both — multiple callbacks work simultaneously: `callbacks=[tracer.handler, langsmith_tracer]`.
-- Export to JSONL via `tracesage export --all` and import elsewhere.
+- Run `tracesage` in dev and a platform in production.
+- Run both at once: `callbacks=[tl.handler, langsmith_tracer]`, where `tl` is
+  the tracesage tracer from `trace()` / `session()` / `create()`.
+- Point `otlp_endpoint` at Phoenix or any OTel backend to forward the same spans.
+- Export to JSONL with `tracesage export --all`.
 
 ## When NOT to use tracesage
 
-- You need multi-user dashboards (use LangFuse self-host or LangSmith).
-- You need cost reporting / billing alerts (use LangSmith or LangFuse).
-- You need eval pipelines wired into CI (use LangSmith / Phoenix / LangFuse).
-- You're at million-events-per-day scale on a single Python process (centralize first).
+- You need multi-user dashboards or alerting (Langfuse, LangSmith).
+- You need a hosted cost dashboard for a whole team (Langfuse, LangSmith, Opik, Logfire, Laminar). Local per-run cost is already in tracesage when `tracesage[pricing]` or `tracesage[apps]` is installed.
+- You need eval pipelines with LLM judges and datasets (MLflow, Opik, Phoenix,
+  LangSmith, Langfuse).
+- You need to fork and re-run a graph from an edited checkpoint (LangGraph Studio).
+- You're at million-events-per-day scale in a single Python process (centralize first).
 
-## What we're aiming for in v1.0
+## Roadmap
 
-- OpenInference semantic-convention attributes (OTLP export already shipped in 0.2.0)
-- Cost tracking
-- React-based UI with eval scaffolding
-- Postgres backend for centralized deployments
-- CrewAI / AutoGen / LlamaIndex adapters
+- Trajectory assertions and baseline-run comparison in the pytest fixture (`assert_cost_below` is already there)
+- Loop / runaway detection (repeated identical tool calls, token budget)

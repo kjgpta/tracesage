@@ -20,8 +20,9 @@ class _FakeWS:
 
     def __init__(self) -> None:
         self.sent: list[str] = []
+        self.headers: dict[str, str] = {}
 
-    async def accept(self) -> None:
+    async def accept(self, subprotocol: str | None = None) -> None:
         pass
 
     async def send_text(self, text: str) -> None:

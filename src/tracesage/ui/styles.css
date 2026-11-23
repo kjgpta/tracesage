@@ -127,9 +127,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* ---------- HEADER ---------- */
 .app-header {
   height: var(--header-h);
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   padding: 0 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -138,7 +138,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .header-left, .header-right {
   display: flex; align-items: center; gap: 12px;
+  min-width: 0;
 }
+.header-left { overflow: hidden; }
+.header-right { justify-self: end; }
 .brand {
   display: flex; align-items: center; gap: 10px;
   text-decoration: none;
@@ -202,15 +205,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .conn-indicator[data-state="disconnected"] {
   background: var(--error);
   box-shadow: 0 0 8px var(--error);
-}
-
-.search-box input {
-  width: 280px;
-  padding-left: 28px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2'><circle cx='11' cy='11' r='7'/><path d='M21 21l-4.35-4.35'/></svg>");
-  background-repeat: no-repeat;
-  background-position: 8px center;
-  background-size: 14px 14px;
 }
 
 .icon-btn {
@@ -408,6 +402,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   position: relative;
 }
 .run-row:hover { background: var(--surface); }
+.run-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .run-row.active {
   background: var(--surface);
   border-left-color: var(--accent);
@@ -430,13 +428,15 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .run-row .meta-step {
   font-variant-numeric: tabular-nums;
 }
-/* Per-run actions (Export / Delete). Sit at the right of .run-row-top; revealed
-   on hover/focus/active so the list stays clean. They reserve layout width even
-   when hidden, so revealing them causes no layout shift / row jank. */
+/* Per-run actions (Export / Delete). Float over the right of the row on
+   hover/focus/active, so they take no width from the run id when hidden. */
 .run-row .run-row-actions {
+  position: absolute;
+  top: 6px; right: 10px;
   display: inline-flex;
   gap: 4px;
-  flex-shrink: 0;
+  padding-left: 8px;
+  background: var(--surface);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition);
@@ -494,6 +494,25 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .status-badge.completed { background: var(--success); }
 .status-badge.failed { background: var(--error); }
+.status-badge.interrupted { background: var(--warning); }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 7px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  font-size: 10px; font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.status-pill .status-badge { width: 6px; height: 6px; }
+.status-pill.failed { color: var(--error); border-color: var(--error); }
+.status-pill.interrupted { color: var(--warning); border-color: var(--warning); }
+.status-pill.running { color: var(--accent); border-color: var(--accent); }
+.thread-chip {
+  cursor: pointer;
+  font-family: var(--font-mono, monospace);
+}
+.thread-chip:hover { color: var(--text); border-color: var(--accent); }
 
 .skeleton-list { padding: 8px 14px; }
 .skeleton-row {
@@ -533,6 +552,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   padding: 4px;
   box-shadow: var(--shadow-sm);
 }
+.graph-controls { gap: 8px; align-items: flex-start; }
+.graph-controls-left { flex-wrap: wrap; min-width: 0; }
 .seg-toggle { display: flex; gap: 0; }
 .seg-btn {
   background: transparent;
@@ -540,6 +561,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   color: var(--text-dim);
   padding: 4px 10px;
   font-size: 11.5px;
+  white-space: nowrap;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--transition), color var(--transition);
@@ -716,6 +738,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   stroke-width: 4 !important;
   filter: drop-shadow(0 0 12px var(--error)) !important;
 }
+.node-group.paused:not(.error) .node-shape {
+  stroke: var(--warning) !important;
+  stroke-width: 4 !important;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 12px var(--warning)) !important;
+}
 .node-group.pulse .node-shape {
   animation: at-node-pulse 1100ms ease-out;
 }
@@ -809,46 +837,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .legend-shape.chain { background: var(--node-chain); transform: rotate(45deg); }
 .legend-shape.mcp { background: var(--node-mcp); border-radius: 2px; }
 
-/* ---------- Tools-by-source panel (MCP attribution) ---------- */
-.tools-panel {
-  position: absolute;
-  top: 56px; right: 12px;
-  /* Sit above the graph SVG, the graph-controls toolbar (z-index 10) and the
-     replay-step badge (z-index 50) so the panel can never be parked *behind* the
-     topology/trace graph. Stays below the node drawer (1000) and modals. */
-  z-index: 60;
-  width: 268px;
-  max-height: calc(100% - 120px);
-  display: flex; flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  font-size: 11.5px;
-  overflow: hidden;
-  transition: box-shadow var(--transition);
-}
-.tools-panel:hover { box-shadow: var(--shadow-lg); }
-.tools-panel.collapsed .tools-panel-body { display: none; }
-.tools-panel-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 12px;
+/* ---------- Tools-by-source view (right pane "Tools" tab) ---------- */
+.tools-view-scope {
+  margin: 0;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-2);
-  cursor: move;               /* drag to move; plain click toggles collapse */
-  user-select: none;
-  transition: background var(--transition);
+  color: var(--text-dim);
+  font-size: 11.5px;
 }
-.tools-panel-header:hover { background: var(--surface); }
-.tools-panel.collapsed .tools-panel-header { border-bottom: none; }
-.tools-panel-title { font-weight: 600; color: var(--text-strong); font-size: 12px; }
-.tools-panel-toggle {
-  border: none; background: none; color: var(--text-dim);
-  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
-  transition: color var(--transition), transform 100ms;
-}
-.tools-panel-header:hover .tools-panel-toggle { color: var(--accent); transform: scale(1.12); }
-.tools-panel-body { overflow-y: auto; padding: 2px 0 6px; }
+#tools-view { font-size: 11.5px; }
+.tools-panel-body { flex: 1 1 auto; overflow-y: auto; padding: 2px 0 6px; }
 .tools-panel-empty { color: var(--text-dim); padding: 14px; text-align: center; font-style: italic; }
 .tool-source-group {
   padding: 7px 10px 6px;
@@ -1620,12 +1618,296 @@ kbd {
 /* ---------- UTILITY ---------- */
 .hidden { display: none !important; }
 
-/* Responsive: collapse panes when too narrow. */
+/* Responsive. Side panes shrink first; the graph column never drops below 280px. */
 @media (max-width: 1100px) {
-  :root { --pane-runs-w: 220px; --pane-timeline-w: 320px; }
-  .search-box input { width: 200px; }
+  :root { --pane-runs-w: 220px; --pane-timeline-w: 300px; }
 }
 @media (max-width: 900px) {
+  :root { --pane-runs-w: 190px; --pane-timeline-w: 260px; }
   .stats-ribbon { display: none; }
-  .search-box input { width: 150px; }
+  .app-main { grid-template-columns: var(--pane-runs-w) minmax(280px, 1fr) var(--pane-timeline-w); }
 }
+/* Phones / very narrow windows: three side-by-side panes can't fit, so stack them
+   into one scrolling column (runs, then graph, then timeline). Collapse state is
+   ignored here; every pane is always shown. */
+@media (max-width: 760px) {
+  html, body { overflow: auto; height: auto; }
+  .app-header { padding: 0 10px; }
+  .header-left, .header-right { gap: 6px; }
+  .project-name { display: none !important; }
+  .app-main,
+  .app-main:has(.pane-runs.collapsed),
+  .app-main:has(.pane-timeline.collapsed),
+  .app-main:has(.pane-runs.collapsed):has(.pane-timeline.collapsed) {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: minmax(150px, 30vh) minmax(340px, 60vh) minmax(360px, auto);
+    height: auto;
+    min-height: calc(100vh - var(--header-h));
+    overflow: visible;
+  }
+  .pane.collapsed {
+    flex: initial !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  .pane.collapsed .pane-content { display: flex; }
+  .pane-collapse-btn, .pane.collapsed .pane-expand-btn { display: none; }
+  .pane-runs .pane-content { padding-right: 0; }
+  .pane-timeline .pane-content { padding-left: 0; }
+  .pane-runs { border-right: none; border-bottom: 1px solid var(--border); }
+  .pane-timeline { border-left: none; border-top: 1px solid var(--border); }
+}
+
+.meta-cost { color: var(--text-dim, #8b93a7); font-size: 11px; }
+.run-snippet { color: var(--text-dim, #8b93a7); font-size: 12px; margin-top: 4px; }
+.step-card.search-hit { outline: 1px solid var(--accent, #7aa2f7); }
+.run-notes { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.waterfall, .conversation {
+  position: absolute;
+  top: var(--graph-controls-h, 64px);
+  left: 0; right: 0; bottom: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+.waterfall.hidden, .conversation.hidden, .graph-container.hidden { display: none; }
+.wf-axis { position: relative; height: 18px; margin: 0 0 8px 180px; color: var(--text-dim, #8b93a7); font-size: 11px; }
+.wf-axis span { position: absolute; transform: translateX(-50%); }
+.wf-row { display: grid; grid-template-columns: 16px 150px 1fr 90px; gap: 8px; align-items: center; min-height: 26px; cursor: pointer; }
+.wf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-track { position: relative; height: 14px; background: rgba(127,127,127,.12); border-radius: 3px; }
+.wf-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; background: #7aa2f7; }
+.wf-bar.kind-llm { background: #bb9af7; }
+.wf-bar.kind-tool { background: #9ece6a; }
+.wf-bar.kind-agent { background: #7dcfff; }
+.wf-bar.kind-retriever { background: #e0af68; }
+.wf-bar.is-error, .wf-row.is-error .wf-name { background: #f7768e; color: inherit; }
+.wf-bar.is-paused { background: #e0af68; }
+.wf-twist { background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
+.waterfall-empty { color: var(--text-dim, #8b93a7); padding: 24px; }
+.turn { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.bubble { border-radius: 10px; padding: 10px 12px; margin: 6px 0; max-width: 92%; white-space: pre-wrap; line-height: 1.45; }
+.bubble.user { background: rgba(122,162,247,.15); }
+.bubble.assistant { background: rgba(158,206,106,.12); }
+.bubble code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.bubble .md-code { margin: 6px 0; padding: 8px; overflow: auto; background: rgba(0,0,0,.25); border-radius: 6px; }
+.turn-steps { margin: 8px 0 10px; }
+.turn-steps > summary.step-count,
+.step-call summary {
+  list-style: none;
+  color: inherit;
+}
+.turn-steps > summary.step-count {
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; font-size: 13px; padding: 6px 2px; margin: 0;
+}
+.turn-steps > summary::-webkit-details-marker,
+.step-call summary::-webkit-details-marker { display: none; }
+.turn-steps > summary::after,
+.step-call summary::after { display: none !important; }
+.turn-steps > summary::before,
+.step-call summary::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim, #8b93a7);
+  transition: transform 120ms ease;
+}
+.turn-steps[open] > summary::before,
+.step-call details[open] > summary::before { transform: rotate(90deg); }
+.turn-steps > summary:focus-visible,
+.step-call summary:focus-visible { outline: 1px solid var(--accent, #7aa2f7); outline-offset: 2px; }
+.step-call.llm { border-color: rgba(187,154,247,.45); }
+.step-count { font-size: 12px; color: var(--text-dim, #8b93a7); margin-bottom: 4px; }
+.turn-steps ol { list-style: none; margin: 0; padding: 0; }
+.step-call { border: 1px solid var(--border); border-radius: 8px; margin: 4px 0; background: rgba(127,127,127,.08); }
+.step-call.failed { border-color: #f7768e; }
+.step-call summary { cursor: pointer; padding: 6px 8px; margin: 0; display: flex; gap: 8px; align-items: baseline; }
+.step-name { font-weight: 600; white-space: nowrap; }
+.step-summary { color: var(--text-dim, #8b93a7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.step-ms { margin-left: auto; font-size: 11px; color: var(--text-dim, #8b93a7); white-space: nowrap; }
+.step-call pre { margin: 0; padding: 8px 10px; white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto; }
+.step-call.llm pre { max-height: none; }
+.step-label { font-size: 11px; color: var(--text-dim, #8b93a7); padding: 6px 10px 0; }
+.step-empty, .step-error { font-size: 12px; padding: 6px 10px 8px; }
+.step-error { color: #f7768e; }
+.turn.failed .bubble.assistant { outline: 1px solid #f7768e; }
+.turn.paused .bubble.assistant { outline: 1px solid #e0af68; }
+.tool-chip { display: inline-block; margin-right: 6px; padding: 2px 6px; border-radius: 8px; background: rgba(127,127,127,.15); font-size: 12px; }
+.turn-meta, .turn-error { font-size: 12px; color: var(--text-dim, #8b93a7); }
+.turn-error { color: #f7768e; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+/* Runs / Threads segmented control. Class-qualified button selectors so
+   PicoCSS's button focus/hover backgrounds don't leak onto the idle segment. */
+.list-toggle {
+  display: inline-flex; flex: 1 1 120px;
+  padding: 2px;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+button.list-toggle-btn {
+  flex: 1 1 0;
+  margin: 0;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px; font-weight: 500;
+  line-height: 1.5;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+button.list-toggle-btn:hover,
+button.list-toggle-btn:focus { background: transparent; color: var(--text); box-shadow: none; }
+button.list-toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.list-toggle-btn.active,
+button.list-toggle-btn.active:hover,
+button.list-toggle-btn.active:focus {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-sm);
+}
+.pane-runs .pane-header { flex-direction: column; align-items: stretch; gap: 6px; }
+.pane-runs .list-toggle { flex: 0 0 auto; }
+/* ID selector: PicoCSS gives search inputs a bottom margin and tall padding. */
+#search-input {
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  padding: 0 10px 0 28px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2'><circle cx='11' cy='11' r='7'/><path d='M21 21l-4.35-4.35'/></svg>");
+  background-repeat: no-repeat;
+  background-position: 9px center;
+  background-size: 13px 13px;
+}
+.list-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.list-filters #source-filter { grid-column: 1 / -1; }
+.pane-header select.list-filter {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  padding: 0 22px 0 8px;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  background-position: right 6px center;
+}
+#source-filter { border-left: 3px solid var(--border); }
+#source-filter[data-source="claude-code"] { border-left-color: #d97757; }
+#source-filter[data-source="claude-desktop"] { border-left-color: #c96442; }
+#source-filter[data-source="cursor"] { border-left-color: #58a6ff; }
+#source-filter[data-source="codex"] { border-left-color: #3fb950; }
+#source-filter[data-source="yours"] { border-left-color: #a371f7; }
+.threads-mode .runs-only,
+body:not(.threads-mode) .threads-only { display: none; }
+.thread-row .thread-label {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.source-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--text-dim);
+}
+.source-tag[data-source="claude-code"] .chip-dot { background: #d97757; }
+.source-tag[data-source="claude-desktop"] .chip-dot { background: #c96442; }
+.source-tag[data-source="cursor"] .chip-dot { background: #58a6ff; }
+.source-tag[data-source="codex"] .chip-dot { background: #3fb950; }
+.conversation-scope {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: 11.5px; color: var(--text-dim);
+}
+button.link-btn {
+  margin: 0; padding: 0;
+  border: none; background: none; box-shadow: none;
+  color: var(--accent); font-size: 11.5px; cursor: pointer;
+}
+button.link-btn:hover { text-decoration: underline; background: none; }
+.turn-meta button.link-btn { font-size: 12px; }
+
+/* Right pane: Timeline | Tools. */
+.right-view {
+  position: relative;
+  display: flex; flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.pane-timeline .pane-header { flex-wrap: wrap; row-gap: 6px; }
+.right-toggle { flex: 0 1 180px; }
+
+/* Threads mode is whole chats: a per-turn trace or waterfall would mislead. */
+.threads-mode .seg-btn[data-mode="trace"],
+.threads-mode .seg-btn[data-mode="waterfall"],
+.threads-mode .right-toggle { display: none; }
+
+/* Covers the centre pane while the next run/thread loads, so the previous one
+   is never shown under the new selection. */
+.center-overlay {
+  position: absolute;
+  top: var(--graph-controls-h, 64px);
+  left: 0; right: 0; bottom: 0;
+  z-index: 55;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px;
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.center-overlay p { margin: 0; }
+.center-overlay.prompt .spinner { display: none; }
+.spinner {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.chip-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+
+/* Drag handles on the graph-facing edge of each side pane. */
+.app-main { position: relative; }
+.pane-resizer {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 7px;
+  z-index: 20;
+  cursor: col-resize;
+  touch-action: none;
+}
+#resize-runs { left: calc(var(--pane-runs-w) - 4px); }
+#resize-timeline { right: calc(var(--pane-timeline-w) - 4px); }
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 3px;
+  width: 1px;
+  background: transparent;
+  transition: background var(--transition), box-shadow var(--transition);
+}
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.app-main.resizing .pane-resizer::after { background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pane-resizer:focus-visible { outline: none; }
+.app-main:has(.pane-runs.collapsed) #resize-runs,
+.app-main:has(.pane-timeline.collapsed) #resize-timeline { display: none; }
+.app-main.resizing { transition: none; cursor: col-resize; user-select: none; }
+.app-main.resizing .pane-graph { pointer-events: none; }
+@media (max-width: 760px) { .pane-resizer { display: none; } }

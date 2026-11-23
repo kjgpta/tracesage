@@ -62,25 +62,24 @@ Optional but improves the experience:
 - `RETRIEVER_START` / `RETRIEVER_END`
 - `*_ERROR` variants
 
-### Adapters on the roadmap
+### Other frameworks
 
-Planned, in rough priority order (no fixed version pins — see the
-[changelog](changelog.md) for what's actually shipped):
+Most frameworks do not need a dedicated adapter: anything that emits OpenTelemetry
+spans following the GenAI or OpenInference conventions is understood by the OTLP ingest
+path. Pydantic AI, the OpenAI Agents SDK, CrewAI and the OpenAI / Anthropic clients are
+supported that way today (see [Frameworks](frameworks.md)).
 
-- CrewAI
-- AutoGen
-- LlamaIndex
-- Semantic Kernel
-- Community PRs welcome
+- **AutoGen, LlamaIndex, Semantic Kernel** — use their OpenTelemetry / OpenInference
+  instrumentation with `tracesage serve --ingest` or `tracesage.install_otel()`. A
+  one-word `tracesage.instrument(...)` shortcut for each is not shipped.
+- Native (non-OTel) adapters are welcome where they capture more than the
+  framework's spans do. Community PRs welcome.
 
 ## Adding a storage backend
 
 `StorageBackend` (in `src/tracesage/storage/backend.py`) is a `Protocol` with
-~12 methods. tracesage ships `SQLiteBackend`. Planned backends:
-
-- `PostgresBackend` — for centralized multi-process deployments
-- `JSONLBackend` — append-only files, no DB, easier portability
-- `RemoteHTTPBackend` — producer ships events over HTTP to a separate trace server
+~12 methods. tracesage ships `SQLiteBackend`. Another backend implements that
+protocol; nothing else ships.
 
 Implementing one means satisfying every method of `StorageBackend` exactly.
 Test against `tests/test_database.py` (rename and adjust the fixtures).
@@ -94,4 +93,4 @@ The UI is loaded as static files at `/ui/`. To swap:
 3. The HTTP API contract is documented in [docs/api.md](api.md).
 
 The current UI is vanilla JS with a hand-written SVG graph renderer (no framework), with no build
-step required. A React rewrite is on the roadmap.
+step required.

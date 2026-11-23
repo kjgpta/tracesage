@@ -150,9 +150,40 @@ def test_render_run_tree_structure() -> None:
         started_at=datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
         total_steps=3, total_tokens_input=5, total_tokens_output=7,
     )
-    out = render_run_tree(run, _events(), use_color=False)
+    out = render_run_tree(run, _events(), use_color=False, ascii_only=False)
     for token in ("agent", "gpt", "search", "✗", "boom", "↑5/↓7", "├─", "└─", "failed"):
         assert token in out, f"{token!r} missing from tree:\n{out}"
+
+
+def test_render_run_tree_ascii_mode_is_cp1252_safe() -> None:
+    run = Run(
+        run_id="root", root_run_id="root", tags=[], status=RunStatus.FAILED,
+        started_at=datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
+        total_steps=3, total_tokens_input=5, total_tokens_output=7,
+    )
+    out = render_run_tree(run, _events(), use_color=False, ascii_only=True)
+    out.encode("cp1252")
+    assert "in:5/out:7" in out
+    assert "boom" in out
+
+
+def test_render_run_tree_strips_terminal_escapes() -> None:
+    from tracesage.models import EventType, StoredEvent
+
+    t0 = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+    evil = "\x1b]0;PWNED\x07\x1b[31mtool"
+    events = [
+        StoredEvent(
+            event_id="t", run_id="t", parent_run_id=None, root_run_id="t",
+            event_type=EventType.TOOL_ERROR, timestamp=t0, tool_name=evil,
+            mcp_server="\x1b[2Jsrv", error_message="\x1b[31mboom", summary="x",
+        ),
+    ]
+    out = render_run_tree(None, events, use_color=False, ascii_only=True)
+    assert "\x1b" not in out
+    assert "\x07" not in out
+    assert "tool" in out
+    assert "boom" in out
 
 
 def test_render_run_tree_empty() -> None:
@@ -383,8 +414,18 @@ def test_background_tracer_sync_capture(tmp_path: Path) -> None:
         ).result(timeout=5)[0]
         assert runs, "sync background tracer should capture the run"
         assert tl.run_url("x").endswith("/ui/#run=x")
+        assert tl.ui_url is not None
+        assert tl.ui_url.endswith(f":{tl.bound_port}/ui")
     finally:
         tl.stop()
+
+
+def test_sync_start_respects_config_start_server(tmp_path: Path) -> None:
+    """start()/trace() default to config.start_server (TRACESAGE_START_SERVER), as
+    create() does — previously they forced the embedded server on."""
+    with tracesage.trace(_cfg(tmp_path, start_server=False), install=False) as tl:
+        assert tl.bound_port is None
+        assert tl.ui_url is None
 
 
 @pytest.mark.asyncio

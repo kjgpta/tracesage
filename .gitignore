@@ -21,9 +21,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-evaluation
 
-# Virtual environments
+# Virtual environments and secrets
 venv/
 env/
 ENV/
@@ -40,9 +39,10 @@ htmlcov/
 coverage.xml
 *.cover
 
-# IDEs
+# IDEs and editors
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -59,20 +59,16 @@ coverage.xml
 .tracesage/
 .tracesage-demo/
 tracesage_test/
+tmp_crash_recovery_test/
 bench_data/
 
 # Build artifacts
 *.tar.gz
 *.whl
+tools/mcpb/tracesage.mcpb
 
 # MkDocs build output
 site/
-
-# Local drafts / articles — kept out of the public repo
-drafts/
-*.draft.md
-article/tracesage-substack-article.md
-article/you-dont-need-langsmith-to-trace-langgraph.mdyou
 
 # Raw screen recordings (commit the web-friendly .mp4 under docs/assets/ instead)
 *.mov
@@ -81,6 +77,15 @@ article/you-dont-need-langsmith-to-trace-langgraph.mdyou
 credentials.json
 token.json
 
-video/
-video-new
-code-session.txt
+# Maintainer-only material, kept out of the public repo
+CLAUDE.md
+AGENTS.md
+production_roadmap.md
+article/
+drafts/
+*.draft.md
+docs/releasing.md
+tools/media/
+tools/docs/
+.github/FUNDING.yml
+.github/workflows/backfill-release.yml

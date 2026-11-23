@@ -129,8 +129,9 @@ class BlobStore:
         )
 
     async def delete_run(self, run_id: str) -> int:
+        _reject_unsafe_id(run_id, "run_id")
         run_dir = self.base_dir / run_id
-        if not run_dir.exists():
+        if run_dir.is_symlink() or not run_dir.exists():
             return 0
 
         # Count files before deletion.
@@ -143,6 +144,7 @@ class BlobStore:
         return count
 
     def get_size_bytes(self, run_id: str) -> int:
+        _reject_unsafe_id(run_id, "run_id")
         run_dir = self.base_dir / run_id
         if not run_dir.exists():
             return 0

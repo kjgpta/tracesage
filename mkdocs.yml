@@ -1,5 +1,5 @@
 site_name: tracesage
-site_description: Local-first observability for LangChain & LangGraph multi-agent systems.
+site_description: Local-first observability for LLM agents, and for the AI assistants you use every day (Claude Desktop, Claude Code, Cursor, Codex).
 site_url: https://kjgpta.github.io/tracesage/
 site_author: tracesage contributors
 
@@ -84,6 +84,15 @@ nav:
   - Quickstart: quickstart.md
   - Developer guide: development.md
   - Concepts: concepts.md
+  - Frameworks (Pydantic AI, OpenAI Agents, CrewAI, OTel): frameworks.md
+  - AI apps:
+      - Overview: ai-apps.md
+      - Claude Desktop: apps/claude-desktop.md
+      - Claude Code: apps/claude-code.md
+      - Cursor: apps/cursor.md
+      - Codex and ChatGPT desktop: apps/codex.md
+      - Using the UI: apps/using-the-ui.md
+      - Privacy and data: apps/privacy-and-data.md
   - Configuration: configuration.md
   - CLI: cli.md
   - API reference: api.md
@@ -95,7 +104,6 @@ nav:
   - Examples: examples.md
   - Changelog: changelog.md
   - Contributing: contributing.md
-  - Releasing: releasing.md
 
 watch:
   - docs/

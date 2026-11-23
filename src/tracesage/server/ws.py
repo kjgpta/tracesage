@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING
 from fastapi import WebSocket, WebSocketDisconnect
 
 from tracesage.models import WSMessage
-from tracesage.server.auth import check_ws_auth
+from tracesage.server.auth import check_ws_auth, select_ws_subprotocol
+from tracesage.server.rest import JOURNEY_MAX_STEPS
 
 if TYPE_CHECKING:
     from tracesage.config import TraceSageConfig
@@ -44,7 +45,7 @@ class WebSocketManager:
         self._send_locks: dict[WebSocket, asyncio.Lock] = {}
 
     async def connect(self, run_id: str, websocket: WebSocket) -> None:
-        await websocket.accept()
+        await websocket.accept(subprotocol=select_ws_subprotocol(websocket))
         async with self._lock:
             self._subscribers[run_id].add(websocket)
             self._send_locks.setdefault(websocket, asyncio.Lock())
@@ -103,6 +104,8 @@ class WebSocketManager:
                     live -= dead
                     if not live:
                         self._subscribers.pop(run_id, None)
+                for ws in dead:
+                    self._send_locks.pop(ws, None)
 
     async def broadcast_all(self, message: WSMessage) -> None:
         """Fan out to every subscriber across every run plus the global feed."""
@@ -129,6 +132,8 @@ class WebSocketManager:
                     subs -= dead
                     if not subs:
                         self._subscribers.pop(run_id, None)
+                for ws in dead:
+                    self._send_locks.pop(ws, None)
 
     async def subscriber_count(self, run_id: str) -> int:
         async with self._lock:
@@ -147,11 +152,15 @@ async def ws_trace(websocket: WebSocket, run_id: str) -> None:
     await manager.connect(run_id, websocket)
     try:
         try:
-            steps = await db.get_journey(run_id)
+            steps = await db.get_journey(run_id, limit=JOURNEY_MAX_STEPS + 1)
+            truncated = len(steps) > JOURNEY_MAX_STEPS
             catchup = WSMessage(
                 msg_type="catchup",
                 run_id=run_id,
-                payload={"steps": [s.model_dump(mode="json") for s in steps]},
+                payload={
+                    "steps": [s.model_dump(mode="json") for s in steps[-JOURNEY_MAX_STEPS:]],
+                    "truncated": truncated,
+                },
             )
             # Routed through the manager so it shares the per-socket send lock
             # with worker broadcasts — the socket is broadcast-eligible the

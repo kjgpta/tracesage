@@ -32,7 +32,7 @@ pull it). For MCP attribution add `"tracesage[mcp]"`.
 
 This is the **#1** confusion, and it's almost always a **data-dir mismatch**.
 
-Every cross-run view — the run list, topology, and "Tools by source" — is scoped
+Every cross-run view — the run list, topology, and the Tools tab — is scoped
 to a single `data_dir`. If the app that *wrote* the traces and the viewer you
 *opened* point at different dirs, the viewer looks empty (or shows someone else's
 runs).
@@ -72,6 +72,79 @@ show components it didn't use. If you still see stale nodes:
   *This run*.
 - Selecting an older run shows **that run's** structure, not the latest.
 - Via the API: `GET /api/topology?scope=run:<id>` (vs `last_n:<N>` / `all`).
+
+## AI-app sessions
+
+These apply to sessions recorded by `tracesage connect`. Start every check with:
+
+```bash
+tracesage connect --status
+```
+
+```text
+collector port: 7842 (listening)
+recent sources:
+  source:claude-code: last run 2026-11-22T10:12:40+00:00
+installed: claude-code, cursor, claude-desktop
+  claude-code hooks: connected
+  codex: not configured
+  cursor hooks: connected
+  cursor mcp: present, no tracesage entry
+  claude desktop: present, no tracesage entry
+```
+
+`claude desktop: present, no tracesage entry` is normal: recording Claude Desktop
+needs no entry. The entry only appears after `connect claude-desktop --mcp`.
+
+### Nothing shows up at all
+
+- **`not listening`.** The collector is not running. Run `tracesage service start`
+  (or `tracesage service status`), then look at `~/.tracesage/logs/collector.log`.
+  Its first lines name the sources it found, for example
+  `local sessions (claude-code, cursor), last 30 days on first import`.
+- **The UI is on another port.** The port is in `~/.tracesage/connect.json`. Open
+  the URL from `--status`.
+- **A source filter is on.** Set Source to All sources and clear the search box.
+
+### One app's sessions are missing
+
+- **Claude Desktop chat.** Desktop only saves a chat to disk once it is opened
+  on this machine. Open it in Desktop and wait a few seconds. Chats from the web
+  or another computer are not on this machine. The Code tab is Claude Code:
+  connect `claude-code` for it.
+- **Cursor or Codex chat older than 30 days.** The first import reaches back
+  `TRACESAGE_IMPORT_DAYS` days. To import more, set it in the service
+  environment and [import again](apps/privacy-and-data.md#import-again-from-scratch).
+- **Codex.** Run `/hooks` in Codex once and trust the tracesage hooks.
+- **A very large session.** Claude Code transcripts over 64 MB are skipped.
+- **ChatGPT chats.** Not recordable; only Codex sessions inside the ChatGPT app are.
+
+### New turns appear late, or only after a restart
+
+The collector polls the apps' files; a finished turn appears within a few
+seconds. If turns only
+appear after restarting the collector, check `collector.log` for errors.
+
+### A turn shows the wrong numbers
+
+- **Cost is n/a.** The model is unknown to `genai-prices` (common for Cursor,
+  whose model names such as `default` have no price). Set
+  `TRACESAGE_PRICE_OVERRIDES` to price it.
+- **Cursor steps look merged.** Cursor does not store individual model requests,
+  so steps are inferred from its message segments.
+
+### The Claude Desktop MCP server does not start (macOS)
+
+macOS stops Claude Desktop from running programs or reading data under
+`~/Documents`, `~/Desktop` and `~/Downloads`. Install with
+`uv tool install "tracesage[apps]"`, keep the data dir outside those folders, and
+run `tracesage connect claude-desktop --mcp` again. More in
+[Claude Desktop](apps/claude-desktop.md#ask-claude-about-your-traces).
+
+### Threads mode has no Run trace or Waterfall
+
+That is on purpose: Threads shows whole chats. Click **Open run ↗** on a turn to
+see its trace. See [Using the UI](apps/using-the-ui.md#runs-and-threads).
 
 ## Port / opening the UI
 

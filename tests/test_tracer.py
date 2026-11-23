@@ -1,7 +1,7 @@
 """Tests for the TraceSage top-level orchestrator.
 
-These tests require Agent A's storage modules (SQLiteBackend, BlobStore) — they
-are imported lazily inside TraceSage.create. Server startup is disabled.
+These tests use the real storage modules (SQLiteBackend, BlobStore), which are
+imported lazily inside TraceSage.create. Server startup is disabled.
 """
 from __future__ import annotations
 
@@ -73,6 +73,27 @@ async def test_per_run_cap_circuit_breaker(tmp_data_dir) -> None:
         assert tracer._run_event_counts[run_id] == 10
     finally:
         await tracer.stop()
+
+
+# ---------------------------------------------------------------------- 2b
+async def test_stop_persists_backlog_and_ignores_later_emits(tmp_data_dir) -> None:
+    """stop() immediately after a burst must persist every queued event, and
+    emit() after stop must be a no-op (not enqueue into a dead worker)."""
+    cfg = TraceSageConfig(
+        data_dir=tmp_data_dir, sample_rate=1.0, queue_maxsize=10_000, worker_batch_size=10
+    )
+    tracer = await TraceSage.create(cfg, start_server=False)
+    run_id = str(uuid.uuid4())
+    tracer.emit(_raw(EventType.RUN_START, run_id))
+    for _ in range(300):
+        tracer.emit(_raw(EventType.AGENT_ACTION, run_id))
+    await tracer.stop()
+
+    tracer.emit(_raw(EventType.AGENT_ACTION, run_id))
+    assert tracer._queue.qsize() == 0
+
+    journey = await tracer._db.get_journey(run_id)
+    assert len(journey) == 301
 
 
 # ---------------------------------------------------------------------- 3

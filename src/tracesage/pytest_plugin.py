@@ -109,6 +109,20 @@ class TraceCapture:
         if len(runs) != n:
             raise AssertionError(f"expected {n} run(s), got {len(runs)}")
 
+    def total_cost(self) -> float | None:
+        """Sum of priced run costs, or None when nothing was priced."""
+        costs = [r.total_cost_usd for r in self.runs() if r.total_cost_usd is not None]
+        if not costs:
+            return None
+        return float(sum(costs))
+
+    def assert_cost_below(self, usd: float) -> None:
+        cost = self.total_cost()
+        if cost is None:
+            raise AssertionError("expected a priced run, but cost is n/a")
+        if cost >= usd:
+            raise AssertionError(f"expected cost < {usd}, got {cost}")
+
 
 @pytest.fixture
 def tracesage_capture(tmp_path: Any) -> Iterator[TraceCapture]:
