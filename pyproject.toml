@@ -32,7 +32,7 @@ classifiers = [
 # exclude vulnerable releases that the parent package would otherwise allow.
 dependencies = [
     "fastapi>=0.133.0",
-    "starlette>=1.3.1",
+    "starlette>=1.10.0",
     "uvicorn[standard]>=0.30.0",
     "aiosqlite>=0.20.0",
     "pydantic>=2.7.0",
