@@ -28,7 +28,7 @@ thing you `pip install` to see what your agent graph just did.
 | Feature | tracesage | LangSmith | Langfuse | Phoenix | MLflow 3 | Opik | Logfire | Laminar |
 |---|---|---|---|---|---|---|---|---|
 | Runs fully offline from `pip install` | ✓ | ✗ (cloud; self-host is Enterprise) | ✗ (Docker stack) | ✓ | ✓ | ✗ (cloud or Docker) | ✗ (cloud) | ✗ (cloud or Docker) |
-| License | MIT | proprietary | MIT core | Elastic 2.0 | Apache-2.0 | Apache-2.0 | proprietary | Apache-2.0 |
+| License | Apache 2.0 | proprietary | MIT core | Elastic 2.0 | Apache-2.0 | Apache-2.0 | proprietary | Apache-2.0 |
 | Live LangGraph topology graph | ✓ | ✓ (Studio) | agent graph view | span tree | span tree | span tree | span tree | span tree |
 | MCP tool → server attribution | ✓ | not documented | not documented | not documented | not documented | not documented | not documented | not documented |
 | HITL interrupt shown as paused, not failed | ✓ | ✓ (Studio) | not documented | ✗ (known issue) | not documented | not documented | not documented | not documented |

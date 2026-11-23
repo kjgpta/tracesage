@@ -12,7 +12,7 @@ session as a full trace.
 
 [![PyPI](https://img.shields.io/badge/pypi-v1.0.0-3775A9)](https://pypi.org/project/tracesage/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tracesage)](https://pypi.org/project/tracesage/)
-[![License: MIT](https://img.shields.io/pypi/l/tracesage)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue)](LICENSE)
 [![CI](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kjgpta/tracesage/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://kjgpta.github.io/tracesage/)
 [![Status: stable](https://img.shields.io/badge/status-stable-brightgreen)](#status)
@@ -133,7 +133,7 @@ and renders it in an interactive graph + timeline UI in real time.
 - **Multi-app friendly.** Run several apps at once: each auto-binds a free port (7842, 7843, …),
   shows its `TRACESAGE_PROJECT_NAME` in the UI header, and keeps its own data dir — no clashes.
 - **Pluggable storage.** SQLite and gzipped blobs behind a `StorageBackend` protocol, so another backend can be added (see [docs/extending.md](docs/extending.md)).
-- **MIT licensed.** Free forever.
+- **Apache 2.0 licensed.** Free forever.
 
 ## Use it with your AI assistants
 
@@ -652,7 +652,7 @@ When to use `tracesage` vs alternatives:
 | Live LangGraph topology | ✓ | ✓ (Studio) | agent graph view | span tree |
 | MCP tool → server attribution | ✓ | ✗ | ✗ | ✗ |
 | HITL interrupts shown as paused | ✓ | ✓ (Studio) | — | ✗ |
-| License | MIT | proprietary | MIT core | Elastic 2.0 |
+| License | Apache 2.0 | proprietary | MIT core | Elastic 2.0 |
 | Evals / prompt playground | non-goal | ✓ | ✓ | ✓ |
 | OpenTelemetry | ingest + export (GenAI semconv) | ingest | ingest | ingest + export |
 | Frameworks | LangChain native; Pydantic AI / OpenAI Agents / CrewAI / OpenAI / Anthropic via OTel | all | all | all |
@@ -705,4 +705,4 @@ Issues and pull requests are welcome.
 
 ## License
 
-[MIT](LICENSE) © tracesage contributors
+[Apache License 2.0](LICENSE) © tracesage contributors
