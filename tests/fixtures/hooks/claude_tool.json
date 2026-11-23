@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "sess-1",
+  "prompt_id": "p1",
+  "tool_name": "mcp__flights__search",
+  "tool_use_id": "tu1",
+  "tool_input": {"q": "NYC"},
+  "tool_response": {"ok": true},
+  "duration_ms": 12
+}

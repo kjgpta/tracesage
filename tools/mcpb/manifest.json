@@ -1,0 +1,36 @@
+{
+  "manifest_version": "0.4",
+  "name": "tracesage",
+  "display_name": "tracesage",
+  "version": "1.0.0",
+  "description": "Ask a local tracesage collector about agent runs, search traces, and add notes.",
+  "author": {
+    "name": "tracesage"
+  },
+  "server": {
+    "type": "uv",
+    "entry_point": "src/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "python",
+        "src/server.py"
+      ],
+      "env": {
+        "TRACESAGE_DATA_DIR": "${user_config.data_dir}"
+      }
+    }
+  },
+  "user_config": {
+    "data_dir": {
+      "type": "directory",
+      "title": "Data directory",
+      "description": "Folder that holds traces.db. Leave the default to use ~/.tracesage.",
+      "required": false,
+      "default": "${HOME}/.tracesage"
+    }
+  }
+}

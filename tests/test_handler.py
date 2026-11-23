@@ -275,7 +275,7 @@ def test_token_usage_from_usage_metadata() -> None:
     gen = type("Gen", (), {"message": msg})()
     response = type("R", (), {"generations": [[gen]], "llm_output": None})()
 
-    assert _extract_token_usage(response) == (10, 5)
+    assert _extract_token_usage(response)[:2] == (10, 5)
 
     # And end-to-end through on_llm_end so token_input/token_output land on the event.
     handler, tracer = _make_handler()
@@ -349,6 +349,169 @@ def test_llm_end_stream_payload_has_ttft_ms() -> None:
     assert ttft >= 0
     # Start-ts cache must be drained after on_llm_end (no leak).
     assert str(rid) not in handler._llm_start_ts
+
+
+# ---------------------------------------------------------------------- redaction
+async def test_chat_message_secret_is_redacted(tmp_data_dir) -> None:
+    """Message objects must be flattened to JSON primitives so redact_patterns
+    reaches their text (previously the BaseMessage object bypassed redaction)."""
+    import json as _json
+
+    from langchain_core.messages import HumanMessage
+
+    from tracesage.tracer import TraceSage
+
+    cfg = TraceSageConfig(data_dir=tmp_data_dir, redact_patterns=[r"sk-[A-Za-z0-9]+"])
+    tracer = await TraceSage.create(cfg, start_server=False)
+    captured: list[RawEvent] = []
+    real_enqueue = tracer._enqueue
+
+    def spy(event: RawEvent) -> None:
+        captured.append(event)
+        real_enqueue(event)
+
+    tracer._enqueue = spy  # type: ignore[method-assign]
+    try:
+        handler = TraceSageCallbackHandler(tracer)
+        handler.on_chat_model_start(
+            {"name": "chat"}, [[HumanMessage(content="key is sk-SECRET123")]], run_id=uuid.uuid4()
+        )
+        assert captured
+        dumped = _json.dumps([e.raw_payload for e in captured])
+        assert "sk-SECRET123" not in dumped
+        assert "[REDACTED]" in dumped
+    finally:
+        await tracer.stop()
+
+
+# ---------------------------------------------------------------------- sampling
+def test_sampled_out_root_skips_payload_and_caches() -> None:
+    handler, tracer = _make_handler()
+    tracer.should_capture = lambda _root: False  # type: ignore[attr-defined]
+    rid = uuid.uuid4()
+
+    handler.on_chain_start({"name": "a"}, {"x": 1}, run_id=rid)
+    handler.on_llm_start({"name": "llm"}, ["p"], run_id=rid)
+    handler.on_llm_new_token("t", run_id=rid)
+    handler.on_llm_end(type("R", (), {"generations": [[]], "llm_output": {}})(), run_id=rid)
+
+    assert tracer.events == []
+    assert handler._names == {}
+    assert handler._token_state == {}
+    assert handler._llm_start_ts == {}
+
+
+# ---------------------------------------------------------------------- LangGraph HITL
+def _interrupt_graph(*, in_tool: bool = False) -> Any:
+    pytest.importorskip("langgraph")
+    from typing import TypedDict
+
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import interrupt
+
+    class S(TypedDict):
+        x: int
+
+    def ask(state: S) -> dict:
+        if in_tool:
+            from langchain_core.tools import tool
+
+            @tool
+            def approve(q: str) -> str:
+                """Ask a human."""
+                return str(interrupt(q))
+
+            return {"x": state["x"] + int(approve.invoke({"q": "approve?"}))}
+        return {"x": state["x"] + int(interrupt("approve?"))}
+
+    g = StateGraph(S)
+    g.add_node("ask", ask)
+    g.add_edge(START, "ask")
+    g.add_edge("ask", END)
+    return g.compile(checkpointer=InMemorySaver())
+
+
+@pytest.mark.parametrize("in_tool", [False, True])
+def test_graph_interrupt_is_a_pause_not_an_error(in_tool: bool) -> None:
+    app = _interrupt_graph(in_tool=in_tool)
+    handler, tracer = _make_handler()
+    app.invoke({"x": 1}, {"configurable": {"thread_id": "t-1"}, "callbacks": [handler]})
+
+    types = [e.event_type for e in tracer.events]
+    assert not any(t.value.endswith("_error") for t in types)
+    interrupts = [e for e in tracer.events if e.event_type == EventType.CHAIN_INTERRUPT]
+    # The caller of interrupt() (tool, then its node), then the root run last.
+    expected = [False, False, True] if in_tool else [False, True]
+    assert [e.parent_run_id is None for e in interrupts] == expected
+    if in_tool:
+        assert interrupts[0].tool_name == "approve"
+    assert "approve?" in interrupts[0].summary
+    assert handler._interrupted_roots == {}
+
+
+def test_thread_id_and_langgraph_metadata_captured() -> None:
+    app = _interrupt_graph()
+    handler, tracer = _make_handler()
+    app.invoke({"x": 1}, {"configurable": {"thread_id": "t-9"}, "callbacks": [handler]})
+
+    run_start = next(e for e in tracer.events if e.event_type == EventType.RUN_START)
+    assert run_start.thread_id == "t-9"
+    node_start = next(
+        e for e in tracer.events
+        if e.event_type == EventType.CHAIN_START and e.agent_name == "ask"
+    )
+    meta = node_start.raw_payload["metadata"]
+    assert meta["thread_id"] == "t-9"
+    assert meta["langgraph_node"] == "ask"
+    assert meta["langgraph_step"] == 1
+
+
+def test_metadata_is_allowlisted() -> None:
+    handler, tracer = _make_handler()
+    handler.on_chain_start(
+        {"name": "a"}, {}, run_id=uuid.uuid4(),
+        metadata={"session_id": "s-1", "api_key": "secret", "ls_provider": "openai"},
+    )
+    run_start = tracer.events[0]
+    assert run_start.thread_id == "s-1"
+    assert run_start.raw_payload["metadata"] == {"session_id": "s-1", "ls_provider": "openai"}
+
+
+def test_parent_command_handoff_is_not_an_error() -> None:
+    class GraphBubbleUp(Exception):  # noqa: N818 - mirrors langgraph's class name
+        pass
+
+    class ParentCommand(GraphBubbleUp):
+        pass
+
+    handler, tracer = _make_handler()
+    root, child = uuid.uuid4(), uuid.uuid4()
+    handler.on_chain_start({"name": "g"}, {}, run_id=root)
+    handler.on_chain_start({"name": "n"}, {}, run_id=child, parent_run_id=root)
+    handler.on_chain_error(ParentCommand("goto"), run_id=child, parent_run_id=root)
+    assert tracer.events[-1].event_type == EventType.CHAIN_END
+
+
+async def test_interrupted_run_persisted_with_thread(tmp_data_dir) -> None:
+    from tracesage.models import RunStatus
+    from tracesage.tracer import TraceSage
+
+    app = _interrupt_graph()
+    tracer = await TraceSage.create(TraceSageConfig(data_dir=tmp_data_dir), start_server=False)
+    try:
+        await app.ainvoke(
+            {"x": 1}, {"configurable": {"thread_id": "conv-1"}, "callbacks": [tracer.handler]}
+        )
+        await tracer.flush()
+        runs, _ = await tracer.db.list_runs(thread_id="conv-1")
+        assert len(runs) == 1
+        assert runs[0].status == RunStatus.INTERRUPTED
+        topo = await tracer.db.get_topology(scope=f"run:{runs[0].run_id}")
+        ask = next(n for n in topo.nodes if n.name == "ask")
+        assert ask.error_count == 0
+    finally:
+        await tracer.stop()
 
 
 if __name__ == "__main__":  # pragma: no cover

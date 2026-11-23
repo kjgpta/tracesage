@@ -12,6 +12,9 @@ class EventType(str, Enum):
     CHAIN_START = "chain_start"
     CHAIN_END = "chain_end"
     CHAIN_ERROR = "chain_error"
+    # LangGraph human-in-the-loop pause (GraphInterrupt). Closes the chain span
+    # like CHAIN_END but marks the root run INTERRUPTED rather than FAILED.
+    CHAIN_INTERRUPT = "chain_interrupt"
     AGENT_ACTION = "agent_action"
     AGENT_FINISH = "agent_finish"
     TOOL_START = "tool_start"
@@ -44,6 +47,7 @@ BLOB_ELIGIBLE_EVENTS: frozenset[EventType] = frozenset(
         # Response side (outputs/results).
         EventType.LLM_END,
         EventType.CHAIN_END,
+        EventType.CHAIN_INTERRUPT,
         EventType.AGENT_FINISH,
         EventType.TOOL_END,
         EventType.RETRIEVER_END,
@@ -70,6 +74,7 @@ class RunStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 def _utcnow() -> datetime:
@@ -95,8 +100,14 @@ class RawEvent(BaseModel):
     raw_payload: dict[str, Any] = Field(default_factory=dict)
     token_input: int | None = None
     token_output: int | None = None
+    token_cache_read: int | None = None
+    token_cache_write: int | None = None
+    model: str | None = None
+    provider: str | None = None
+    cost_usd: float | None = None
     error_message: str | None = None
     tags: list[str] = Field(default_factory=list)
+    thread_id: str | None = None  # conversation/thread grouping (LangGraph thread_id)
 
 
 class StoredEvent(BaseModel):
@@ -116,7 +127,14 @@ class StoredEvent(BaseModel):
     duration_ms: int | None = None
     token_input: int | None = None
     token_output: int | None = None
+    token_cache_read: int | None = None
+    token_cache_write: int | None = None
+    model: str | None = None
+    provider: str | None = None
+    cost_usd: float | None = None
     error_message: str | None = None
+    # Payload text for the FTS index. Carried to storage, never serialized.
+    search_text: str | None = Field(default=None, exclude=True)
 
 
 class Run(BaseModel):
@@ -131,6 +149,45 @@ class Run(BaseModel):
     total_tokens_output: int = 0
     graph_definition: str | None = None
     error_message: str | None = None
+    thread_id: str | None = None
+    total_cost_usd: float | None = None
+
+
+class RunNote(BaseModel):
+    """A note attached to a run (by a person or a coding agent)."""
+
+    id: int
+    run_id: str
+    created_at: datetime
+    author: str | None = None
+    text: str
+
+
+class SearchHit(BaseModel):
+    """One full-text match, with a short snippet around the hit."""
+
+    run_id: str
+    event_id: str
+    event_type: str
+    name: str | None = None
+    snippet: str = ""
+    timestamp: datetime
+
+
+class ThreadSummary(BaseModel):
+    """One conversation thread, rolled up from its runs."""
+
+    thread_id: str
+    label: str | None = None
+    run_count: int = 0
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    total_tokens_input: int = 0
+    total_tokens_output: int = 0
+    total_cost_usd: float | None = None
+    last_status: str = "running"
+    last_run_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class WSMessage(BaseModel):
@@ -168,6 +225,7 @@ class TopologyNode(BaseModel):
     total_duration_ms: int = 0
     avg_duration_ms: float = 0.0
     p99_duration_ms: int | None = None
+    total_cost_usd: float | None = None
     last_seen: datetime | None = None
 
 

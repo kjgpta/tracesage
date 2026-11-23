@@ -1,0 +1,7 @@
+{
+  "hookEventName": "beforeSubmitPrompt",
+  "sessionId": "sess-1",
+  "promptId": "p1",
+  "cwd": "/tmp/proj",
+  "prompt": "same session from cursor"
+}

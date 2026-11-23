@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "sess-1",
+  "prompt_id": "p1",
+  "cwd": "/tmp/proj",
+  "prompt": "find a hotel near the station"
+}

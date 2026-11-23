@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PostToolUseFailure",
+  "session_id": "sess-1",
+  "prompt_id": "p1",
+  "tool_name": "Bash",
+  "tool_use_id": "tu2",
+  "error": "command failed"
+}

@@ -15,6 +15,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from tracesage.manual import current_run_id
 from tracesage.models import (
     BLOB_ELIGIBLE_EVENTS,
     EventType,
@@ -72,11 +73,11 @@ def _safe_dict(obj: Any) -> dict[str, Any]:
     if obj is None:
         return {}
     if isinstance(obj, dict):
-        # Verify it round-trips through JSON; if not, stringify problem values
-        # (and keys, in case the dict is keyed by non-string objects).
+        # Round-trip through JSON so nested objects (BaseMessage, LLMResult, ...)
+        # become plain str/dict/list. Redaction only walks those types, so leaving
+        # an opaque object in place would let its text bypass redact_patterns.
         try:
-            json.dumps(obj, default=str)
-            return obj
+            return _json_copy(obj)
         except Exception:
             try:
                 return {str(k): _stringify(v) for k, v in obj.items()}
@@ -85,28 +86,95 @@ def _safe_dict(obj: Any) -> dict[str, Any]:
     # Pydantic model.
     if hasattr(obj, "model_dump"):
         with contextlib.suppress(Exception):
-            return obj.model_dump()  # type: ignore[no-any-return]
+            return _safe_dict(obj.model_dump())
     if hasattr(obj, "dict") and callable(obj.dict):  # legacy pydantic v1
         with contextlib.suppress(Exception):
-            return obj.dict()  # type: ignore[no-any-return]
+            return _safe_dict(obj.dict())
     return {"value": _stringify(obj)}
 
 
-def _stringify(value: Any) -> Any:
-    """Coerce an arbitrary value into a JSON-friendly form.
+def _json_copy(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str))
 
-    Three-step fallback: keep value if json-encodable, else str(), else a placeholder.
+
+def _stringify(value: Any) -> Any:
+    """Coerce an arbitrary value into JSON primitives (str/int/float/bool/None/list/dict).
+
+    Three-step fallback: JSON round-trip, else str(), else a placeholder.
     The third level matters for objects whose ``__repr__``/``__str__`` raise, which
     LangChain users hit with custom Pydantic models or arbitrary tool args.
     """
     try:
-        json.dumps(value, default=str)
-        return value
+        return _json_copy(value)
     except Exception:
         try:
             return str(value)
         except Exception:
             return f"<unstringifiable {type(value).__name__}>"
+
+
+# Callback-metadata keys worth keeping: LangGraph checkpoint coordinates, the
+# thread/session id (LangSmith's three accepted spellings), and LangChain's
+# provider/model hints. An allowlist, so arbitrary user metadata isn't persisted.
+_METADATA_KEYS: tuple[str, ...] = (
+    "thread_id",
+    "session_id",
+    "conversation_id",
+    "langgraph_step",
+    "langgraph_node",
+    "langgraph_triggers",
+    "langgraph_checkpoint_ns",
+    "ls_provider",
+    "ls_model_name",
+)
+_THREAD_KEYS: tuple[str, ...] = ("thread_id", "session_id", "conversation_id")
+
+
+def _trace_metadata(kwargs: dict | None) -> dict[str, Any]:
+    """Allowlisted, JSON-safe slice of the callback ``metadata`` kwarg."""
+    meta = kwargs.get("metadata") if kwargs else None
+    if not isinstance(meta, dict):
+        return {}
+    return {k: _stringify(meta[k]) for k in _METADATA_KEYS if meta.get(k) is not None}
+
+
+def _thread_id(meta: dict[str, Any]) -> str | None:
+    for key in _THREAD_KEYS:
+        value = meta.get(key)
+        if value not in (None, ""):
+            return _safe_str(value, 200)
+    return None
+
+
+def _parent_id(parent_run_id: Any) -> str | None:
+    """LangChain's parent run id as a string. A ROOT callback (no LangChain parent)
+    adopts the active manual span (``tracer.span(...)``) as its parent, so
+    ``with tl.span("checkout"): graph.invoke(...)`` nests the graph under the span."""
+    if parent_run_id:
+        return str(parent_run_id)
+    try:
+        return current_run_id()
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _has_base(error: BaseException, name: str) -> bool:
+    """True if `error`'s class (or a base) is named `name`. Matched by name so
+    langgraph stays an optional dependency."""
+    try:
+        return any(cls.__name__ == name for cls in type(error).__mro__)
+    except Exception:
+        return False
+
+
+def _is_graph_interrupt(error: BaseException) -> bool:
+    return _has_base(error, "GraphInterrupt")
+
+
+def _is_control_flow(error: BaseException) -> bool:
+    """LangGraph control-flow exceptions (e.g. ParentCommand for a handoff to the
+    parent graph) travel through on_*_error but are not failures."""
+    return _has_base(error, "GraphBubbleUp")
 
 
 def _extract_name(
@@ -159,17 +227,37 @@ def _first_present(d: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _extract_token_usage(response: Any) -> tuple[int | None, int | None]:
-    """Pull (token_input, token_output) from an LLMResult-like object.
+def _cache_counts(usage: dict[str, Any]) -> tuple[Any, Any]:
+    """Cache-read and cache-write counts from one usage dict. Never raises."""
+    details = usage.get("input_token_details") or usage.get("prompt_tokens_details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    read = _first_present(
+        details, "cache_read", "cache_read_input_tokens", "cached_tokens"
+    )
+    if read is None:
+        read = _first_present(usage, "cache_read_input_tokens", "cache_read")
+    write = _first_present(
+        details, "cache_creation", "cache_write", "cache_creation_input_tokens"
+    )
+    if write is None:
+        write = _first_present(usage, "cache_creation_input_tokens", "cache_write")
+    return read, write
 
-    Fills the input and output counts INDEPENDENTLY, taking the first non-None for
-    each across locations: (1) generation message usage_metadata (modern, all
-    providers), (2) legacy llm_output token_usage/usage, (3) message
-    response_metadata. This merges complementary counts that live in different
-    places rather than returning early with a partial pair.
+
+def _extract_token_usage(
+    response: Any,
+) -> tuple[int | None, int | None, int | None, int | None]:
+    """Pull (input, output, cache_read, cache_write) from an LLMResult-like object.
+
+    Fills the counts INDEPENDENTLY, taking the first non-None for each across
+    locations: (1) generation message usage_metadata (modern, all providers),
+    (2) legacy llm_output token_usage/usage, (3) message response_metadata.
     """
     ti: Any = None
     to: Any = None
+    cr: Any = None
+    cw: Any = None
     try:
         gens = getattr(response, "generations", None) or []
 
@@ -178,37 +266,75 @@ def _extract_token_usage(response: Any) -> tuple[int | None, int | None]:
             for gen in (batch or []):
                 msg = getattr(gen, "message", None)
                 um = getattr(msg, "usage_metadata", None) if msg is not None else None
-                if um:
+                if isinstance(um, dict):
                     if ti is None:
                         ti = um.get("input_tokens")
                     if to is None:
                         to = um.get("output_tokens")
+                    if cr is None or cw is None:
+                        r, w = _cache_counts(um)
+                        if cr is None:
+                            cr = r
+                        if cw is None:
+                            cw = w
 
         # 2. Legacy aggregate location.
-        if ti is None or to is None:
+        if ti is None or to is None or cr is None or cw is None:
             llm_output = getattr(response, "llm_output", None) or {}
             usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
-            if ti is None:
-                ti = _first_present(usage, "prompt_tokens", "input_tokens")
-            if to is None:
-                to = _first_present(usage, "completion_tokens", "output_tokens")
+            if isinstance(usage, dict):
+                if ti is None:
+                    ti = _first_present(usage, "prompt_tokens", "input_tokens")
+                if to is None:
+                    to = _first_present(usage, "completion_tokens", "output_tokens")
+                r, w = _cache_counts(usage)
+                if cr is None:
+                    cr = r
+                if cw is None:
+                    cw = w
 
         # 3. response_metadata token_usage on a generation message.
-        if ti is None or to is None:
+        if ti is None or to is None or cr is None or cw is None:
             for batch in gens:
                 for gen in (batch or []):
                     msg = getattr(gen, "message", None)
                     rm = getattr(msg, "response_metadata", None) if msg is not None else None
-                    if rm:
+                    if isinstance(rm, dict):
                         u = rm.get("token_usage") or rm.get("usage") or {}
-                        if ti is None:
-                            ti = _first_present(u, "prompt_tokens", "input_tokens")
-                        if to is None:
-                            to = _first_present(u, "completion_tokens", "output_tokens")
+                        if isinstance(u, dict):
+                            if ti is None:
+                                ti = _first_present(u, "prompt_tokens", "input_tokens")
+                            if to is None:
+                                to = _first_present(u, "completion_tokens", "output_tokens")
+                            r, w = _cache_counts(u)
+                            if cr is None:
+                                cr = r
+                            if cw is None:
+                                cw = w
 
-        return (_coerce_int(ti), _coerce_int(to))
+        return (_coerce_int(ti), _coerce_int(to), _coerce_int(cr), _coerce_int(cw))
+    except Exception:
+        return (None, None, None, None)
+
+
+def _llm_model_provider(kwargs: dict | None) -> tuple[str | None, str | None]:
+    """Model and provider from invocation_params and LangSmith metadata."""
+    model: str | None = None
+    provider: str | None = None
+    try:
+        meta = _trace_metadata(kwargs)
+        inv = kwargs.get("invocation_params") if kwargs else None
+        if isinstance(inv, dict):
+            raw = _first_present(inv, "model", "model_name", "model_id")
+            if raw is not None:
+                model = str(raw)
+        if not model and meta.get("ls_model_name"):
+            model = str(meta["ls_model_name"])
+        if meta.get("ls_provider"):
+            provider = str(meta["ls_provider"])
     except Exception:
         return (None, None)
+    return (model or None, provider or None)
 
 
 def _llm_response_text(response: Any) -> str:
@@ -244,6 +370,8 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
         # Capped to avoid unbounded growth in long-lived processes.
         self._names: dict[str, str] = {}
         self._names_cap = 50_000
+        # run_id → (model, provider) captured at LLM start, consumed at end.
+        self._llm_meta: dict[str, tuple[str | None, str | None]] = {}
         # run_id → {"first_ts": datetime, "count": int} for streaming token state.
         # We capture only the first token (for TTFT) and accumulate a count,
         # then surface both on on_llm_end. Per-token events are NOT emitted —
@@ -254,6 +382,61 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
         # Bounded like the other caches; always popped on on_llm_end/on_llm_error.
         self._llm_start_ts: dict[str, datetime] = {}
         self._llm_start_ts_cap = 50_000
+        # Root run_ids that hit a GraphInterrupt below them. LangGraph still ends
+        # the root with a normal on_chain_end, so this is how the root's end is
+        # recognised as a pause rather than a completion.
+        self._interrupted_roots: dict[str, None] = {}
+        self._interrupted_roots_cap = 10_000
+
+    def _mark_interrupted(self, root: str) -> None:
+        with self._cache_lock:
+            self._interrupted_roots[root] = None
+            while len(self._interrupted_roots) > self._interrupted_roots_cap:
+                self._interrupted_roots.pop(next(iter(self._interrupted_roots)))
+
+    def _pop_interrupted(self, root: str) -> bool:
+        with self._cache_lock:
+            if root not in self._interrupted_roots:
+                return False
+            del self._interrupted_roots[root]
+            return True
+
+    def _emit_interrupt(
+        self,
+        error: BaseException,
+        run_id_s: str,
+        parent_s: str | None,
+        root: str,
+        *,
+        agent_name: str | None = None,
+        tool_name: str | None = None,
+    ) -> None:
+        if parent_s is not None:
+            self._mark_interrupted(root)
+        label = tool_name or agent_name or "chain"
+        value = getattr(error, "args", None)
+        event = RawEvent(
+            event_id=str(uuid.uuid4()),
+            event_type=EventType.CHAIN_INTERRUPT,
+            run_id=run_id_s,
+            parent_run_id=parent_s,
+            root_run_id=root,
+            timestamp=_utcnow(),
+            agent_name=agent_name,
+            tool_name=tool_name,
+            summary=_safe_str(
+                f"{label} interrupted: {_safe_str(value[0] if value else '', 300)}",
+                self._tracer._config.summary_max_chars,
+            ),
+            full_blob_eligible=True,
+            raw_payload={"interrupt": _stringify(value), "type": type(error).__name__},
+        )
+        self._tracer.emit(event)
+
+    def _captured(self, root: str) -> bool:
+        """Early sampling gate: skip payload construction for runs emit() would drop."""
+        check = getattr(self._tracer, "should_capture", None)
+        return check is None or bool(check(root))
 
     def _remember_name(self, run_id: str, name: str | None) -> None:
         if name is None:
@@ -269,6 +452,22 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     def _recall_name(self, run_id: str) -> str | None:
         with self._cache_lock:
             return self._names.pop(run_id, None)
+
+    def _remember_llm(
+        self, run_id: str, model: str | None, provider: str | None
+    ) -> None:
+        if model is None and provider is None:
+            return
+        with self._cache_lock:
+            if len(self._llm_meta) >= self._names_cap:
+                keys = list(self._llm_meta.keys())
+                for k in keys[: self._names_cap // 2]:
+                    self._llm_meta.pop(k, None)
+            self._llm_meta[run_id] = (model, provider)
+
+    def _recall_llm(self, run_id: str) -> tuple[str | None, str | None]:
+        with self._cache_lock:
+            return self._llm_meta.pop(run_id, (None, None))
 
     def _record_token(self, run_id: str) -> None:
         with self._cache_lock:
@@ -314,13 +513,17 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             agent_name = _extract_name(serialized, kwargs)
             self._remember_name(run_id_s, agent_name)
             max_chars = self._tracer._config.summary_max_chars
             ts = _utcnow()
             tag_list = list(tags) if tags else []
+            meta = _trace_metadata(kwargs)
+            thread_id = _thread_id(meta)
 
             # Synthetic RUN_START for root chain_start.
             if parent_s is None:
@@ -334,8 +537,9 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                     agent_name=agent_name,
                     summary=_safe_str(f"RUN_START {agent_name or run_id_s}", max_chars),
                     full_blob_eligible=False,
-                    raw_payload={"inputs": _safe_dict(inputs), "tags": tag_list},
+                    raw_payload={"inputs": _safe_dict(inputs), "tags": tag_list, "metadata": meta},
                     tags=tag_list,
+                    thread_id=thread_id,
                 )
                 self._tracer.emit(run_start)
 
@@ -352,8 +556,13 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                     max_chars,
                 ),
                 full_blob_eligible=EventType.CHAIN_START in BLOB_ELIGIBLE_EVENTS,
-                raw_payload={"inputs": _safe_dict(inputs), "serialized": _safe_dict(serialized)},
+                raw_payload={
+                    "inputs": _safe_dict(inputs),
+                    "serialized": _safe_dict(serialized),
+                    "metadata": meta,
+                },
                 tags=tag_list,
+                thread_id=thread_id,
             )
             self._tracer.emit(event)
         except Exception as e:
@@ -370,20 +579,27 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             agent_name = self._recall_name(run_id_s)
             max_chars = self._tracer._config.summary_max_chars
+            paused = parent_s is None and (
+                self._pop_interrupted(root)
+                or (isinstance(outputs, dict) and "__interrupt__" in outputs)
+            )
+            verb = "interrupted" if paused else "end"
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
-                event_type=EventType.CHAIN_END,
+                event_type=EventType.CHAIN_INTERRUPT if paused else EventType.CHAIN_END,
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
                 timestamp=_utcnow(),
                 agent_name=agent_name,
                 summary=_safe_str(
-                    f"{agent_name or 'chain'} end: output={_safe_str(outputs, 200)}",
+                    f"{agent_name or 'chain'} {verb}: output={_safe_str(outputs, 200)}",
                     max_chars,
                 ),
                 full_blob_eligible=EventType.CHAIN_END in BLOB_ELIGIBLE_EVENTS,
@@ -404,10 +620,30 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             agent_name = self._recall_name(run_id_s)
+            if _is_graph_interrupt(error):
+                self._emit_interrupt(error, run_id_s, parent_s, root, agent_name=agent_name)
+                return None
             max_chars = self._tracer._config.summary_max_chars
+            if _is_control_flow(error):
+                self._tracer.emit(RawEvent(
+                    event_id=str(uuid.uuid4()),
+                    event_type=EventType.CHAIN_END,
+                    run_id=run_id_s,
+                    parent_run_id=parent_s,
+                    root_run_id=root,
+                    timestamp=_utcnow(),
+                    agent_name=agent_name,
+                    summary=_safe_str(
+                        f"{agent_name or 'chain'} end: {type(error).__name__}", max_chars
+                    ),
+                    raw_payload={"control_flow": type(error).__name__},
+                ))
+                return None
             err_text = _safe_str(error, 400)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
@@ -447,8 +683,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             tool_name = getattr(action, "tool", None)
             tool_input = getattr(action, "tool_input", None)
@@ -481,8 +719,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             return_values = getattr(finish, "return_values", None) or {}
             log_field = getattr(finish, "log", "")
@@ -536,16 +776,20 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             tool_name = _extract_name(serialized, kwargs)
             # Cache for on_tool_end / on_tool_error which may not get the name
             # via kwargs from every LangChain version.
             self._remember_name(run_id_s, tool_name)
+            meta = _trace_metadata(kwargs)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.TOOL_START,
+                thread_id=_thread_id(meta),
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
@@ -556,7 +800,11 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                     f"{tool_name}({_safe_str(input_str, 300)})", max_chars
                 ),
                 full_blob_eligible=EventType.TOOL_START in BLOB_ELIGIBLE_EVENTS,
-                raw_payload={"input": _safe_str(input_str, 10000), "serialized": _safe_dict(serialized)},
+                raw_payload={
+                    "input": _safe_str(input_str, 10000),
+                    "serialized": _safe_dict(serialized),
+                    "metadata": meta,
+                },
             )
             self._tracer.emit(event)
         except Exception as e:
@@ -573,8 +821,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             # Always pop the cached name so the entry is freed even if kwargs
             # already has it (some LangChain versions populate kwargs["name"],
@@ -611,12 +861,17 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             err_text = _safe_str(error, 400)
             cached = self._recall_name(run_id_s)
             tool_name = kwargs.get("name") or cached
+            if _is_graph_interrupt(error):
+                self._emit_interrupt(error, run_id_s, parent_s, root, tool_name=tool_name)
+                return None
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.TOOL_ERROR,
@@ -657,8 +912,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             agent_name = _extract_name(serialized)
             num_prompts = len(prompts) if prompts else 0
@@ -669,19 +926,29 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
             # serialized info) so the end event — and its token usage — is
             # attributed to the same node.
             self._remember_name(run_id_s, agent_name)
+            meta = _trace_metadata(kwargs)
+            model, provider = _llm_model_provider(kwargs)
+            self._remember_llm(run_id_s, model, provider)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.LLM_START,
+                thread_id=_thread_id(meta),
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
                 timestamp=ts,
                 agent_name=agent_name,
+                model=model,
+                provider=provider,
                 summary=_safe_str(
                     f"LLM prompt ({num_prompts} prompts, last: {last})", max_chars
                 ),
                 full_blob_eligible=EventType.LLM_START in BLOB_ELIGIBLE_EVENTS,
-                raw_payload={"prompts": list(prompts) if prompts else [], "serialized": _safe_dict(serialized)},
+                raw_payload={
+                    "prompts": list(prompts) if prompts else [],
+                    "serialized": _safe_dict(serialized),
+                    "metadata": meta,
+                },
             )
             self._tracer.emit(event)
         except Exception as e:
@@ -700,8 +967,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
         """Chat models hit this method, NOT on_llm_start."""
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             agent_name = _extract_name(serialized)
             # messages is a list[list[BaseMessage]] (one inner list per prompt).
@@ -718,19 +987,28 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
             self._record_llm_start(run_id_s, ts)
             # Carry the model name to the matching on_llm_end (see on_llm_start).
             self._remember_name(run_id_s, agent_name)
+            meta = _trace_metadata(kwargs)
+            model, provider = _llm_model_provider(kwargs)
+            self._remember_llm(run_id_s, model, provider)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.CHAT_MODEL_START,
+                thread_id=_thread_id(meta),
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
                 timestamp=ts,
                 agent_name=agent_name,
+                model=model,
+                provider=provider,
                 summary=_safe_str(
                     f"Chat ({num} messages, last: {last_content})", max_chars
                 ),
                 full_blob_eligible=EventType.CHAT_MODEL_START in BLOB_ELIGIBLE_EVENTS,
-                raw_payload={"messages": _safe_dict({"messages": _stringify(messages)})},
+                raw_payload={
+                    "messages": _safe_dict({"messages": _stringify(messages)}),
+                    "metadata": meta,
+                },
             )
             self._tracer.emit(event)
         except Exception as e:
@@ -739,7 +1017,7 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
 
     def on_llm_new_token(
         self,
-        token: str,
+        token: Any,
         *,
         run_id: Any,
         parent_run_id: Any = None,
@@ -753,8 +1031,14 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
         surface both on the existing on_llm_end event.
         """
         try:
-            del token, parent_run_id, kwargs
-            self._record_token(str(run_id))
+            del token, kwargs
+            run_id_s = str(run_id)
+            # Sample check only on the first token so the per-token path stays cheap.
+            if run_id_s not in self._token_state:
+                parent_s = _parent_id(parent_run_id)
+                if not self._captured(self._tracer.get_or_set_root(run_id_s, parent_s)):
+                    return None
+            self._record_token(run_id_s)
         except Exception as e:  # pragma: no cover
             log.error("on_llm_new_token error: %s", e, exc_info=True)
             return None
@@ -769,13 +1053,16 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             # Recall the model name stashed by on_llm_start/on_chat_model_start so
             # this event (which carries token usage) is attributed to the LLM node.
             agent_name = self._recall_name(run_id_s)
-            ti, to = _extract_token_usage(response)
+            model, provider = self._recall_llm(run_id_s)
+            ti, to, cache_read, cache_write = _extract_token_usage(response)
             text = _safe_str(_llm_response_text(response), 200)
             tokens_label = (ti or 0) + (to or 0)
 
@@ -829,10 +1116,14 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=ts_now,
                 agent_name=agent_name,
+                model=model,
+                provider=provider,
                 summary=_safe_str(summary_text, max_chars),
                 full_blob_eligible=EventType.LLM_END in BLOB_ELIGIBLE_EVENTS,
                 raw_payload=payload,
                 token_input=ti,
+                token_cache_read=cache_read,
+                token_cache_write=cache_write,
                 # If the model didn't report token usage but we counted streamed
                 # tokens, surface the stream count as the output-token count.
                 token_output=to if to is not None else streamed_tokens,
@@ -852,8 +1143,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             err_text = _safe_str(error, 400)
             # Free any pending start-ts / token state so the caches cannot leak
@@ -861,6 +1154,7 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
             # name too — both to attribute the error to its LLM node and to free
             # the name cache.
             agent_name = self._recall_name(run_id_s)
+            model, provider = self._recall_llm(run_id_s)
             self._consume_llm_start(run_id_s)
             self._consume_token_state(run_id_s)
             event = RawEvent(
@@ -871,6 +1165,8 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                 root_run_id=root,
                 timestamp=_utcnow(),
                 agent_name=agent_name,
+                model=model,
+                provider=provider,
                 summary=_safe_str(f"ERROR: {err_text}", max_chars),
                 # Error events are blob-eligible so the full traceback (below) is
                 # retrievable in the UI drawer / /full endpoint for debugging.
@@ -904,8 +1200,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
         """
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             # Defensive: a hostile retry_state (e.g. an `outcome`/`attempt_number`
             # property that raises) must NOT drop the RETRY event. getattr's default
@@ -949,14 +1247,18 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             name = _extract_name(serialized, kwargs, default="Retriever")
             self._remember_name(run_id_s, name)
+            meta = _trace_metadata(kwargs)
             event = RawEvent(
                 event_id=str(uuid.uuid4()),
                 event_type=EventType.RETRIEVER_START,
+                thread_id=_thread_id(meta),
                 run_id=run_id_s,
                 parent_run_id=parent_s,
                 root_run_id=root,
@@ -964,7 +1266,11 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
                 agent_name=name,
                 summary=_safe_str(f"{name}({_safe_str(query, 200)})", max_chars),
                 full_blob_eligible=EventType.RETRIEVER_START in BLOB_ELIGIBLE_EVENTS,
-                raw_payload={"query": _safe_str(query, 10000), "serialized": _safe_dict(serialized)},
+                raw_payload={
+                    "query": _safe_str(query, 10000),
+                    "serialized": _safe_dict(serialized),
+                    "metadata": meta,
+                },
             )
             self._tracer.emit(event)
         except Exception as e:
@@ -981,8 +1287,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             agent_name = self._recall_name(run_id_s)
             max_chars = self._tracer._config.summary_max_chars
             try:
@@ -1018,8 +1326,10 @@ class TraceSageCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             run_id_s = str(run_id)
-            parent_s = str(parent_run_id) if parent_run_id else None
+            parent_s = _parent_id(parent_run_id)
             root = self._tracer.get_or_set_root(run_id_s, parent_s)
+            if not self._captured(root):
+                return None
             max_chars = self._tracer._config.summary_max_chars
             err_text = _safe_str(error, 400)
             event = RawEvent(

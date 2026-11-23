@@ -1,13 +1,24 @@
-"""Configuration via env vars (TRACESAGE_*) and optional TOML file.
+"""Configuration via constructor kwargs and TRACESAGE_* environment variables.
 
 Production safety: refuses to start if host=0.0.0.0 without auth_token.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ModelPrice(BaseModel):
+    """Per-million-token rates that override genai-prices for one model."""
+
+    input_per_mtok: float = 0.0
+    output_per_mtok: float = 0.0
+    cache_read_per_mtok: float = 0.0
+    cache_write_per_mtok: float = 0.0
 
 
 class TraceSageConfig(BaseSettings):
@@ -50,10 +61,11 @@ class TraceSageConfig(BaseSettings):
     # dir without running a web server in your app process — view them later with
     # `tracesage serve`. A `start_server=` kwarg to create()/session()/start() overrides this.
     start_server: bool = True
-    # Allowed CORS origins. Defaults to "*" (the bundled UI is same-origin and does
-    # not need it); tighten to an explicit allowlist when exposing the server beyond
-    # localhost so other sites cannot drive the API from a user's browser.
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    # Extra origins allowed to call the API / open WebSockets from a browser. Empty by
+    # default: the bundled UI is same-origin and needs none, and a wildcard would let
+    # any website the user visits read traces from an unauthenticated local server.
+    # Also gates the WebSocket Origin check (browsers skip CORS for WS handshakes).
+    cors_origins: list[str] = Field(default_factory=list)
 
     # --- Storage ---
     data_dir: Path = Field(default_factory=lambda: Path.home() / ".tracesage")
@@ -70,6 +82,18 @@ class TraceSageConfig(BaseSettings):
     sample_rate: float = 1.0  # 0.0..1.0; 1.0 = capture everything
     per_run_event_cap: int = 50_000  # circuit breaker per run
     summary_max_chars: int = 500
+
+    # --- Cost ---
+    # Dollar pricing uses the optional ``tracesage[pricing]`` extra (genai-prices,
+    # offline snapshot). When the extra is missing, cost stays null ("n/a").
+    pricing_enabled: bool = True
+    # Keys are "provider:model" or "model". Env: TRACESAGE_PRICE_OVERRIDES as JSON.
+    price_overrides: dict[str, ModelPrice] = Field(default_factory=dict)
+
+    # --- Search ---
+    # Index redacted payload text in SQLite FTS5. Summaries are always indexed.
+    search_index_payloads: bool = True
+    search_max_chars_per_event: int = 20_000
 
     # --- Retention ---
     max_runs: int = 10_000
@@ -88,11 +112,37 @@ class TraceSageConfig(BaseSettings):
     otlp_service_name: str = "tracesage"
     otlp_headers: dict[str, str] = Field(default_factory=dict)
 
+    # --- OpenTelemetry ingest (OTLP/HTTP) ---
+    # The embedded server accepts spans on `POST /v1/traces` (protobuf or JSON, gzip
+    # ok), so any OTel-instrumented process — Pydantic AI, OpenAI Agents SDK, CrewAI,
+    # the OpenAI/Anthropic clients — can send traces here by pointing
+    # OTEL_EXPORTER_OTLP_ENDPOINT at this server. Same trust boundary as /api/*
+    # (bearer token when configured). Set False (TRACESAGE_INGEST=false) to turn
+    # the endpoint off.
+    ingest: bool = True
+    # Largest accepted request body (after decompression), in bytes.
+    ingest_max_body_bytes: int = 16 * 1024 * 1024
+    # Hook ingest from Claude Code / Codex / Cursor. When true, prompts and tool
+    # I/O text are dropped and only names, timing and status are stored.
+    hook_metadata_only: bool = False
+
     # --- Logging ---
     log_level: str = "WARNING"
 
     # --- Server startup health check ---
     startup_health_timeout_s: float = 3.0
+
+    @field_validator("price_overrides", mode="before")
+    @classmethod
+    def _parse_price_overrides(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return {}
+        if isinstance(value, str):
+            parsed = json.loads(value)
+            if not isinstance(parsed, dict):
+                raise ValueError("price_overrides must be a JSON object")
+            return parsed
+        return value
 
     @property
     def db_path(self) -> Path:
@@ -129,6 +179,10 @@ class TraceSageConfig(BaseSettings):
             raise ValueError(f"db_pool_size must be > 0, got {self.db_pool_size}")
         if self.summary_max_chars <= 0:
             raise ValueError(f"summary_max_chars must be > 0, got {self.summary_max_chars}")
+        if self.search_max_chars_per_event <= 0:
+            raise ValueError(
+                f"search_max_chars_per_event must be > 0, got {self.search_max_chars_per_event}"
+            )
         if self.max_runs <= 0:
             raise ValueError(f"max_runs must be > 0, got {self.max_runs}")
         if self.max_blob_size_gb <= 0:
@@ -140,6 +194,10 @@ class TraceSageConfig(BaseSettings):
         if self.startup_health_timeout_s <= 0:
             raise ValueError(
                 f"startup_health_timeout_s must be > 0, got {self.startup_health_timeout_s}"
+            )
+        if self.ingest_max_body_bytes <= 0:
+            raise ValueError(
+                f"ingest_max_body_bytes must be > 0, got {self.ingest_max_body_bytes}"
             )
         return self
 

@@ -23,6 +23,8 @@ from tracesage.models import (
     StoredEvent,
     WSMessage,
 )
+from tracesage.pricing import price_usd
+from tracesage.search import extract_search_text
 
 if TYPE_CHECKING:
     from tracesage.config import TraceSageConfig
@@ -43,6 +45,7 @@ _END_TO_START_KEY: dict[EventType, str] = {
     EventType.RETRIEVER_END: "retriever",
     EventType.RETRIEVER_ERROR: "retriever",
     EventType.AGENT_FINISH: "chain",
+    EventType.CHAIN_INTERRUPT: "chain",  # "tool" when tool_name is set; see _end_key
 }
 
 _START_TO_KEY: dict[EventType, str] = {
@@ -66,6 +69,9 @@ _ROOT_TERMINAL_OK: frozenset[EventType] = frozenset(
         EventType.LLM_END,
         EventType.TOOL_END,
         EventType.RETRIEVER_END,
+        # Synthetic end-of-run marker (OTLP ingest emits one when a trace's root
+        # span arrives). Carries error_message when the root span failed.
+        EventType.RUN_END,
     }
 )
 _ROOT_TERMINAL_ERR: frozenset[EventType] = frozenset(
@@ -76,6 +82,12 @@ _ROOT_TERMINAL_ERR: frozenset[EventType] = frozenset(
         EventType.RETRIEVER_ERROR,
     }
 )
+
+
+def _end_key(event: RawEvent) -> str | None:
+    if event.event_type == EventType.CHAIN_INTERRUPT and event.tool_name:
+        return "tool"
+    return _END_TO_START_KEY.get(event.event_type)
 
 
 class StorageWorker:
@@ -111,6 +123,14 @@ class StorageWorker:
         # processes never grow unboundedly.
         self._runs_seen: OrderedDict[str, None] = OrderedDict()
         self._runs_seen_cap = 50_000
+        # The batch _process_batch is working on, kept so a cancellation mid-batch
+        # (e.g. asyncio.run tearing down after an uncaught exception) can replay it
+        # instead of dropping it with the run rows left half-written as 'running'.
+        self._inflight: list[RawEvent] | None = None
+        # StoredEvents already built for the in-flight batch. Building pops the
+        # matching start timestamp, so a replay must reuse them to keep durations.
+        self._inflight_built: dict[str, StoredEvent] = {}
+        self._inflight_exported = False
 
     def request_shutdown(self) -> None:
         self._shutdown = True
@@ -118,7 +138,9 @@ class StorageWorker:
     async def run(self) -> None:
         """Main worker loop. Cancellation drains remaining events before re-raise."""
         try:
-            while not self._shutdown:
+            # On shutdown, keep going until the queue is empty: exiting with a
+            # backlog would strand events that stop()'s queue.join() is waiting on.
+            while not (self._shutdown and self._queue.empty()):
                 events: list[RawEvent] = []
                 try:
                     events = await self._drain_batch(
@@ -126,7 +148,12 @@ class StorageWorker:
                         timeout=self._config.worker_batch_timeout,
                     )
                     if events:
+                        self._inflight = events
+                        self._inflight_built = {}
+                        self._inflight_exported = False
                         await self._process_batch(events)
+                        self._inflight = None
+                        self._inflight_built = {}
                 except asyncio.CancelledError:
                     # Do NOT ack here — the `finally` below acks exactly once.
                     # Acking in both places double-counts task_done() and
@@ -139,6 +166,13 @@ class StorageWorker:
                     if events:
                         self._ack_batch(events)
         except asyncio.CancelledError:
+            # Already acked by the loop's `finally`; replay only re-persists it.
+            interrupted, self._inflight = self._inflight, None
+            if interrupted:
+                try:
+                    await self._process_batch(interrupted, replay=True)
+                except Exception as e:  # pragma: no cover
+                    log.error("StorageWorker in-flight replay error: %s", e, exc_info=True)
             remaining = self._drain_remaining()
             if remaining:
                 try:
@@ -194,15 +228,21 @@ class StorageWorker:
                 self._queue.task_done()
 
     def _mark_run_seen(self, run_id: str) -> None:
-        """Insert run_id into the bounded ordered-set, FIFO-evicting oldest at cap."""
+        """Insert/refresh run_id in the bounded LRU set, evicting least-recent at cap."""
+        if run_id in self._runs_seen:
+            self._runs_seen.move_to_end(run_id)
+            return
         self._runs_seen[run_id] = None
         while len(self._runs_seen) > self._runs_seen_cap:
             self._runs_seen.popitem(last=False)
 
-    async def _process_batch(self, events: list[RawEvent]) -> None:
+    async def _process_batch(self, events: list[RawEvent], *, replay: bool = False) -> None:
         """Process a batch: blobs, stored events, run rows, ws broadcast.
 
         Each event is wrapped in try/except so one bad event does not abort the batch.
+        ``replay=True`` re-persists a batch whose first pass was cancelled part-way:
+        every write is idempotent except the counter increments, so run totals are
+        recomputed from the stored events instead.
         """
         t0 = time.perf_counter()
         stored_events: list[StoredEvent] = []
@@ -211,16 +251,20 @@ class StorageWorker:
         # Run-level mutations to apply after the events batch commits.
         runs_to_upsert: list[Run] = []
         terminal_updates: list[tuple[str, RunStatus, datetime, str | None]] = []
-        counter_updates: dict[str, dict[str, int]] = {}
+        counter_updates: dict[str, dict[str, int | float | None]] = {}
+        recompute_roots: set[str] = set()
 
         for event in events:
             try:
-                stored = await self._build_stored_event(event)
+                stored = self._inflight_built.get(event.event_id) if replay else None
+                if stored is None:
+                    stored = await self._build_stored_event(event)
+                    self._inflight_built[event.event_id] = stored
+                    # Increment events_processed per event so /api/stats reflects
+                    # in-flight progress, not just batch-end totals.
+                    self._stats.events_processed += 1
                 stored_events.append(stored)
                 ws_pairs.append((event, stored))
-                # Increment events_processed per event so /api/stats reflects
-                # in-flight progress, not just batch-end totals.
-                self._stats.events_processed += 1
 
                 if event.event_type == EventType.RUN_START:
                     runs_to_upsert.append(self._raw_to_run(event))
@@ -230,6 +274,8 @@ class StorageWorker:
                     # nested LangGraph trees, retries, etc.) so that the events FK holds.
                     runs_to_upsert.append(self._raw_to_run(event))
                     self._mark_run_seen(event.run_id)
+                else:
+                    self._mark_run_seen(event.run_id)
 
                 # Terminal updates: only a ROOT-level event (parent_run_id is None)
                 # marks a run terminal. A nested/recovered error must NOT fail the
@@ -237,12 +283,20 @@ class StorageWorker:
                 # emits its own error (parent_run_id is None); if it is caught inside
                 # the graph the root completes normally. With the monotonic backend
                 # guard (WHERE status='running'), the first terminal event wins.
-                is_error = event.event_type in _ROOT_TERMINAL_ERR
+                is_error = event.event_type in _ROOT_TERMINAL_ERR or (
+                    event.event_type == EventType.RUN_END and bool(event.error_message)
+                )
+                is_paused = event.event_type == EventType.CHAIN_INTERRUPT
                 is_terminal = event.parent_run_id is None and (
-                    is_error or event.event_type in _ROOT_TERMINAL_OK
+                    is_error or is_paused or event.event_type in _ROOT_TERMINAL_OK
                 )
                 if is_terminal:
-                    status = RunStatus.FAILED if is_error else RunStatus.COMPLETED
+                    if is_error:
+                        status = RunStatus.FAILED
+                    elif is_paused:
+                        status = RunStatus.INTERRUPTED
+                    else:
+                        status = RunStatus.COMPLETED
                     terminal_updates.append(
                         (event.root_run_id, status, event.timestamp, event.error_message)
                     )
@@ -250,13 +304,20 @@ class StorageWorker:
                 # Counters keyed by root_run_id so all sub-events feed the top-level run row.
                 bucket = counter_updates.setdefault(
                     event.root_run_id,
-                    {"steps": 0, "tokens_in": 0, "tokens_out": 0},
+                    {"steps": 0, "tokens_in": 0, "tokens_out": 0, "cost": None},
                 )
-                bucket["steps"] += 1
+                # App-session importers re-send a turn as it grows. Rows upsert,
+                # so totals for those runs are recomputed instead of added.
+                if any(tag.startswith("source:") for tag in event.tags):
+                    recompute_roots.add(event.root_run_id)
+                bucket["steps"] = int(bucket["steps"] or 0) + 1
                 if event.token_input:
-                    bucket["tokens_in"] += event.token_input
+                    bucket["tokens_in"] = int(bucket["tokens_in"] or 0) + event.token_input
                 if event.token_output:
-                    bucket["tokens_out"] += event.token_output
+                    bucket["tokens_out"] = int(bucket["tokens_out"] or 0) + event.token_output
+                if stored.cost_usd is not None:
+                    prev = bucket["cost"]
+                    bucket["cost"] = (0.0 if prev is None else float(prev)) + stored.cost_usd
             except Exception as e:
                 log.error(
                     "StorageWorker per-event error (event_id=%s type=%s): %s",
@@ -267,6 +328,13 @@ class StorageWorker:
                 )
 
         # Run upserts first (FK target).
+        batch_upsert = getattr(self._db, "upsert_runs_batch", None)
+        if batch_upsert is not None and len(runs_to_upsert) > 1:
+            try:
+                await batch_upsert(runs_to_upsert)
+                runs_to_upsert = []
+            except Exception as e:
+                log.error("upsert_runs_batch failed (%d runs): %s", len(runs_to_upsert), e)
         for run in runs_to_upsert:
             try:
                 await self._db.upsert_run(run)
@@ -292,21 +360,29 @@ class StorageWorker:
         # Apply per-run counter increments.
         for run_id, counts in counter_updates.items():
             try:
-                await self._db.increment_run_counters(
-                    run_id,
-                    steps=counts["steps"],
-                    tokens_in=counts["tokens_in"],
-                    tokens_out=counts["tokens_out"],
-                )
+                if replay or run_id in recompute_roots:
+                    await self._db.recompute_run_counters(run_id)
+                else:
+                    raw_cost = counts["cost"]
+                    await self._db.increment_run_counters(
+                        run_id,
+                        steps=int(counts["steps"] or 0),
+                        tokens_in=int(counts["tokens_in"] or 0),
+                        tokens_out=int(counts["tokens_out"] or 0),
+                        cost=float(raw_cost) if isinstance(raw_cost, (int, float)) else None,
+                    )
             except Exception as e:
-                log.error("increment_run_counters failed for %s: %s", run_id, e, exc_info=True)
+                log.error("run counter update failed for %s: %s", run_id, e, exc_info=True)
 
         # Export to OpenTelemetry (if configured), in event order so a span's start
         # is seen before its end. Best-effort: failures must not affect ingestion.
-        if self._otel is not None:
-            for _raw, stored in ws_pairs:
+        # The loop has no awaits, so a cancelled first pass either exported all of
+        # the batch or none of it.
+        if self._otel is not None and not (replay and self._inflight_exported):
+            self._inflight_exported = True
+            for raw, stored in ws_pairs:
                 try:
-                    self._otel.handle(stored)
+                    self._otel.handle(stored, raw)
                 except Exception as e:  # pragma: no cover - defensive
                     log.warning("otel export failed: %s", e)
 
@@ -395,16 +471,50 @@ class StorageWorker:
             while len(run_dict) > self._start_timestamps_inner_cap:
                 run_dict.popitem(last=False)
 
-        if event.event_type in _END_TO_START_KEY:
-            key = _END_TO_START_KEY[event.event_type]
+        end_key = _end_key(event)
+        if end_key is not None:
             run_dict = self._start_timestamps.get(event.run_id)
-            if run_dict and key in run_dict:
-                start_ts = run_dict.pop(key)
+            if run_dict and end_key in run_dict:
+                start_ts = run_dict.pop(end_key)
                 duration_ms = max(
                     0, int((event.timestamp - start_ts).total_seconds() * 1000)
                 )
                 if not run_dict:
                     self._start_timestamps.pop(event.run_id, None)
+
+        model = event.model
+        if model is None and event.event_type in (
+            EventType.LLM_START,
+            EventType.LLM_END,
+            EventType.LLM_ERROR,
+            EventType.CHAT_MODEL_START,
+        ):
+            model = event.agent_name
+
+        cost_usd: float | None = event.cost_usd
+        if cost_usd is None and event.event_type == EventType.LLM_END:
+            try:
+                cost_usd = price_usd(
+                    model,
+                    event.provider,
+                    event.token_input,
+                    event.token_output,
+                    event.token_cache_read,
+                    event.token_cache_write,
+                    self._config,
+                )
+            except Exception:
+                cost_usd = None
+
+        search_text: str | None = None
+        if self._config.search_index_payloads:
+            try:
+                search_text = extract_search_text(
+                    event.raw_payload,
+                    limit=self._config.search_max_chars_per_event,
+                )
+            except Exception:
+                search_text = None
 
         blob_path: str | None = None
         if event.full_blob_eligible and event.event_type in BLOB_ELIGIBLE_EVENTS:
@@ -432,7 +542,13 @@ class StorageWorker:
             duration_ms=duration_ms,
             token_input=event.token_input,
             token_output=event.token_output,
+            token_cache_read=event.token_cache_read,
+            token_cache_write=event.token_cache_write,
+            model=model,
+            provider=event.provider,
+            cost_usd=cost_usd,
             error_message=event.error_message,
+            search_text=search_text,
         )
 
     @staticmethod
@@ -443,6 +559,7 @@ class StorageWorker:
             tags=event.tags,
             status=RunStatus.RUNNING,
             started_at=event.timestamp,
+            thread_id=event.thread_id,
         )
 
     def _compute_p99(self) -> float | None:

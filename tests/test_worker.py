@@ -1,7 +1,7 @@
 """Tests for StorageWorker.
 
-Mocks the StorageBackend, BlobStore, and ws_manager — Agent A's real
-implementations are not required to be present.
+Mocks the StorageBackend, BlobStore, and ws_manager, so the real
+implementations are not exercised here.
 """
 from __future__ import annotations
 
@@ -47,8 +47,11 @@ class _FakeDB:
     async def update_run_status(self, run_id: str, status: Any, completed_at=None, error=None) -> None:
         self.status_updates.append((run_id, status, completed_at, error))
 
-    async def increment_run_counters(self, run_id: str, steps: int = 0, tokens_in: int = 0, tokens_out: int = 0) -> None:
+    async def increment_run_counters(self, run_id: str, steps: int = 0, tokens_in: int = 0, tokens_out: int = 0, cost: float | None = None) -> None:
         self.counter_updates.append((run_id, steps, tokens_in, tokens_out))
+
+    async def recompute_run_counters(self, run_id: str) -> None:
+        self.counter_updates.append((run_id, "recompute"))
 
 
 class _FakeBlobStore:
@@ -373,6 +376,100 @@ async def test_bare_root_llm_marks_run_completed() -> None:
     run_id, status, _completed_at, _error = db.status_updates[0]
     assert run_id == root_id
     assert status == RunStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------- 9
+async def test_graceful_shutdown_drains_backlog_without_cancel() -> None:
+    """request_shutdown() alone must persist the whole backlog before run() returns."""
+    worker, queue, db, _blob, _ws, _stats = _make_worker(batch_size=10, batch_timeout=0.02)
+    run_id = str(uuid.uuid4())
+    for _ in range(95):
+        await queue.put(_make_event(EventType.AGENT_ACTION, run_id=run_id))
+
+    worker.request_shutdown()
+    await asyncio.wait_for(worker.run(), timeout=5.0)
+    await asyncio.wait_for(queue.join(), timeout=1.0)
+
+    assert sum(len(b) for b in db.upserted_events_batches) == 95
+
+
+# ---------------------------------------------------------------------- 10
+async def test_one_bad_event_does_not_abort_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker, queue, db, _blob, _ws, _stats = _make_worker(batch_size=10, batch_timeout=0.02)
+    run_id = str(uuid.uuid4())
+    events = [_make_event(EventType.AGENT_ACTION, run_id=run_id) for _ in range(5)]
+    bad_id = events[2].event_id
+
+    real_build = worker._build_stored_event
+
+    async def flaky_build(event: RawEvent) -> StoredEvent:
+        if event.event_id == bad_id:
+            raise RuntimeError("boom")
+        return await real_build(event)
+
+    monkeypatch.setattr(worker, "_build_stored_event", flaky_build)
+    for e in events:
+        await queue.put(e)
+
+    worker.request_shutdown()
+    await asyncio.wait_for(worker.run(), timeout=5.0)
+
+    stored_ids = {e.event_id for b in db.upserted_events_batches for e in b}
+    assert stored_ids == {e.event_id for e in events} - {bad_id}
+
+
+# ---------------------------------------------------------------------- 11
+async def test_cancel_mid_batch_replays_inflight_batch(tmp_path) -> None:
+    """asyncio.run() teardown after an uncaught exception cancels the worker. A batch
+    interrupted mid-write must still be persisted — previously its run row was left
+    'running' with only the steps of earlier batches."""
+    from tracesage.storage.blob_store import BlobStore
+    from tracesage.storage.sqlite_backend import SQLiteBackend
+
+    db = SQLiteBackend(tmp_path / "t.db")
+    await db.init()
+    queue: asyncio.Queue = asyncio.Queue()
+    cfg = TraceSageConfig(worker_batch_size=50, worker_batch_timeout=0.02)
+    worker = StorageWorker(queue, db, BlobStore(tmp_path / "blobs"), _FakeWS(), cfg, Stats())
+
+    real_upsert = db.upsert_events_batch
+    entered = asyncio.Event()
+    calls = 0
+
+    async def hang_once(events: list[StoredEvent]) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await asyncio.sleep(30)  # cancelled here
+        await real_upsert(events)
+
+    db.upsert_events_batch = hang_once  # type: ignore[method-assign]
+
+    rid = str(uuid.uuid4())
+    t0 = _utcnow()
+    t1 = datetime.fromtimestamp(t0.timestamp() + 0.2, tz=UTC)
+    for ev in (
+        _make_event(EventType.RUN_START, run_id=rid, timestamp=t0),
+        _make_event(EventType.CHAIN_START, run_id=rid, timestamp=t0),
+        _make_event(EventType.CHAIN_END, run_id=rid, timestamp=t1, token_output=7),
+    ):
+        await queue.put(ev)
+
+    task = asyncio.create_task(worker.run())
+    await asyncio.wait_for(entered.wait(), timeout=5.0)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    run = await db.get_run(rid)
+    assert run is not None
+    assert run.status == RunStatus.COMPLETED
+    assert run.total_steps == 3
+    assert run.total_tokens_output == 7
+    end = next(e for e in await db.get_journey(rid) if e.event_type == EventType.CHAIN_END)
+    assert end.duration_ms is not None
+    assert end.duration_ms >= 150
+    assert queue.empty()
 
 
 if __name__ == "__main__":  # pragma: no cover

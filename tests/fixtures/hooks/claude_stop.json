@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "sess-1",
+  "prompt_id": "p1",
+  "last_assistant_message": "booked the seaside room",
+  "transcript_path": ""
+}
