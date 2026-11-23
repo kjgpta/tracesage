@@ -74,7 +74,7 @@ auto-detection is a fallback.
 
 ## Where it shows up
 
-- **UI** — the **Tools** tab in the right panel groups tools as
+- **UI** — the side panel has **Timeline** and **Tools** tabs. Tools groups tools as
   `MCP: weather (4) · MCP: math (2) · Local (2)`. Clicking a tool node shows its
   source in the drawer.
 - **REST** — `GET /api/tools` returns the grouped inventory; topology tool nodes
@@ -84,7 +84,7 @@ auto-detection is a fallback.
 
 ![Tools tab — tools grouped by MCP server origin versus local](assets/ui-tools-by-source.png)
 
-*The Tools tab groups every tool by its MCP server (here `flights`, `hotels`, `weather`) or marks it as `Local`.*
+*The Tools tab in the side panel groups every tool by its MCP server (here `flights`, `hotels`, `weather`) or marks it as `Local`.*
 
 ![MCP server inspector — invocations, errors, the tools it provides, and which agents call it](assets/ui-mcp-drawer.png)
 

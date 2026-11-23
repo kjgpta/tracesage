@@ -147,7 +147,7 @@ the printed URL is the source of truth. `tracer.ui_url` exposes it in code.
 
 !!! tip "One data dir per application"
     Traces persist to a `data_dir` (default `~/.tracesage`), and the run list,
-    topology, and the Tools tab are all scoped to that dir. If you run more
+    topology, and the side panel's Timeline and Tools tabs are all scoped to that dir. If you run more
     than one app, give each its own `data_dir` so their graphs don't merge — and
     if a run "goes missing", it's almost always because the viewer points at a
     different dir than the writer. See
@@ -160,7 +160,7 @@ the printed URL is the source of truth. `tracer.ui_url` exposes it in code.
   step counts, and tags.
 - **Graph** (center): an interactive topology of every agent and tool you've used,
   with edges traced by execution.
-- **Timeline** (right): every callback event in order, expandable for the full LLM payload.
+- **Side panel** (right): **Timeline** and **Tools** tabs. Timeline lists every callback event in order, expandable for the full LLM payload. Tools groups tools by MCP server.
 
 ## Configuration
 
