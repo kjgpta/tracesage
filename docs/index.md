@@ -75,7 +75,7 @@ and renders it in an interactive graph + timeline UI in real time.
   Tempo / Jaeger / Datadog / Honeycomb — the bridge to your production stack. See
   [Configuration → OpenTelemetry export](configuration.md).
 - **Pluggable storage.** SQLite and gzipped blobs behind a `StorageBackend` protocol, so another backend can be added. See [Extending](extending.md).
-- **MIT licensed.** Free forever.
+- **Apache 2.0 licensed.** Free forever.
 
 ## Where to go next
 

@@ -7,7 +7,7 @@ name = "tracesage"
 version = "1.0.0"
 description = "Local-first observability for LLM agents: LangChain/LangGraph, Pydantic AI, OpenAI Agents SDK, CrewAI and any OpenTelemetry source"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [
     { name = "tracesage contributors" },
@@ -16,7 +16,7 @@ keywords = ["langchain", "langgraph", "pydantic-ai", "openai-agents", "crewai", 
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

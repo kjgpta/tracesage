@@ -82,6 +82,7 @@ CLAUDE.md
 AGENTS.md
 production_roadmap.md
 article/
+blogs/
 drafts/
 *.draft.md
 docs/releasing.md
