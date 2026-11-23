@@ -123,11 +123,11 @@ and renders it in an interactive graph + timeline UI in real time.
 <table>
   <tr>
     <td width="50%"><img src="assets/ui-topology.png" alt="Live topology — agents, MCP servers, tools, and LLM nodes colour-coded by kind"></td>
-    <td width="50%"><img src="assets/ui-run-list.png" alt="Run list — green completed runs, red failed runs at a glance"></td>
+    <td width="50%"><img src="assets/ui-run-list.png" alt="Run list with Runs and Threads tabs and sidebar filters, green completed runs and red failed runs"></td>
   </tr>
   <tr>
     <td align="center"><em>Live topology — agents, MCP servers, tools and LLMs, colour-coded by kind.</em></td>
-    <td align="center"><em>Run list — every run at a glance. <strong>Green = completed, red = failed.</strong></em></td>
+    <td align="center"><em>Runs and Threads, with sidebar filters for source, status and sort. <strong>Green = completed, red = failed.</strong></em></td>
   </tr>
   <tr>
     <td width="50%"><img src="assets/ui-run-trace.png" alt="Run trace — execution path with step-by-step timeline and replay"></td>
@@ -157,16 +157,19 @@ and renders it in an interactive graph + timeline UI in real time.
 
 Once a run lands, the UI shows:
 
-- **Run list** — every run with status, tags, started-at, total steps, total tokens,
-  and a toast when a watched run completes or fails
+- **Runs and Threads** — Runs lists every run with status, tags, started-at, total
+  steps and total tokens. Threads lists whole chats. Sidebar filters narrow by
+  source, status and sort, and a toast fires when a watched run completes or fails
 - **Graph pane** — toggles between four views:
     - **Topology** — agent / tool / chain / retriever relationships by kind, scoped to the
       selected run by default (a toolbar selector switches to last-N-runs / all-time)
     - **Run-trace** — one selected run laid out as a left → right call tree in call order
     - **Waterfall** — one bar per span, so the slow step is obvious
     - **Conversation** — the thread as chat, which is the default for a coding-agent session
-- **Timeline** — chronological steps; a `*_start` shows its request, a `*_end` the full
-  **request + response** payloads (MCP-backed tools are tagged with their server)
+- **Side panel** — **Timeline** and **Tools** tabs. Timeline is chronological steps;
+  a `*_start` shows its request, a `*_end` the full **request + response** payloads
+  (MCP-backed tools are tagged with their server). Tools groups every tool by MCP
+  server or as local
 - **Step-through replay** — explicit Start / Pause / Resume plus Prev / Next manual
   stepping (1x / 2x / 5x); clicking a timeline step jumps the cursor there
 - **Node inspector** — click any node for its stats; LLM nodes show token usage (in / out)
@@ -190,7 +193,7 @@ come from [`GET /api/stats`](api.md), polled periodically.
 
 ### Watch a trace stream in
 
-<video controls muted playsinline width="100%" poster="assets/ui-topology.png">
+<video controls muted playsinline width="100%" poster="assets/ui-apps-run-trace.png">
   <source src="assets/tracesage-demo.mp4" type="video/mp4">
   Your browser can't play embedded video —
   <a href="assets/tracesage-demo.mp4">download the demo clip</a> instead.
@@ -212,11 +215,11 @@ or uses, and (for MCP) its server of origin. **LLM** nodes show token usage
     <td align="center"><em>MCP server inspector — provided tools, invocations and callers.</em></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="Tools tab"></td>
+    <td width="50%"><img src="assets/ui-tools-by-source.png" alt="The Tools tab in the side panel, tools grouped by MCP server or local"></td>
     <td width="50%"><img src="assets/ui-step-payload.png" alt="Step request and response payloads"></td>
   </tr>
   <tr>
-    <td align="center"><em>The Tools tab — tools grouped by origin (MCP vs. local).</em></td>
+    <td align="center"><em>The Tools tab in the side panel — tools grouped by origin (MCP vs. local).</em></td>
     <td align="center"><em>Any step → its full request and response payloads.</em></td>
   </tr>
   <tr>

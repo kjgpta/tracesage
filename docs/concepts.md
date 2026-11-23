@@ -357,7 +357,7 @@ the event and `total_cost_usd` on the run. An unknown model, or a base install
 without the extra, shows **n/a** rather than $0. Override a rate with
 `TRACESAGE_PRICE_OVERRIDES`.
 
-The runs list search box queries an FTS5 index of step names, summaries, errors
+Search in the sidebar queries an FTS5 index of step names, summaries, errors
 and redacted payload text (`TRACESAGE_SEARCH_INDEX_PAYLOADS`, capped by
 `TRACESAGE_SEARCH_MAX_CHARS_PER_EVENT`). Each matching run shows a snippet, and
 the matching steps are highlighted in its timeline. `tracesage search "seaside hotel"`
@@ -367,7 +367,7 @@ does the same from the terminal.
 
 ![Search hits in the run list, with the matching timeline step highlighted](assets/ui-search.png)
 
-![Conversation view of a support thread, user and assistant turns with tool chips](assets/ui-conversation.png)
+![Conversation view of a support thread, the user turn and the assistant reply with the tools that turn called](assets/ui-conversation.png)
 
 The graph pane has two more modes next to topology and the run trace:
 

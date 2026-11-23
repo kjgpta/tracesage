@@ -17,7 +17,7 @@ session as a full trace.
 [![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://kjgpta.github.io/tracesage/)
 [![Status: stable](https://img.shields.io/badge/status-stable-brightgreen)](#status)
 
-<a href="docs/assets/tracesage-demo.mp4"><img src="docs/assets/tracesage-demo.gif" alt="tracesage UI — live topology of a LangChain + MCP agent, run replay, step payloads, a Pydantic AI run ingested over OpenTelemetry, and a failed run pinpointed to the exact tool" width="100%"></a>
+<a href="docs/assets/tracesage-demo.mp4"><img src="docs/assets/tracesage-demo.gif" alt="tracesage UI — a Claude Code turn in the sidebar, its run trace and waterfall, the Threads view, search, the Tools tab, a LangChain and MCP topology, an OpenTelemetry run, and a failed run pinpointed to the exact tool" width="100%"></a>
 
 <sub><a href="docs/assets/tracesage-demo.mp4">▶ Watch the full 1-minute demo</a></sub>
 
@@ -348,11 +348,11 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
 <table>
   <tr>
     <td width="50%"><img src="docs/assets/ui-topology.png" alt="Live topology graph"></td>
-    <td width="50%"><img src="docs/assets/ui-run-list.png" alt="Run list — completed and failed runs"></td>
+    <td width="50%"><img src="docs/assets/ui-run-list.png" alt="Run list with source, status and sort filters, completed and failed runs"></td>
   </tr>
   <tr>
     <td align="center"><em>Live topology — agents, tools, LLMs and MCP servers across a run.</em></td>
-    <td align="center"><em>Run list — every run at a glance: <strong>green completed, red failed</strong>.</em></td>
+    <td align="center"><em>Run list — source, status and sort filters, with <strong>green completed, red failed</strong>.</em></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/assets/ui-run-trace.png" alt="Run trace and timeline"></td>
@@ -368,7 +368,7 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
   </tr>
   <tr>
     <td align="center"><em>Inspect an <strong>LLM</strong> — token usage (in / out, total across calls) and latency.</em></td>
-    <td align="center"><em>The Tools tab — every tool grouped by origin (MCP servers vs. local).</em></td>
+    <td align="center"><em>The Tools tab in the side panel — every tool grouped by origin (MCP servers vs. local).</em></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/assets/ui-otel-run.png" alt="Pydantic AI run ingested over OpenTelemetry"></td>
@@ -388,11 +388,11 @@ See **[`docs/development.md`](docs/development.md)** for the full developer guid
   </tr>
   <tr>
     <td width="50%"><img src="docs/assets/ui-conversation.png" alt="Conversation view of a three-turn support thread"></td>
-    <td width="50%"><img src="docs/assets/ui-coding-agent.png" alt="A Claude Code session shown as a conversation"></td>
+    <td width="50%"><img src="docs/assets/ui-coding-agent.png" alt="A Claude Code chat in the Threads view"></td>
   </tr>
   <tr>
     <td align="center"><em>Conversation — a thread as chat, with the tools each turn called.</em></td>
-    <td align="center"><em>A Claude Code session, imported by <code>tracesage connect</code>, in the same view.</em></td>
+    <td align="center"><em>A Claude Code chat from the Threads view, imported by <code>tracesage connect</code>.</em></td>
   </tr>
 </table>
 
