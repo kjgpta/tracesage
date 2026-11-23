@@ -436,7 +436,9 @@ def test_serve_public_host_without_token_is_clean_error(tmp_path: Path) -> None:
 def test_serve_help_mentions_ingest() -> None:
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
-    assert "--ingest" in result.output
+    # CI colorizes help, which splits "--ingest" with ANSI codes.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--ingest" in plain
 
 
 @pytest.mark.asyncio
