@@ -481,9 +481,15 @@ async def test_serve_ingest_accepts_otlp_and_persists(tmp_path: Path, monkeypatc
                 headers={"content-type": "application/json"},
             )
             assert resp.status_code == 200
-            for _ in range(100):  # worker drains asynchronously
-                run = (await ac.get(f"http://127.0.0.1:{port}/api/runs/3df7651916cd43dd8448eb211c80319f"))
-                if run.status_code == 200 and run.json()["status"] == "completed":
+            for _ in range(200):  # worker drains asynchronously; totals land after status
+                run = await ac.get(
+                    f"http://127.0.0.1:{port}/api/runs/3df7651916cd43dd8448eb211c80319f"
+                )
+                if (
+                    run.status_code == 200
+                    and run.json()["status"] == "completed"
+                    and run.json()["total_tokens_input"] == 12
+                ):
                     break
                 await asyncio.sleep(0.05)
             assert run.status_code == 200
