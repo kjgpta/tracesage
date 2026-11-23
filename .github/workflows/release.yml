@@ -32,6 +32,11 @@ jobs:
           grep -n "badge/pypi-v" README.md
       - name: Build sdist + wheel
         run: python -m build
+      - name: Pack the Claude Desktop extension
+        run: |
+          npm install -g @anthropic-ai/mcpb
+          mkdir -p bundle
+          mcpb pack tools/mcpb bundle/tracesage.mcpb
       - name: Validate wheel (twine check + import smoke)
         run: |
           python -m pip install twine
@@ -43,6 +48,11 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Upload the Claude Desktop extension
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcpb
+          path: bundle/tracesage.mcpb
 
   publish-pypi:
     needs: build
@@ -70,6 +80,11 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Download the Claude Desktop extension
+        uses: actions/download-artifact@v8
+        with:
+          name: mcpb
+          path: bundle/
       - name: Extract changelog section for this tag
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -89,7 +104,9 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           body_path: release-notes.md
-          files: dist/*
+          files: |
+            dist/*
+            bundle/tracesage.mcpb
           draft: false
           prerelease: false
 
