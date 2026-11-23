@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Raised the minimum versions of the runtime and dev dependencies to the current releases: FastAPI 0.165.0, Starlette 1.10.0, uvicorn 0.54.0, aiosqlite 0.22.1, Pydantic 2.14.4, pydantic-settings 2.16.3, Typer 0.29.2, websockets 17.4, and the matching floors for pytest, ruff, mypy, httpx, build, twine, and pip-audit.
+
 ## [1.0.0] — 2026-11-23
 
 **First stable release.** From here on tracesage follows semantic versioning: the

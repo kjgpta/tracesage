@@ -31,14 +31,14 @@ classifiers = [
 # starlette, langsmith, langgraph-sdk and protobuf are transitive but listed so their floors
 # exclude vulnerable releases that the parent package would otherwise allow.
 dependencies = [
-    "fastapi>=0.133.0",
-    "starlette>=1.3.1",
-    "uvicorn[standard]>=0.30.0",
-    "aiosqlite>=0.20.0",
-    "pydantic>=2.7.0",
-    "pydantic-settings>=2.3.0",
-    "typer>=0.16.0",
-    "websockets>=12.0",
+    "fastapi>=0.165.0",
+    "starlette>=1.10.0",
+    "uvicorn[standard]>=0.54.0",
+    "aiosqlite>=0.22.1",
+    "pydantic>=2.14.4",
+    "pydantic-settings>=2.16.3",
+    "typer>=0.29.2",
+    "websockets>=17.4",
 ]
 
 [project.urls]
@@ -109,15 +109,15 @@ apps = [
     "tomlkit>=0.13.0",
 ]
 dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=5.0.0",
-    "httpx>=0.27.0",
-    "ruff>=0.5.0",
-    "mypy>=1.10.0",
-    "build>=1.0.0",
-    "twine>=5.0.0",
-    "pip-audit>=2.7.0",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+    "httpx>=0.28.1",
+    "ruff>=0.17.6",
+    "mypy>=2.4.1",
+    "build>=1.6.1",
+    "twine>=7.0.0",
+    "pip-audit>=2.10.1",
     "langchain>=1.3.9",
     "langgraph>=1.0.10",
     "langgraph-sdk>=0.4.6",
